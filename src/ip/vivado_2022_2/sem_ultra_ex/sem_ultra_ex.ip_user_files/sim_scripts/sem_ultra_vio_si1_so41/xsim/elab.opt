@@ -1,0 +1,1 @@
+--incr --debug typical --relax --mt auto  -L xil_defaultlib -L secureip -L xpm --snapshot sem_ultra_vio_si1_so41 xil_defaultlib.sem_ultra_vio_si1_so41 -log elaborate.log

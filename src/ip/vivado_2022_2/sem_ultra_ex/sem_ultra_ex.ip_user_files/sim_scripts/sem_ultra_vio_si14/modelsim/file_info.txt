@@ -1,0 +1,1 @@
+sem_ultra_vio_si14.vhd,vhdl,xil_defaultlib,../../../../sem_ultra_ex.gen/sources_1/ip/sem_ultra_vio_si14/sim/sem_ultra_vio_si14.vhd,incdir="../../../../sem_ultra_ex.gen/sources_1/ip/sem_ultra_vio_si14/hdl/verilog"incdir="../../../../sem_ultra_ex.gen/sources_1/ip/sem_ultra_vio_si14/hdl"

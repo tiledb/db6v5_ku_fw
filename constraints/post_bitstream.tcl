@@ -1,0 +1,1 @@
+write_cfgmem -format mcs -interface spix4 -size 128 -loadbit "up 0x0 /home/pirovaldes/Documents/PostDoc/TileCal/db6/db6_ku_fw/Projects/vivado_2022_2/vivado_2022_2.runs/impl_gth_gtgrefclk/db6_top.bit" -file /home/pirovaldes/Documents/PostDoc/TileCal/db6/db6_ku_fw/Projects/vivado_2022_2/vivado_2022_2.runs/impl_gth_gtgrefclk//db6_top.mcs

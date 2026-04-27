@@ -1,0 +1,242 @@
+----------------------------------------------------------------------------------
+-- Company: 
+-- Engineer: 
+-- 
+-- Create Date: 03/10/2024 02:05:36 AM
+-- Design Name: 
+-- Module Name: db6_c2v_interpreter - Behavioral
+-- Project Name: 
+-- Target Devices: 
+-- Tool Versions: 
+-- Description: 
+-- 
+-- Dependencies: 
+-- 
+-- Revision:
+-- Revision 0.01 - File Created
+-- Additional Comments:
+-- 
+----------------------------------------------------------------------------------
+
+
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+
+-- Uncomment the following library declaration if using
+-- arithmetic functions with Signed or Unsigned values
+use IEEE.NUMERIC_STD.ALL;
+
+-- Uncomment the following library declaration if instantiating
+-- any Xilinx leaf cells in this code.
+--library UNISIM;
+--use UNISIM.VComponents.all;
+
+entity db6_c2v_interpreter is
+    Port (
+        p_char_in : in character;
+        p_vector_out : out std_logic_vector(7 downto 0)
+        );
+end db6_c2v_interpreter;
+
+architecture Behavioral of db6_c2v_interpreter is
+begin
+
+p_vector_out <= std_logic_vector(to_unsigned(character'pos(p_char_in), 8));
+--    process(p_char_in)
+--    begin
+--        case p_char_in is
+--            when '0' =>
+--                p_vector_out <= "00110000"; -- ASCII code for '0'
+--            when '1' =>
+--                p_vector_out <= "00110001"; -- ASCII code for '1'
+--            when '2' =>
+--                p_vector_out <= "00110010"; -- ASCII code for '2'
+--            when '3' =>
+--                p_vector_out <= "00110011"; -- ASCII code for '3'
+--            when '4' =>
+--                p_vector_out <= "00110100"; -- ASCII code for '4'
+--            when '5' =>
+--                p_vector_out <= "00110101"; -- ASCII code for '5'
+--            when '6' =>
+--                p_vector_out <= "00110110"; -- ASCII code for '6'
+--            when '7' =>
+--                p_vector_out <= "00110111"; -- ASCII code for '7'
+--            when '8' =>
+--                p_vector_out <= "00111000"; -- ASCII code for '8'
+--            when '9' =>
+--                p_vector_out <= "00111001"; -- ASCII code for '9'
+--            when 'A' =>
+--                p_vector_out <= "01000001"; -- ASCII code for 'A'
+--            when 'B' =>
+--                p_vector_out <= "01000010"; -- ASCII code for 'B'
+--            when 'C' =>
+--                p_vector_out <= "01000011"; -- ASCII code for 'C'
+--            when 'D' =>
+--                p_vector_out <= "01000100"; -- ASCII code for 'D'
+--            when 'E' =>
+--                p_vector_out <= "01000101"; -- ASCII code for 'E'
+--            when 'F' =>
+--                p_vector_out <= "01000110"; -- ASCII code for 'F'
+--            when 'G' =>
+--                p_vector_out <= "01000111"; -- ASCII code for 'G'
+--            when 'H' =>
+--                p_vector_out <= "01001000"; -- ASCII code for 'H'
+--            when 'I' =>
+--                p_vector_out <= "01001001"; -- ASCII code for 'I'
+--            when 'J' =>
+--                p_vector_out <= "01001010"; -- ASCII code for 'J'
+--            when 'K' =>
+--                p_vector_out <= "01001011"; -- ASCII code for 'K'
+--            when 'L' =>
+--                p_vector_out <= "01001100"; -- ASCII code for 'L'
+--            when 'M' =>
+--                p_vector_out <= "01001101"; -- ASCII code for 'M'
+--            when 'N' =>
+--                p_vector_out <= "01001110"; -- ASCII code for 'N'
+--            when 'O' =>
+--                p_vector_out <= "01001111"; -- ASCII code for 'O'
+--            when 'P' =>
+--                p_vector_out <= "01010000"; -- ASCII code for 'P'
+--            when 'Q' =>
+--                p_vector_out <= "01010001"; -- ASCII code for 'Q'
+--            when 'R' =>
+--                p_vector_out <= "01010010"; -- ASCII code for 'R'
+--            when 'S' =>
+--                p_vector_out <= "01010011"; -- ASCII code for 'S'
+--            when 'T' =>
+--                p_vector_out <= "01010100"; -- ASCII code for 'T'
+--            when 'U' =>
+--                p_vector_out <= "01010101"; -- ASCII code for 'U'
+--            when 'V' =>
+--                p_vector_out <= "01010110"; -- ASCII code for 'V'
+--            when 'W' =>
+--                p_vector_out <= "01010111"; -- ASCII code for 'W'
+--            when 'X' =>
+--                p_vector_out <= "01011000"; -- ASCII code for 'X'
+--            when 'Y' =>
+--                p_vector_out <= "01011001"; -- ASCII code for 'Y'
+--            when 'Z' =>
+--                p_vector_out <= "01011010"; -- ASCII code for 'Z'
+--            when 'a' =>
+--                p_vector_out <= "01100001"; -- ASCII code for 'a'
+--            when 'b' =>
+--                p_vector_out <= "01100010"; -- ASCII code for 'b'
+--            when 'c' =>
+--                p_vector_out <= "01100011"; -- ASCII code for 'c'
+--            when 'd' =>
+--                p_vector_out <= "01100100"; -- ASCII code for 'd'
+--            when 'e' =>
+--                p_vector_out <= "01100101"; -- ASCII code for 'e'
+--            when 'f' =>
+--                p_vector_out <= "01100110"; -- ASCII code for 'f'
+--            when 'g' =>
+--                p_vector_out <= "01100111"; -- ASCII code for 'g'
+--            when 'h' =>
+--                p_vector_out <= "01101000"; -- ASCII code for 'h'
+--            when 'i' =>
+--                p_vector_out <= "01101001"; -- ASCII code for 'i'
+--            when 'j' =>
+--                p_vector_out <= "01101010"; -- ASCII code for 'j'
+--            when 'k' =>
+--                p_vector_out <= "01101011"; -- ASCII code for 'k'
+--            when 'l' =>
+--                p_vector_out <= "01101100"; -- ASCII code for 'l'
+--            when 'm' =>
+--                p_vector_out <= "01101101"; -- ASCII code for 'm'
+--            when 'n' =>
+--                p_vector_out <= "01101110"; -- ASCII code for 'n'
+--            when 'o' =>
+--                p_vector_out <= "01101111"; -- ASCII code for 'o'
+--            when 'p' =>
+--                p_vector_out <= "01110000"; -- ASCII code for 'p'
+--            when 'q' =>
+--                p_vector_out <= "01110001"; -- ASCII code for 'q'
+--            when 'r' =>
+--                p_vector_out <= "01110010"; -- ASCII code for 'r'
+--            when 's' =>
+--                p_vector_out <= "01110011"; -- ASCII code for 's'
+--            when 't' =>
+--                p_vector_out <= "01110100"; -- ASCII code for 't'
+--            when 'u' =>
+--                p_vector_out <= "01110101"; -- ASCII code for 'u'
+--            when 'v' =>
+--                p_vector_out <= "01110110"; -- ASCII code for 'v'
+--            when 'w' =>
+--                p_vector_out <= "01110111"; -- ASCII code for 'w'
+--            when 'x' =>
+--                p_vector_out <= "01111000"; -- ASCII code for 'x'
+--            when 'y' =>
+--                p_vector_out <= "01111001"; -- ASCII code for 'y'
+--            when 'z' =>
+--                p_vector_out <= "01111010"; -- ASCII code for 'z'
+--            when '!' =>
+--                p_vector_out <= "00100001"; -- ASCII code for '!'
+--            when '"' =>
+--                p_vector_out <= "00100010"; -- ASCII code for '"'
+--            when '#' =>
+--                p_vector_out <= "00100011"; -- ASCII code for '#'
+--            when '$' =>
+--                p_vector_out <= "00100100"; -- ASCII code for '$'
+--            when '%' =>
+--                p_vector_out <= "00100101"; -- ASCII code for '%'
+--            when '&' =>
+--                p_vector_out <= "00100110"; -- ASCII code for '&'
+--            when ''' =>
+--                p_vector_out <= "00100111"; -- ASCII code for '''
+--            when '(' =>
+--                p_vector_out <= "00101000"; -- ASCII code for '('
+--            when ')' =>
+--                p_vector_out <= "00101001"; -- ASCII code for ')'
+--            when '*' =>
+--                p_vector_out <= "00101010"; -- ASCII code for '*'
+--            when '+' =>
+--                p_vector_out <= "00101011"; -- ASCII code for '+'
+--            when ',' =>
+--                p_vector_out <= "00101100"; -- ASCII code for ','
+--            when '-' =>
+--                p_vector_out <= "00101101"; -- ASCII code for '-'
+--            when '.' =>
+--                p_vector_out <= "00101110"; -- ASCII code for '.'
+--            when '/' =>
+--                p_vector_out <= "00101111"; -- ASCII code for '/'
+--            when ':' =>
+--                p_vector_out <= "00111010"; -- ASCII code for ':'
+--            when ';' =>
+--                p_vector_out <= "00111011"; -- ASCII code for ';'
+--            when '<' =>
+--                p_vector_out <= "00111100"; -- ASCII code for '<'
+--            when '=' =>
+--                p_vector_out <= "00111101"; -- ASCII code for '='
+--            when '>' =>
+--                p_vector_out <= "00111110"; -- ASCII code for '>'
+--            when '?' =>
+--                p_vector_out <= "00111111"; -- ASCII code for '?'
+--            when '@' =>
+--                p_vector_out <= "01000000"; -- ASCII code for '@'
+--            when '[' =>
+--                p_vector_out <= "01011011"; -- ASCII code for '['
+--            when '\' =>
+--                p_vector_out <= "01011100"; -- ASCII code for '\'
+--            when ']' =>
+--                p_vector_out <= "01011101"; -- ASCII code for ']'
+--            when '^' =>
+--                p_vector_out <= "01011110"; -- ASCII code for '^'
+--            when '_' =>
+--                p_vector_out <= "01011111"; -- ASCII code for '_'
+--            when '`' =>
+--                p_vector_out <= "01100000"; -- ASCII code for '`'
+--            when '{' =>
+--                p_vector_out <= "01111011"; -- ASCII code for '{'
+--            when '|' =>
+--                p_vector_out <= "01111100"; -- ASCII code for '|'
+--            when '}' =>
+--                p_vector_out <= "01111101"; -- ASCII code for '}'
+--            when '~' =>
+--                p_vector_out <= "01111110"; -- ASCII code for '~'
+--            when others =>
+--                p_vector_out <= (others => '0'); -- Default to all zeros if character not recognized
+--        end case;
+--    end process;
+
+
+end Behavioral;
