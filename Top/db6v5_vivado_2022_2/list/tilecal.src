@@ -1,64 +1,79 @@
-src/tilecal/db6_design_package.vhd 
-src/tilecal/db6_pipeline_propagator.vhd 93
-src/tilecal/db6_adc_interface_decoder_iddr_bitclk280.vhd 93
-src/tilecal/db6_adc_interface_decoder_iserdese.vhd 93
-src/tilecal/db6_adc_interface_io_iddr_bitclk240.vhd 93
-src/tilecal/db6_adc_interface_io_iddr_bitclk280.vhd 93
-src/tilecal/db6_adc_interface_io_iserdese.vhd 93
-src/tilecal/db6_tmr_voter_sync.vhd 
-src/tilecal/db6_adc_interface_iserdese.vhd 93
-src/tilecal/db6_cis_driver_cdc_oddr.vhd 93
-src/tilecal/db6_cis_driver_oddr.vhd 93
-src/tilecal/db6_cis_interface_oddr_io.vhd 93
-src/tilecal/db6_ku_dna.vhd 93
-src/tilecal/db6_reset_synchronizer.vhd 
-src/tilecal/db6_clock_interface.vhd 
-src/tilecal/db6_adc_interface_decoder_iddr_bitclk240.vhd 
-src/tilecal/db6_tmr_voter.vhd 
-src/tilecal/db6_adc_interface.vhd 
-src/tilecal/db6_mainboard_driver.vhd 
-src/tilecal/db6_adc_config_driver.vhd 
-src/tilecal/db6_cis_interface_io.vhd 
-src/tilecal/db6_cis_driver_cdc.vhd 
-src/tilecal/db6_cis_interface_driver.vhd 
-src/tilecal/db6_cis_interface.vhd 
-src/tilecal/db4_integrator_main.vhd 
-src/tilecal/db6_integrator_i2c_master.vhd 
-src/tilecal/db4_integrator.vhd 
-src/tilecal/db4_integrator_wrapper.vhd 
-src/tilecal/db6_integrator_interface.vhd 
-src/tilecal/db6_mainboard_interface.vhd 
-src/tilecal/db6_gbt_encoder_adc_data.vhd 
-src/tilecal/db6_gbt_encoder_integrator.vhd 
-src/tilecal/db6_gbt_encoder_sc.vhd 
-src/tilecal/db6_gbt_encoder_formatter.vhd 
-src/tilecal/db6_gbt_encoder_gearbox.vhd 
-src/tilecal/db6_gbt_tx_scrambler_21bit.vhd 
-src/tilecal/db6_gbt_tx_scrambler_16bit.vhd 
-src/tilecal/db6_gbt_tx_scrambler.vhd 
-src/tilecal/db6_gbt_tx_encoder_gbtframe_polydiv.vhd 
-src/tilecal/db6_gbt_tx_encoder_gbtframe_rsencode.vhd 
-src/tilecal/db6_gbt_tx_encoder_gbtframe_intlver.vhd 
-src/tilecal/db6_gbt_tx_encoder.vhd 
-src/tilecal/db6_gbt_tx.vhd 
-src/tilecal/db6_gbt_tx_gearbox_phasemon.vhd 
-src/tilecal/db6_gbt_tx_gearbox_latopt.vhd 
-src/tilecal/db6_gbt_tx_gearbox.vhd 
-src/tilecal/db6_gbt_encoder.vhd 
-src/tilecal/db6_xlx_ku_mgt.vhd 
-src/tilecal/db6_gbt_gth_interface.vhd 
-src/tilecal/db6_sfp_interface.vhd 
-src/tilecal/db6_system_management_interface.vhd 
-src/tilecal/db6_i2c_master.vhd 
-src/tilecal/db6_gbtx_i2c_interface_testbeam.vhd 
-src/tilecal/db6_cfgbus_interface_io_iddr.vhd 
-src/tilecal/db6_cfgbus_interface_decoder_iddr.vhd 
-src/tilecal/db6_cfgbus_interface_decoder_iddr_wrapper.vhd 
-src/tilecal/db6_cfgbus_interface.vhd 
-src/tilecal/db6_gbtx_interface.vhd 
-src/tilecal/db6_sem_interpreter.vhd 
-src/tilecal/db6_sem_interface.vhd 
-src/tilecal/db6_debug_interface.vhd 
+src/tilecal/db4_integrator.vhd
+src/tilecal/db4_integrator_main.vhd
+src/tilecal/db4_integrator_wrapper.vhd
+src/tilecal/db6v3_top.vhd
+src/tilecal/db6v4_top.vhd
 src/tilecal/db6v5_top.vhd top=db6v5_top 93
 src/tilecal/db6_c2v_interpreter.vhd 93
-src/tilecal/db6_tmr_voter_sync_cdc.vhd 
+src/tilecal/db6_adc_config_driver.vhd
+src/tilecal/db6_adc_interface.vhd
+src/tilecal/db6_adc_interface_decoder_iddr.vhd
+src/tilecal/db6_adc_interface_decoder_iddr_bitclk240.vhd
+src/tilecal/db6_adc_interface_decoder_iddr_bitclk280.vhd
+src/tilecal/db6_adc_interface_decoder_iddr_bitclk280_ddcounter.vhd
+src/tilecal/db6_adc_interface_decoder_iserdese.vhd
+src/tilecal/db6_adc_interface_io_iddr_bitclk240.vhd
+src/tilecal/db6_adc_interface_io_iddr_bitclk280.vhd
+src/tilecal/db6_adc_interface_io_iserdese.vhd
+src/tilecal/db6_adc_interface_iserdese.vhd
+src/tilecal/db6_cfgbus_interface.vhd
+src/tilecal/db6_cfgbus_interface_decoder_iddr.vhd
+src/tilecal/db6_cfgbus_interface_decoder_iddr_wrapper.vhd
+src/tilecal/db6_cfgbus_interface_io_iddr.vhd
+src/tilecal/db6_cht8305c_interface.vhd
+src/tilecal/db6_cis_driver_cdc.vhd
+src/tilecal/db6_cis_driver_cdc_oddr.vhd
+src/tilecal/db6_cis_driver_hss.vhd
+src/tilecal/db6_cis_driver_hss_quad.vhd
+src/tilecal/db6_gbt_tx_encoder_gbtframe_rsencode.vhd
+src/tilecal/db6_gbt_tx_gearbox.vhd
+src/tilecal/db6_gbt_tx_gearbox_latopt.vhd
+src/tilecal/db6_gbt_tx_gearbox_phasemon.vhd
+src/tilecal/db6_gbt_tx_scrambler.vhd
+src/tilecal/db6_gbt_tx_scrambler_16bit.vhd
+src/tilecal/db6_gbt_tx_scrambler_21bit.vhd
+src/tilecal/db6_i2c_master.vhd
+src/tilecal/db6_integrator_i2c_master.vhd
+src/tilecal/db6_integrator_interface.vhd
+src/tilecal/db6_ku_dna.vhd
+src/tilecal/db6_mainboard_driver.vhd
+src/tilecal/db6_mainboard_interface.vhd
+src/tilecal/db6_pipeline_propagator.vhd
+src/tilecal/db6_reset_synchronizer.vhd
+src/tilecal/db6_sem_interface.vhd
+src/tilecal/db6_sem_interpreter.vhd
+src/tilecal/db6_sfp_i2c_control.vhd
+src/tilecal/db6_sfp_i2c_interface.vhd
+src/tilecal/db6_sfp_interface.vhd
+src/tilecal/db6_system_management_interface.vhd
+src/tilecal/db6_tmr_voter.vhd
+src/tilecal/db6_tmr_voter_sync.vhd
+src/tilecal/db6_tmr_voter_sync_cdc.vhd
+src/tilecal/db6_top.vhd
+src/tilecal/db6_xlx_ku_mgt.vhd
+src/tilecal/db7_simple_i2c_master.vhd
+src/tilecal/db6_cis_interface.vhd
+src/tilecal/db6_cis_interface_driver.vhd
+src/tilecal/db6_cis_interface_hss_io.vhd
+src/tilecal/db6_cis_interface_io.vhd
+src/tilecal/db6_cis_interface_oddr_io.vhd
+src/tilecal/db6_clock_interface.vhd
+src/tilecal/db6_debug_interface.vhd
+src/tilecal/db6_design_package.vhd
+src/tilecal/db6_gbtx_i2c_interface_testbeam.vhd
+src/tilecal/db6_gbtx_interface.vhd
+src/tilecal/db6_gbt_encoder.vhd
+src/tilecal/db6_gbt_encoder_adc_data.vhd
+src/tilecal/db6_gbt_encoder_formatter.vhd
+src/tilecal/db6_gbt_encoder_gearbox.vhd
+src/tilecal/db6_gbt_encoder_integrator.vhd
+src/tilecal/db6_gbt_encoder_sc.vhd
+src/tilecal/db6_gbt_gth_interface.vhd
+src/tilecal/db6_gbt_tx.vhd
+src/tilecal/db6_gbt_tx_encoder.vhd
+src/tilecal/db6_gbt_tx_encoder_gbtframe_intlver.vhd
+src/tilecal/db6_adc_interface_io_iddr.vhd
+src/tilecal/db6_cis_driver_oddr.vhd
+src/tilecal/db6_gbt_tx_encoder_gbtframe_polydiv.vhd
+
+

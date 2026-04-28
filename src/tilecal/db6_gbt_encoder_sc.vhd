@@ -46,9 +46,9 @@ entity db6_gbt_encoder_sc is
         CON_VER : std_logic_vector(31 downto 0); -- 32 bit The version of the constraint files. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
         CON_SHA : std_logic_vector(31 downto 0); -- 32 bit The git commit hash (SHA) of the constraint files.
         HOG_VER : std_logic_vector(31 downto 0); -- 32 bit Hog submodule version. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
-        HOG_SHA : std_logic_vector(31 downto 0); -- 32 bit Hog submodule git commit hash (SHA).
-        XML_VER : std_logic_vector(31 downto 0); -- 32 bit (optional) IPbus xml version. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
-        XML_SHA : std_logic_vector(31 downto 0) -- 32 bit (optional) IPbus xml git commit hash (SHA).
+        HOG_SHA : std_logic_vector(31 downto 0) -- 32 bit Hog submodule git commit hash (SHA).
+--        XML_VER : std_logic_vector(31 downto 0); -- 32 bit (optional) IPbus xml version. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
+--        XML_SHA : std_logic_vector(31 downto 0) -- 32 bit (optional) IPbus xml git commit hash (SHA).
   );
   port (
         p_master_reset_in : std_logic;
@@ -304,8 +304,8 @@ end generate;
         s_db_reg_tx_in(stb_CON_SHA) <= CON_SHA; -- 32 bit The git commit hash (SHA) of the constraint files.
         s_db_reg_tx_in(stb_HOG_VER) <= HOG_VER; -- 32 bit Hog submodule version. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
         s_db_reg_tx_in(stb_HOG_SHA) <= HOG_SHA; -- 32 bit Hog submodule git commit hash (SHA).
-        s_db_reg_tx_in(stb_XML_VER) <= XML_VER; -- 32 bit (optional) IPbus xml version. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
-        s_db_reg_tx_in(stb_XML_SHA) <= XML_SHA; -- 32 bit (optional) IPbus xml git commit hash (SHA).
+--        s_db_reg_tx_in(stb_XML_VER) <= XML_VER; -- 32 bit (optional) IPbus xml version. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
+--        s_db_reg_tx_in(stb_XML_SHA) <= XML_SHA; -- 32 bit (optional) IPbus xml git commit hash (SHA).
 
 --    i_blk_mem_gbt_sc : blk_mem_gbt_sc
 --      PORT MAP (

@@ -49,9 +49,9 @@ entity db6_debug_interface is
         CON_VER : std_logic_vector(31 downto 0); -- 32 bit The version of the constraint files. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
         CON_SHA : std_logic_vector(31 downto 0); -- 32 bit The git commit hash (SHA) of the constraint files.
         HOG_VER : std_logic_vector(31 downto 0); -- 32 bit Hog submodule version. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
-        HOG_SHA : std_logic_vector(31 downto 0); -- 32 bit Hog submodule git commit hash (SHA).
-        XML_VER : std_logic_vector(31 downto 0); -- 32 bit (optional) IPbus xml version. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
-        XML_SHA : std_logic_vector(31 downto 0) -- 32 bit (optional) IPbus xml git commit hash (SHA).
+        HOG_SHA : std_logic_vector(31 downto 0) -- 32 bit Hog submodule git commit hash (SHA).
+--        XML_VER : std_logic_vector(31 downto 0); -- 32 bit (optional) IPbus xml version. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
+--        XML_SHA : std_logic_vector(31 downto 0) -- 32 bit (optional) IPbus xml git commit hash (SHA).
 
    );
   Port ( 
@@ -373,12 +373,12 @@ begin
                             when 9=>
                                 v_debug_string_data:=f_32bit_vector_to_hex_8char_array(f_nibble_reverse_32bit_vector(HOG_SHA));
                                 s_item_counter <= s_item_counter+1;
-                            when 10=>
-                                v_debug_string_data:=f_32bit_vector_to_hex_8char_array(f_nibble_reverse_32bit_vector(XML_VER));
-                                s_item_counter <= s_item_counter+1;
-                            when 11=>
-                                v_debug_string_data:=f_32bit_vector_to_hex_8char_array(f_nibble_reverse_32bit_vector(XML_SHA));
-                                s_item_counter <= s_item_counter+1;
+--                            when 10=>
+--                                v_debug_string_data:=f_32bit_vector_to_hex_8char_array(f_nibble_reverse_32bit_vector(XML_VER));
+--                                s_item_counter <= s_item_counter+1;
+--                            when 11=>
+--                                v_debug_string_data:=f_32bit_vector_to_hex_8char_array(f_nibble_reverse_32bit_vector(XML_SHA));
+--                                s_item_counter <= s_item_counter+1;
                             when others=>
                                 s_item_counter<=0;
                                 s_xadc_item_counter<=0;

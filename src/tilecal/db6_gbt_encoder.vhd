@@ -62,9 +62,9 @@ entity db6_gbt_encoder is
         CON_VER : std_logic_vector(31 downto 0); -- 32 bit The version of the constraint files. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
         CON_SHA : std_logic_vector(31 downto 0); -- 32 bit The git commit hash (SHA) of the constraint files.
         HOG_VER : std_logic_vector(31 downto 0); -- 32 bit Hog submodule version. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
-        HOG_SHA : std_logic_vector(31 downto 0); -- 32 bit Hog submodule git commit hash (SHA).
-        XML_VER : std_logic_vector(31 downto 0); -- 32 bit (optional) IPbus xml version. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
-        XML_SHA : std_logic_vector(31 downto 0) -- 32 bit (optional) IPbus xml git commit hash (SHA).
+        HOG_SHA : std_logic_vector(31 downto 0) -- 32 bit Hog submodule git commit hash (SHA).
+--        XML_VER : std_logic_vector(31 downto 0); -- 32 bit (optional) IPbus xml version. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
+--        XML_SHA : std_logic_vector(31 downto 0) -- 32 bit (optional) IPbus xml git commit hash (SHA).
 
         
    );
@@ -191,9 +191,9 @@ gen_tmr_disabled : if g_tmr_enabled = 0 generate
         CON_VER => CON_VER, -- 32 bit The version of the constraint files. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
         CON_SHA => CON_SHA, -- 32 bit The git commit hash (SHA) of the constraint files.
         HOG_VER => HOG_VER, -- 32 bit Hog submodule version. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
-        HOG_SHA => HOG_SHA, -- 32 bit Hog submodule git commit hash (SHA).
-        XML_VER => XML_VER, -- 32 bit (optional) IPbus xml version. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
-        XML_SHA => XML_SHA -- 32 bit (optional) IPbus xml git commit hash (SHA).
+        HOG_SHA => HOG_SHA -- 32 bit Hog submodule git commit hash (SHA).
+--        XML_VER => XML_VER, -- 32 bit (optional) IPbus xml version. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
+--        XML_SHA => XML_SHA -- 32 bit (optional) IPbus xml git commit hash (SHA).
       )
       port map (
             p_master_reset_in                 => p_master_reset_in,
@@ -282,9 +282,9 @@ gen_tmr_enabled : if g_tmr_enabled = 1 generate
                 CON_VER => CON_VER, -- 32 bit The version of the constraint files. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
                 CON_SHA => CON_SHA, -- 32 bit The git commit hash (SHA) of the constraint files.
                 HOG_VER => HOG_VER, -- 32 bit Hog submodule version. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
-                HOG_SHA => HOG_SHA, -- 32 bit Hog submodule git commit hash (SHA).
-                XML_VER => XML_VER, -- 32 bit (optional) IPbus xml version. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
-                XML_SHA => XML_SHA -- 32 bit (optional) IPbus xml git commit hash (SHA).
+                HOG_SHA => HOG_SHA -- 32 bit Hog submodule git commit hash (SHA).
+--                XML_VER => XML_VER, -- 32 bit (optional) IPbus xml version. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
+--                XML_SHA => XML_SHA -- 32 bit (optional) IPbus xml git commit hash (SHA).
           )
           port map (
                 p_master_reset_in                 => p_master_reset_in,
