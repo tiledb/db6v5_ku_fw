@@ -1034,6 +1034,17 @@ type t_mb_std_logic is record
     q1 : std_logic;
 end record;
 
+
+type t_mb_std_logic_vector_32 is record
+    q0 : std_logic_vector(31 downto 0);
+    q1 : std_logic_vector(31 downto 0);
+end record;
+
+type t_mb_std_logic_vector_64 is record
+    q0 : std_logic_vector(63 downto 0);
+    q1 : std_logic_vector(63 downto 0);
+end record;
+
 type t_mb_hss_cis_std_logic_vector_8 is record
     q0 : std_logic_vector(7 downto 0);
     q1 : std_logic_vector(7 downto 0);
@@ -1679,6 +1690,7 @@ type t_mmcm_clk_control_array is array (0 to 1) of t_mmcm_clk_control;
         skip_main_sm : std_logic;
         running_time : std_logic_vector(31 downto 0);
         reset_main_sm : std_logic;
+        force_gtx_i2c_config : std_logic;
         reset_gbtx_i2c_interface : std_logic;
         adc_readout_high_threshold : std_logic_vector(11 downto 0);
         adc_readout_low_threshold : std_logic_vector(11 downto 0);

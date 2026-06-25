@@ -1125,7 +1125,7 @@ gen_vio_clknet_status : if g_vio_clknet_status = 1 generate
         probe_out0(4) => s_reset_clknet_from_vio,
         probe_out0(5) => s_clknet_out.skip_main_sm,
         
-        probe_out1 => open,
+        probe_out1(0) => s_clknet_out.force_gtx_i2c_config,
         probe_out2 => open,
         probe_out3 => s_gth_clksel_from_vio,
         probe_out4 => open,

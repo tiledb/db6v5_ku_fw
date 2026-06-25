@@ -190,10 +190,10 @@ generic (
 --      p_serial_id_scl_inout : inout std_logic;
   
 --  --mainboard jtag chain
---      p_mb_tms_out : out std_logic;
---      p_mb_tck_out : out std_logic;
---      p_mb_tdi_out : out std_logic;
---      p_mb_tdo_in : in std_logic;
+      p_mb_tms_out : out t_mb_std_logic;
+      p_mb_tck_out : out t_mb_std_logic;
+      p_mb_tdi_out : out t_mb_std_logic;
+      p_mb_tdo_in : in t_mb_std_logic;
       
 --   --mainboard reset fpgas
     p_mb_fpga_reset_low         : out t_mb_std_logic;
@@ -212,11 +212,18 @@ generic (
     p_debug_interface_uart_rx_in   : in std_logic;
     
     p_adc_channel_pedestal_test_overflow_out : out std_logic;
-    p_adc_channel_pedestal_test_underflow_out : out std_logic
+    p_adc_channel_pedestal_test_underflow_out : out std_logic;
     
 --    p_cht8305c_sda_inout : inout std_logic;
 --    p_cht8305c_scl_inout : inout std_logic
 -- proasic interface
+
+      p_proasic_tms_out : out std_logic;
+      p_proasic_tck_out : out std_logic;
+      p_proasic_tdi_out : out std_logic;
+      p_proasic_tdo_in : in std_logic;
+      p_proasic_trst_out : out std_logic
+
 --        p_ku_hard_reset : out std_logic      
 --  -- power good monitoring
 --    p_pgood_in : in std_logic_vector (3 downto 0);
@@ -275,6 +282,19 @@ signal s_gbtx_control : t_gbtx_control;
 signal s_counter : integer range 0 to 31 :=0;
 signal s_leds_out : std_logic_vector(3 downto 0):= (others=> '0');
 signal s_skip_main_sm : std_logic;
+
+
+signal s_mb_jtag_start :t_mb_std_logic;
+signal s_mb_jtag_done :t_mb_std_logic;
+signal s_mb_jtag_id :t_mb_std_logic_vector_32;
+signal s_mb_fpga_reset_low : t_mb_std_logic;
+
+signal s_proasic_jtag_start : std_logic;
+signal s_proasic_jtag_done : std_logic;
+signal s_proasic_jtag_id :std_logic_vector(31 downto 0);
+signal s_proasic_jtag_ir :std_logic_vector(7 downto 0);
+signal s_proasic_trst_from_vio, s_proasic_trst_low : std_logic := '1';
+
 attribute keep of s_sfp_interface, s_sfp_control, s_gbtx_interface, s_mb_interface, s_sem_interface, s_system_management_interface, s_gbtx_control, s_serial_id_interface : signal is "TRUE";
 attribute dont_touch of s_sfp_interface, s_sfp_control, s_gbtx_interface, s_mb_interface, s_sem_interface, s_system_management_interface, s_gbtx_control, s_serial_id_interface : signal is "TRUE";
 
@@ -317,6 +337,7 @@ COMPONENT vio_i2c_bus
     probe_out3 : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
     probe_out4 : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
     probe_out5 : OUT STD_LOGIC_VECTOR(0 DOWNTO 0)
+    
   );
 END COMPONENT;
 
@@ -341,6 +362,30 @@ COMPONENT vio_hog
     probe_in15 : IN STD_LOGIC_VECTOR(31 DOWNTO 0) 
   );
 END COMPONENT;
+
+
+
+COMPONENT vio_mb_jtag_debug
+  PORT (
+    clk : IN STD_LOGIC;
+    probe_in0 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
+    probe_in1 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
+    probe_in2 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
+    probe_in3 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
+    probe_in4 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
+    probe_in5 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
+    probe_in6 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
+    probe_out0 : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
+    probe_out1 : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
+    probe_out2 : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
+    probe_out3 : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
+    probe_out4 : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
+    probe_out5 : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
+    probe_out6 : OUT STD_LOGIC_VECTOR(7 DOWNTO 0)
+    
+  );
+END COMPONENT;
+
 
 begin  -- rtl
 
@@ -371,8 +416,116 @@ begin  -- rtl
 --p_gbt_mb_q0_clk40_out <= s_clknet.mb_clk40_q0_dp;
 --p_gbt_mb_q1_clk40_out <= s_clknet.mb_clk40_q1_dp;
 
-p_mb_fpga_reset_low.q0 <= s_clknet.mb_fpga_reset_low.q0 and (not s_master_reset(c_mb0_reset_bit)); --s_mb_interface.mb_reset.q0 and s_clknet.mb_fpga_reset_low.q0;
-p_mb_fpga_reset_low.q1 <= s_clknet.mb_fpga_reset_low.q1 and (not s_master_reset(c_mb1_reset_bit)); --s_mb_interface.mb_reset.q1 and s_clknet.mb_fpga_reset_low.q1;
+p_mb_fpga_reset_low.q0 <= s_clknet.mb_fpga_reset_low.q0 and not s_mb_fpga_reset_low.q0 and (not s_master_reset(c_mb0_reset_bit)); --s_mb_interface.mb_reset.q0 and s_clknet.mb_fpga_reset_low.q0;
+p_mb_fpga_reset_low.q1 <= s_clknet.mb_fpga_reset_low.q1 and not s_mb_fpga_reset_low.q1 and (not s_master_reset(c_mb1_reset_bit)); --s_mb_interface.mb_reset.q1 and s_clknet.mb_fpga_reset_low.q1;
+p_proasic_trst_out <= s_proasic_trst_low;
+
+
+i_vio_mb_jtag_debug : vio_mb_jtag_debug
+  PORT MAP (
+    clk => s_clknet.osc_clk100,
+    probe_in0(0) => s_mb_jtag_done.q0,
+    probe_in1 => s_mb_jtag_id.q0,
+    probe_in2(0) => s_mb_jtag_done.q1,
+    probe_in3 => s_mb_jtag_id.q1,
+    probe_in4(0) => s_proasic_jtag_done,
+    probe_in5 => s_proasic_jtag_id,
+    probe_in6 => s_proasic_jtag_ir,
+    probe_out0(0) => s_mb_jtag_start.q0,
+    probe_out1(0) => s_mb_jtag_start.q1,
+    probe_out2(0) => s_proasic_jtag_start,
+    probe_out3(0) => s_mb_fpga_reset_low.q0,
+    probe_out4(0) => s_mb_fpga_reset_low.q1,
+    probe_out5(0) => s_proasic_trst_from_vio,
+    probe_out6 => s_proasic_jtag_ir
+  );
+
+
+i_mb_jtag_id_reader_q0 : entity tilecal.db6_altera_jtag_driver
+    generic map (
+        g_clk_div => 25
+    )
+    port map (
+        p_clk_in      => s_clknet.osc_clk100,
+        p_start_in    => s_mb_jtag_start.q0,
+        -- JTAG Pins to Altera
+        p_jtag_tck_out   => p_mb_tck_out.q0,
+        p_jtag_tms_out   => p_mb_tms_out.q0,
+        p_jtag_tdi_out   => p_mb_tdi_out.q0,
+        p_jtag_tdo_in    => p_mb_tdo_in.q0,
+        -- Result
+        p_id_out   => s_mb_jtag_id.q0,
+        p_done_out     => s_mb_jtag_done.q0
+    );
+
+i_mb_jtag_id_reader_q1 : entity tilecal.db6_altera_jtag_driver
+    generic map (
+        g_clk_div => 25
+    )
+    port map (
+        p_clk_in      => s_clknet.osc_clk100,
+        p_start_in    => s_mb_jtag_start.q1,
+        -- JTAG Pins to Altera
+        p_jtag_tck_out   => p_mb_tck_out.q1,
+        p_jtag_tms_out   => p_mb_tms_out.q1,
+        p_jtag_tdi_out   => p_mb_tdi_out.q1,
+        p_jtag_tdo_in    => p_mb_tdo_in.q1,
+        -- Result
+        p_id_out   => s_mb_jtag_id.q1,
+        p_done_out     => s_mb_jtag_done.q1
+    );
+
+
+s_proasic_trst_low <= not s_proasic_trst_from_vio;
+
+i_proasic_jtag_id_reader : entity tilecal.db6_altera_jtag_driver
+    generic map (
+        g_clk_div => 25
+    )
+    port map (
+--        p_rst_in => s_proasic_trst_from_vio,
+        p_clk_in      => s_clknet.osc_clk100,
+        p_start_in    => s_proasic_jtag_start,
+        -- JTAG Pins to Altera
+        p_jtag_tck_out   => p_proasic_tck_out,
+        p_jtag_tms_out   => p_proasic_tms_out,
+        p_jtag_tdi_out   => p_proasic_tdi_out,
+        p_jtag_tdo_in    => p_proasic_tdo_in,
+--        p_jtag_trst_out  => s_proasic_trst_low,
+        -- Result
+        p_id_out => s_proasic_jtag_id,
+--        p_ir_in => s_proasic_jtag_ir,
+--        p_id_ir_out      => s_proasic_jtag_id_ir,
+        
+        p_done_out     => s_proasic_jtag_done
+    );
+
+
+
+--i_proasic_jtag_id_reader : entity tilecal.db6_proasic3_jtag_driver
+--    generic map (
+--        g_clk_div => 25
+--    )
+--    port map (
+--        p_rst_in => s_proasic_trst_from_vio,
+--        p_clk_in      => s_clknet.osc_clk100,
+--        p_start_in    => s_proasic_jtag_start,
+--        -- JTAG Pins to Altera
+--        p_jtag_tck_out   => p_proasic_tck_out,
+--        p_jtag_tms_out   => p_proasic_tms_out,
+--        p_jtag_tdi_out   => p_proasic_tdi_out,
+--        p_jtag_tdo_in    => p_proasic_tdo_in,
+--        p_jtag_trst_out  => s_proasic_trst_low,
+--        -- Result
+--        p_dr_out => s_proasic_jtag_id,
+--        p_ir_in => s_proasic_jtag_ir,
+----        p_id_ir_out      => s_proasic_jtag_id_ir,
+        
+--        p_done_out     => s_proasic_jtag_done
+--    );
+
+
+
 
 --p_ku_hard_reset <= not s_cfgbus_interface.db_reg_rx(cfb_db_debug)(c_fpga_hard_reset_bit);
 
@@ -804,8 +957,17 @@ begin
         end if;
         case s_counter is
             when 0 =>
-                v_counter:=0;
-                s_counter <=s_counter+1;
+                if v_counter < 255 then
+                    v_counter:=v_counter+1;
+                else
+--                    if p_md_number_in(0) = '0' or s_clknet.force_gtx_i2c_config = '0' then
+--                        s_counter <= 4;
+--                    else 
+--                        s_counter <= s_counter+1;
+--                    end if;
+                    s_counter <= s_counter+1;
+                end if; 
+--                s_counter <=s_counter+1;
                 --s_counter <= 3;
                 s_master_reset_async <= x"FFFFFFFF";
                 s_gbtx_control.gbtx_default_config <= '1';
@@ -819,7 +981,7 @@ begin
                 s_counter <=s_counter+1;
                 s_master_reset_async <= x"FFFFFFFF";
                 s_gbtx_control.gbtx_default_config <= '1';
-                s_gbtx_control.gbtx_trigger_i2c_operation <= '1';
+                s_gbtx_control.gbtx_trigger_i2c_operation <= p_md_number_in(0) or s_clknet.force_gtx_i2c_config; --'1';
                 s_gbtx_control.gbtx_i2c_read_write_operation <= '0';
                 
             when 2 =>
@@ -830,6 +992,7 @@ begin
                 s_gbtx_control.gbtx_i2c_read_write_operation <= '0';
                 if (s_gbtx_interface.busy = '0') 
                     or (s_skip_main_sm = '1')
+--                    or (p_md_number_in(0) = '0')
                 then --and (s_clknet.gbtx_rxready(0) = '1') then        
                         s_counter <=s_counter+1;
                 else
@@ -841,9 +1004,19 @@ begin
                 s_gbtx_control.gbtx_default_config <= '0';
                 s_master_reset_async(c_dbmaster_reset_bit) <= '0';--x"FFFFFFF" & "1110";
             when 4 =>
-                v_counter:=0;
-                s_counter <=s_counter+1;
+               
                 s_master_reset_async(c_clknet_reset_bit) <= '0';
+                if s_clknet.gbtx_rxready(0) = '1' then
+                    s_counter <= s_counter + 1;
+                else
+                    if v_counter < 511 then
+                        v_counter:=v_counter+1;
+                    else
+                        v_counter:=0;
+                        s_counter <= 0;
+                    end if;    
+                end if;
+
             when 5 =>
                 if v_counter < 63 then
                     v_counter:=v_counter+1;
@@ -908,8 +1081,7 @@ begin
                 s_master_reset_async(c_cis_reset_bit) <= '1';
                 s_master_reset_async(c_integrator_reset_bit) <= '1';
             when 8 =>            
-                v_counter:=0;
-                if v_counter<63 then
+                if v_counter<255 then
                     v_counter:=v_counter+1;
                     if (s_mb_interface.adc_readout_control.adc_config_done = '1')
                     or (s_skip_main_sm = '1')

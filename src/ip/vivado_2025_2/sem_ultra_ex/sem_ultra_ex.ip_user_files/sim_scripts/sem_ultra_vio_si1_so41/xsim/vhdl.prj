@@ -1,0 +1,4 @@
+vhdl xil_defaultlib  \
+"../../../../sem_ultra_ex.gen/sources_1/ip/sem_ultra_vio_si1_so41/sim/sem_ultra_vio_si1_so41.vhd" \
+
+nosort

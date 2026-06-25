@@ -103,11 +103,11 @@ set_clock_groups -asynchronous -group [get_clocks {p_adc_bitclk_in[3][p]}] -grou
 set_clock_groups -asynchronous -group [get_clocks {p_adc_bitclk_in[4][p]}] -group [get_clocks p_clk40_out_pll_osc_clk]
 set_clock_groups -asynchronous -group [get_clocks {p_adc_bitclk_in[5][p]}] -group [get_clocks p_clk40_out_pll_osc_clk]
 
-set_clock_groups -asynchronous -group [get_clocks {p_clk40_out_pll_osc_clk}] -group [get_clocks {p_gbt_tp_q0_clk40_local_in[p]}]
+set_clock_groups -asynchronous -group [get_clocks p_clk40_out_pll_osc_clk] -group [get_clocks {p_gbt_tp_q0_clk40_local_in[p]}]
 set_clock_groups -asynchronous -group [get_clocks {p_gbt_cfgbus_clk40_local_in[p]}] -group [get_clocks {p_gbt_tp_q0_clk40_local_in[p]}]
 
-set_clock_groups -asynchronous -group [get_clocks {p_gbt_cfgbus_clk40_local_in[p]}] -group [get_clocks {GEN_PLL_IN_IP_US.pll0_clkout0}]
-set_clock_groups -asynchronous -group [get_clocks {p_gbt_cfgbus_clk40_local_in[p]}] -group [get_clocks {shared_pll0_clkoutphy_out_DIV}]
+set_clock_groups -asynchronous -group [get_clocks {p_gbt_cfgbus_clk40_local_in[p]}] -group [get_clocks GEN_PLL_IN_IP_US.pll0_clkout0]
+set_clock_groups -asynchronous -group [get_clocks {p_gbt_cfgbus_clk40_local_in[p]}] -group [get_clocks shared_pll0_clkoutphy_out_DIV]
 
 
 
@@ -123,3 +123,4 @@ set_clock_groups -asynchronous -group [get_clocks {p_gbt_cfgbus_clk40_local_in[p
 
 
 set_clock_groups -asynchronous -group [get_clocks {p_gbt_cfgbus_clk40_local_in[p]}] -group [get_clocks p_clk200_out_pll_osc_clk]
+

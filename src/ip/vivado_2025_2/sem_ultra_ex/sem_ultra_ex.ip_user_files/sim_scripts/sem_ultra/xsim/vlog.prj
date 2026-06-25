@@ -1,0 +1,8 @@
+verilog xil_defaultlib --include "../../../ipstatic/hdl/xilinx8" --include "../../../ipstatic/hdl/xilinx8/db_rowmap" --include "../../../ipstatic/hdl/diablo" --include "../../../ipstatic/hdl/diablo/db_rowmap" --include "../../../ipstatic/hdl/diablo_ssi/db_rowmap" --include "../../../ipstatic/hdl/diablo_wide_ssi/db_rowmap" --include "../../../ipstatic/hdl/hood_ssi/db_rowmap" --include "../../../ipstatic/hdl/hood_ssi" --include "../../../ipstatic/hdl/diablo_ssi" --include "../../../ipstatic/hdl/diablo_wide_ssi" --include "../../../ipstatic/hdl/simonly" --include "../../../../sem_ultra_ex.gen/sources_1/ip/sem_ultra/source" \
+"../../../../sem_ultra_ex.gen/sources_1/ip/sem_ultra/synth/sem_ultra_cfg.v" \
+"../../../../sem_ultra_ex.gen/sources_1/ip/sem_ultra/synth/sem_ultra_support.v" \
+"../../../../sem_ultra_ex.gen/sources_1/ip/sem_ultra/synth/sem_ultra.v" \
+
+verilog xil_defaultlib "glbl.v"
+
+nosort
