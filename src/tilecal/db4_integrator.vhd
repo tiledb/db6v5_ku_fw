@@ -63,8 +63,13 @@ Port (
 	INTEG_DATA_IN  : in    STD_LOGIC_VECTOR (15 downto 0);
 	INTEG_DATA_OUT : out   STD_LOGIC_VECTOR (15 downto 0);
 	EndOfRead      : out std_logic;
-	I2C_SDA        : inout STD_LOGIC;
-	I2C_SCL        : inout STD_LOGIC;
+	-- IOBUF moved to db7_io_box; split O/I/T instead of inout.
+	I2C_SDA_DRIVE_OUT : out std_logic;
+	I2C_SDA_TRI_OUT   : out std_logic;
+	I2C_SDA_READ_IN   : in  std_logic;
+	I2C_SCL_DRIVE_OUT : out std_logic;
+	I2C_SCL_TRI_OUT   : out std_logic;
+	I2C_SCL_READ_IN   : in  std_logic;
     p_sda_debug_out : out std_logic;
 	p_scl_debug_out : out std_logic
 );
@@ -97,30 +102,7 @@ architecture Behavioral of db4_integrator is
 	signal intg_current   : intg_state :=intg_idle; --a�adido defeault state
 	signal intg_next      : intg_state :=intg_idle; --a�adido defeault state
 
-	COMPONENT vio_integrator_i2c
-  PORT (
-    clk : IN STD_LOGIC;
-    probe_in0 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in1 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in2 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in3 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in4 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in5 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in6 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in7 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in8 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in9 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
-    probe_in10 : IN STD_LOGIC_VECTOR(6 DOWNTO 0);
-    probe_in11 : IN STD_LOGIC_VECTOR(3 DOWNTO 0);
-    probe_in12 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
-    probe_in13 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in14 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_out0 : OUT STD_LOGIC_VECTOR(0 DOWNTO 0)
-  );
-END COMPONENT;
-
-
-begin 
+begin
 
 	clk <= CLK_IN;  -- ~10KHz clock rate for readout request rate
 
@@ -259,8 +241,12 @@ begin
             busy    => ibusy,
             data_rd => ird(7 downto 0),
             ack_error => ierr,
-            sda     => I2C_SDA,
-            scl     => I2C_SCL,
+            sda_drive_out => I2C_SDA_DRIVE_OUT,
+            sda_tri_out   => I2C_SDA_TRI_OUT,
+            sda_read_in   => I2C_SDA_READ_IN,
+            scl_drive_out => I2C_SCL_DRIVE_OUT,
+            scl_tri_out   => I2C_SCL_TRI_OUT,
+            scl_read_in   => I2C_SCL_READ_IN,
             test0   => t0,
             test1   => t1
             
@@ -269,104 +255,6 @@ begin
     p_scl_debug_out <= t0;
     p_sda_debug_out <= t1;
     end generate;
-
---	i_vio_integrator_i2c : vio_integrator_i2c
---  PORT MAP (
---    clk => clk,
---    probe_in0(0) => ireset_n,
---    probe_in1(0) => irw,
---    probe_in2(0) => istrt,
---    probe_in3(0) => igbck,
---    probe_in4(0) => ibusy,
---    probe_in5(0) => t1,
---    probe_in6(0) => t0, --(others => '0'),
---    probe_in7(0) => cnvt, --(others => '0'),
---    probe_in8(0) => '0',--reset_n,-- (others => '0'),
---    probe_in9 => ird(7 downto 0), --(others => '0'),
---    probe_in10 => iaddr, --(others => '0'),
---    probe_in11 => (others=> '0'),
---    probe_in12(15 downto 0) => INTEG_DATA_IN,
---    probe_in12(31 downto 16) => intg_data,
---    probe_in13(0) => '0',
---    probe_in14(0) => '0',
---    probe_out0 => open
---  );
-
-
-
---vio_integrator_i2c : vio_integrator_i2c
---  PORT MAP (
---    clk => clk,
---    probe_in0(0) => ireset_n,
---    probe_in1(0) => istrt,
---    probe_in2(0) => irw,
---    probe_in3(0) => ibusy,
---    probe_in4(0) => t0,
---    probe_in5(0) => t1,
---    probe_in6(0) => p_sda_debug_out,
---    probe_in7(0) => p_scl_debug_out,
---    probe_out0(0) => probe_out0
---  );
-
-	 
-	--<<<<<<<<<<<<<<<<<<<<<<<<<<<< I2C instantiation <<--
-
-
-
--- counter to time integrator readouts
---  if(rising_edge(clk_40MHz_o)) then
---   cntra <= cntra + 1;
---  end if;
---  if(falling_edge(clk_40MHz_o)) then
---   cntrb <= cntra;
---  end if;
-
-
---process(cntrb,clk_40MHz_o) begin
---  if(rising_edge(clk_40MHz_o)) then
---    if(cntrb(11) = "000000000000") then
---	   load <= '1';
---	 else
---	   load <= '0';
---	 end if;
---   end if;
---end process;
--- want short pulse to start process
-	
-	-- Note:
-	-- This area is for mapping internal signals to the LEDs, the 7 pin header as
-	-- well as using the push buttons, which are active-low.
-
---  LED_OUT(0)    <= igbck;
---  LED_OUT(1)    <= istrt;
---  LED_OUT(2)    <= ibusy;
---  LED_OUT(3)    <= ireset_n;
---  reset_DBtoMB  <= '0';
---  HEADER_OUT(6) <= sdata_out_0_i;
---  HEADER_OUT(5) <= ex_back1;
---  HEADER_OUT(4) <= sclk_0_o;
---  HEADER_OUT(3) <= sdata_in_0_o;
---  local_sda <= BUS_4_I2C_SDA(0);
---  local_scl <= BUS_4_I2C_SCL(0);
---  HEADER_OUT(6) <= clk;
---  HEADER_OUT(5) <= e0;
---  HEADER_OUT(4) <= ibusy;
---  HEADER_OUT(3) <= istrt;
---  HEADER_OUT(6) <= t0;
---  HEADER_OUT(5) <= istrt;
---  HEADER_OUT(4) <= igbck;
---  HEADER_OUT(3) <= cnvt;
---  HEADER_OUT(2) <= cnvt;
---  HEADER_OUT(1) <= ireset_n;
---  HEADER_OUT(0) <= '1';
-
---  HEADER_OUT(0) <= outwd1(0);
---  HEADER_OUT(1) <= outwd1(1);
---  HEADER_OUT(2) <= outwd1(2);
---  HEADER_OUT(3) <= outwd1(3);
---  HEADER_OUT(4) <= outwd1(4);
---  HEADER_OUT(5) <= outwd1(5);
---  HEADER_OUT(6) <= outwd1(6);
 
 end Behavioral;
 

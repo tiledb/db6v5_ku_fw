@@ -67,7 +67,6 @@ end db6_adc_interface_decoder_iddr_bitclk280;
 
 architecture Behavioral of db6_adc_interface_decoder_iddr_bitclk280 is
 
---    signal s_adc_channel_sr_fc, s_adc_channel_sr_lg, s_adc_channel_sr_hg : t_adc_channel_sr;
     signal s_adc_channel_fifo_fc, s_adc_channel_fifo_hg, s_adc_channel_fifo_lg : t_adc_channel_fifo; --t_adc_channel_fifo_cdc;--t_adc_channel_fifo;
     signal s_adc_input_fc_buffer, s_adc_input_fc_cdc_buffer, s_adc_input_lg_cdc_buffer, s_adc_input_lg_buffer, s_adc_input_hg_cdc_buffer, s_adc_input_hg_buffer : t_adc_data; --t_adc_oversample_data_type;--t_adc_data;
     signal s_channel_frame_missalignemt, s_channel_frame_missalignemt_reg, s_channel_frame_missalignemt_buffer_lg, s_channel_frame_missalignemt_buffer_hg , s_channel_frame_missalignemt_buffer_delayed, s_channel_frame_missalignemt_reset : std_logic_vector (5 downto 0) := (others => '1');
@@ -75,7 +74,6 @@ architecture Behavioral of db6_adc_interface_decoder_iddr_bitclk280 is
     type t_cdc_transition is array (0 to 5) of std_logic;
     signal s_cdc_transition : t_cdc_transition := (others=> '0');
     type t_counter_array is array (0 to 5) of integer range 0 to 31;
---    signal s_counter_array_lg, s_counter_array_hg, s_counter_cdc_array_lg, s_counter_cdc_array_hg, s_counter_cdc_align_array, s_counter_cdc_align_array_reg : t_counter_array;
     type t_counter_std_logic_vector_array is array (0 to 5) of std_logic_vector(3 downto 0);
     signal s_counter_array_debug, s_counter_cdc_array_debug, s_counter_cdc_align_array_debug : t_counter_std_logic_vector_array;
     
@@ -138,8 +136,7 @@ architecture Behavioral of db6_adc_interface_decoder_iddr_bitclk280 is
     
     type t_channel_counter_integer is array (0 to 5) of integer;
     signal s_channel_valid_fc_frame_counter, s_channel_invalid_fc_frame_counter, s_channel_initial_difference_counter, s_channel_difference_counter, s_channel_local_counter : t_channel_counter_integer;
-    
-    --signal s_channel_valid_fc_frame_counter, s_channel_valid_fc_frame_counter_pipelined, s_channel_valid_fc_frame_counter_reg, s_channel_invalid_fc_frame_counter, s_channel_invalid_fc_frame_counter_pipelined, s_channel_invalid_fc_frame_counter_reg, s_channel_valid_divclk_frame_counter, s_channel_initial_difference_counter, s_channel_difference_counter, s_channel_difference_counter_reg : t_channel_counter;
+
     signal s_invalid_frame_flag, s_first_frame_counted, s_first_count_aligned, s_first_state_achieved  : std_logic_vector(5 downto 0) := (others => '0' );
     
     type t_sync_bitclkdiv_state is array (0 to 5) of integer range 0 to 14;
@@ -149,9 +146,6 @@ architecture Behavioral of db6_adc_interface_decoder_iddr_bitclk280 is
     signal s_cdc_reset_in, s_cdc_reset_out : std_logic_vector(5 downto 0);
     signal s_calculated : std_logic_vector(5 downto 0);
     constant c_pipeline_depth : integer := 7;--c_global_pipeline_depth;
---    type t_adc_data_pipeline is array (0 to c_pipeline_depth-1) of t_adc_data;
---    signal s_adc_data_lg_pipeline, s_adc_data_hg_pipeline, s_adc_data_fc_pipeline : t_adc_data_pipeline;
-    
 
     component pll_adc_channel
     port
@@ -439,112 +433,7 @@ gen_adc_channels: for v_adc in 0 to 5 generate
                             s_adc_input_fc_buffer(v_adc)(1 downto 0) <= p_adc_frameclk_in(v_adc)(0) & p_adc_frameclk_in(v_adc)(1);
                         else
                             s_sync_bitclkdiv_state_lg(v_adc)<=0;
-                        end if; 
-
---                    when 8 =>
---                        s_first_state_achieved(v_adc)<='0';
---                        if s_first_frame_counted(v_adc)='1' and s_first_state_achieved(v_adc)='1' then
---                            if s_invalid_frame_flag(v_adc)='0' then
---                                s_channel_valid_fc_frame_counter(v_adc)<=std_logic_vector(unsigned(s_channel_valid_fc_frame_counter(v_adc))+1);--s_channel_valid_fc_frame_counter(v_adc)<=-std_logic_vector(to_unsigned(to_integer(unsigned(s_channel_valid_fc_frame_counter(v_adc)))+1,48));
---                            else
---                                s_channel_invalid_fc_frame_counter(v_adc)<=std_logic_vector(unsigned(s_channel_invalid_fc_frame_counter(v_adc))+1); --s_channel_invalid_fc_frame_counter(v_adc)<=std_logic_vector(to_unsigned(to_integer(unsigned(s_channel_valid_fc_frame_counter(v_adc)))+1,48));
---                            end if;
---                        end if;
-                        
---                        s_adc_channel_fifo_lg(v_adc).din(13 downto 2)<=s_adc_input_lg_buffer(v_adc)(13 downto 3)&p_adc_lg_data_in(v_adc)(0);
---                        s_adc_channel_fifo_hg(v_adc).din(13 downto 2)<=s_adc_input_hg_buffer(v_adc)(13 downto 3)&p_adc_hg_data_in(v_adc)(0);
---                        s_adc_channel_fifo_fc(v_adc).din(13 downto 2)<=s_adc_input_fc_buffer(v_adc)(13 downto 3)& p_adc_frameclk_in(v_adc)(0);
---                        s_adc_channel_fifo_fc(v_adc).dout <= s_adc_channel_fifo_fc(v_adc).din;
---                        s_adc_channel_fifo_lg(v_adc).dout <= s_adc_channel_fifo_lg(v_adc).din;
---                        s_adc_channel_fifo_hg(v_adc).dout <= s_adc_channel_fifo_hg(v_adc).din;
---                        if (p_adc_frameclk_in(v_adc)= "10") then
---                            s_invalid_frame_flag(v_adc)<='0';
---                            s_sync_bitclkdiv_state_lg(v_adc)<=9;
---                            s_adc_input_lg_buffer(v_adc)(13) <= p_adc_lg_data_in(v_adc)(1);
---                            s_adc_input_hg_buffer(v_adc)(13) <= p_adc_hg_data_in(v_adc)(1);
---                            s_adc_input_fc_buffer(v_adc)(13) <= p_adc_frameclk_in(v_adc)(1);
---                            s_adc_input_lg_buffer(v_adc)(2) <= p_adc_lg_data_in(v_adc)(0);
---                            s_adc_input_hg_buffer(v_adc)(2) <= p_adc_hg_data_in(v_adc)(0);
---                            s_adc_input_fc_buffer(v_adc)(2) <= p_adc_frameclk_in(v_adc)(0);
---                        end if;
-
---                    when 9 =>
---                        s_first_state_achieved(v_adc)<='1';
---                        if (p_adc_frameclk_in(v_adc)= "11") then
---                            s_invalid_frame_flag(v_adc)<='0';
---                            s_sync_bitclkdiv_state_lg(v_adc)<=10;
---                            s_adc_input_lg_buffer(v_adc)(12 downto 11) <= p_adc_lg_data_in(v_adc)(0) & p_adc_lg_data_in(v_adc)(1);
---                            s_adc_input_hg_buffer(v_adc)(12 downto 11) <= p_adc_hg_data_in(v_adc)(0) & p_adc_hg_data_in(v_adc)(1);
---                            s_adc_input_fc_buffer(v_adc)(12 downto 11) <= p_adc_frameclk_in(v_adc)(0) & p_adc_frameclk_in(v_adc)(1);
---                        else
---                            s_invalid_frame_flag(v_adc)<='1';
---                            s_sync_bitclkdiv_state_lg(v_adc)<=0;
---                        end if;
---                    when 10 =>
---                        if (p_adc_frameclk_in(v_adc)= "11") then
---                            s_invalid_frame_flag(v_adc)<='0';
---                            s_sync_bitclkdiv_state_lg(v_adc)<=11;
---                            s_adc_input_lg_buffer(v_adc)(10 downto 9) <= p_adc_lg_data_in(v_adc)(0) & p_adc_lg_data_in(v_adc)(1);
---                            s_adc_input_hg_buffer(v_adc)(10 downto 9) <= p_adc_hg_data_in(v_adc)(0) & p_adc_hg_data_in(v_adc)(1);
---                            s_adc_input_fc_buffer(v_adc)(10 downto 9) <= p_adc_frameclk_in(v_adc)(0) & p_adc_frameclk_in(v_adc)(1);
---                         else
---                            s_sync_bitclkdiv_state_lg(v_adc)<=0;
---                            s_invalid_frame_flag(v_adc)<='1';
---                        end if;                       
---                    when 11 =>
---                        s_channel_frame_missalignemt(v_adc) <= s_channel_frame_missalignemt_buffer_lg(v_adc);
---                        if (p_adc_frameclk_in(v_adc)= "11") then
---                            s_invalid_frame_flag(v_adc)<='0';
---                            s_sync_bitclkdiv_state_lg(v_adc)<=12;
---                            s_adc_input_lg_buffer(v_adc)(8 downto 7) <= p_adc_lg_data_in(v_adc)(0) & p_adc_lg_data_in(v_adc)(1);
---                            s_adc_input_hg_buffer(v_adc)(8 downto 7) <= p_adc_hg_data_in(v_adc)(0) & p_adc_hg_data_in(v_adc)(1);
---                            s_adc_input_fc_buffer(v_adc)(8 downto 7) <= p_adc_frameclk_in(v_adc)(0) & p_adc_frameclk_in(v_adc)(1);
---                        else
---                            s_invalid_frame_flag(v_adc)<='1';
---                            s_sync_bitclkdiv_state_lg(v_adc)<=0;
---                        end if;   
---                    when 12 =>
---                        if (p_adc_frameclk_in(v_adc)= "00") then
---                            s_invalid_frame_flag(v_adc)<='0';
---                            s_sync_bitclkdiv_state_lg(v_adc)<=13;
---                            s_adc_input_lg_buffer(v_adc)(6 downto 5) <= p_adc_lg_data_in(v_adc)(0) & p_adc_lg_data_in(v_adc)(1);
---                            s_adc_input_hg_buffer(v_adc)(6 downto 5) <= p_adc_hg_data_in(v_adc)(0) & p_adc_hg_data_in(v_adc)(1);
---                            s_adc_input_fc_buffer(v_adc)(6 downto 5) <= p_adc_frameclk_in(v_adc)(0) & p_adc_frameclk_in(v_adc)(1);
---                        else
---                            s_invalid_frame_flag(v_adc)<='1';
---                            s_sync_bitclkdiv_state_lg(v_adc)<=0;
---                        end if;       
---                    when 13 =>
---                        s_channel_phase(v_adc)<='1';
---                        if (p_adc_frameclk_in(v_adc)= "00") then
---                            s_invalid_frame_flag(v_adc)<='0';
---                            s_sync_bitclkdiv_state_lg(v_adc)<=14;
---                            s_adc_input_lg_buffer(v_adc)(4 downto 3) <= p_adc_lg_data_in(v_adc)(0) & p_adc_lg_data_in(v_adc)(1);
---                            s_adc_input_hg_buffer(v_adc)(4 downto 3) <= p_adc_hg_data_in(v_adc)(0) & p_adc_hg_data_in(v_adc)(1);
---                            s_adc_input_fc_buffer(v_adc)(4 downto 3) <= p_adc_frameclk_in(v_adc)(0) & p_adc_frameclk_in(v_adc)(1);
---                            s_channel_frame_missalignemt_buffer_lg(v_adc)<='0';
---                        else
---                            s_invalid_frame_flag(v_adc)<='1';
---                            s_channel_frame_missalignemt_buffer_lg(v_adc)<='1';
---                            s_sync_bitclkdiv_state_lg(v_adc)<=0;
---                        end if;   
---                    when 14 =>
---                        s_channel_phase(v_adc)<='1';
---                        if (p_adc_frameclk_in(v_adc)= "00") then
---                            s_first_frame_counted(v_adc)<='1';
---                            s_invalid_frame_flag(v_adc)<='0';
---                            s_sync_bitclkdiv_state_lg(v_adc)<=8;
---                            s_adc_input_lg_buffer(v_adc)(2 downto 1) <= p_adc_lg_data_in(v_adc)(0) & p_adc_lg_data_in(v_adc)(1);
---                            s_adc_input_hg_buffer(v_adc)(2 downto 1) <= p_adc_hg_data_in(v_adc)(0) & p_adc_hg_data_in(v_adc)(1);
---                            s_adc_input_fc_buffer(v_adc)(2 downto 1) <= p_adc_frameclk_in(v_adc)(0) & p_adc_frameclk_in(v_adc)(1);
---                            s_channel_frame_missalignemt_buffer_lg(v_adc)<='0';
---                        else
---                            s_invalid_frame_flag(v_adc)<='1';
---                            s_channel_frame_missalignemt_buffer_lg(v_adc)<='1';
---                            s_sync_bitclkdiv_state_lg(v_adc)<=0;
---                        end if;   
-
-
+                        end if;
 
                     when others =>
                         s_sync_bitclkdiv_state_lg(v_adc)<=0;
@@ -557,33 +446,4 @@ gen_adc_channels: for v_adc in 0 to 5 generate
     
 end generate;
 
-
---    i_vio_adc_readout_cdc : vio_adc_readout_cdc
---      PORT MAP (
---        clk => p_clknet_in.mmcm_refclk40,
---        probe_in0 => s_counter_cdc_array_debug(0),
---        probe_in1 => s_counter_cdc_array_debug(1),
---        probe_in2 => s_counter_cdc_array_debug(2),
---        probe_in3 => s_counter_cdc_array_debug(3),
---        probe_in4 => s_counter_cdc_array_debug(4),
---        probe_in5 => s_counter_cdc_array_debug(5),
---        probe_in6 => s_counter_array_debug(0),
---        probe_in7 => s_counter_array_debug(1),
---        probe_in8 => s_counter_array_debug(2),
---        probe_in9 => s_counter_array_debug(3),
---        probe_in10 => s_counter_array_debug(4),
---        probe_in11 => s_counter_array_debug(5),
---        probe_in12 => s_counter_cdc_align_array_debug(0),
---        probe_in13 => s_counter_cdc_align_array_debug(1),
---        probe_in14 => s_counter_cdc_align_array_debug(2),
---        probe_in15 => s_counter_cdc_align_array_debug(3),
---        probe_in16 => s_counter_cdc_align_array_debug(4),
---        probe_in17 => s_counter_cdc_align_array_debug(5)
---      );    
---gen_debug_chan : for v_adc in 0 to 5 generate
---    s_counter_cdc_array_debug(v_adc) <= std_logic_vector(to_unsigned(s_counter_cdc_array(v_adc),4));
---    s_counter_array_debug(v_adc) <= std_logic_vector(to_unsigned(s_counter_array(v_adc),4));
---    s_counter_cdc_align_array_debug(v_adc) <= std_logic_vector(to_unsigned(s_counter_cdc_array(v_adc)-s_counter_array(v_adc),4));
---end generate;
- 
 end behavioral;

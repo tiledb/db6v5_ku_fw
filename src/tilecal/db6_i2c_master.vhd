@@ -56,11 +56,7 @@ library unisim;
 use unisim.vcomponents.all;
 
 entity db6_i2c_master is
---  generic(
---    g_input_clk : integer := 40_000_000; --input clock speed from user logic in hz
---    g_bus_clk   : integer := 400_000);   --speed the i2c bus (scl) will run at in hz
   port(
-    --p_clknet_in       : in     t_db_clknet;                    --system clock
     p_clk_in            : in std_logic;
     p_master_reset_in   : in     std_logic;                    --active high reset
     p_divider_in        : in    std_logic_vector(15 downto 0);  -- i2c_speed
@@ -72,8 +68,13 @@ entity db6_i2c_master is
     p_busy_out      : out    std_logic;                    --indicates transaction in progress
     p_data_out   : out    std_logic_vector(7 downto 0); --data read from slave
     p_ack_error_buffer : buffer std_logic;                    --flag if improper acknowledge from slave
-    p_sda_inout       : inout  std_logic;                    --serial data output of i2c bus
-    p_scl_inout       : inout  std_logic;                   --serial clock output of i2c bus
+    -- IOBUF moved to db7_io_box; split O/I/T instead of inout.
+    p_sda_drive_out : out std_logic;
+    p_sda_tri_out   : out std_logic;
+    p_sda_read_in   : in  std_logic;
+    p_scl_drive_out : out std_logic;
+    p_scl_tri_out   : out std_logic;
+    p_scl_read_in   : in  std_logic;
     p_sda_test_out    : out std_logic;
     p_scl_test_out    : out std_logic;
     p_read_state_out  : out std_logic;
@@ -82,7 +83,6 @@ entity db6_i2c_master is
 end db6_i2c_master;
 
 architecture logic of db6_i2c_master is
---  constant c_divider  :  integer := (g_input_clk/g_bus_clk)/4; --number of clocks in 1/4 cycle of scl
   type t_machine is(st_ready, st_start, st_command, st_slv_ack1, st_wr, st_rd, st_slv_ack2, st_mstr_ack, st_stop); --needed states
   signal s_reset_n       : std_logic;
   signal s_state         : t_machine;                        --state machine
@@ -320,47 +320,16 @@ begin
 --	sda <= '0' when sda_ena_n = '0' else 'z';
 	s_scl_ena_n <= (not s_scl_ena) or s_scl_clk;
     p_scl_test_out <= s_scl_clk_in;
-	i_scl_iobuf : iobuf
-    port map (
-        o => s_scl_clk_in, -- 1-bit output: buffer output
-        i => s_scl_clk, -- 1-bit input: buffer input
-        io => p_scl_inout, -- 1-bit inout: buffer inout (connect directly to top-level port)
-        t => s_scl_ena_n -- 1-bit input: 3-state enable input
-    );
+    -- IOBUF moved to db7_io_box.
+    p_scl_drive_out <= s_scl_clk;
+    p_scl_tri_out   <= s_scl_ena_n;
+    s_scl_clk_in    <= p_scl_read_in;
 
     --sda_int
     p_sda_test_out <= s_sda_in;
-    i_sda_iobuf : iobuf
-    port map (
-        o => s_sda_in, -- 1-bit output: buffer output
-        i => '0', -- 1-bit input: buffer input
-        io => p_sda_inout, -- 1-bit inout: buffer inout (connect directly to top-level port)
-        t => s_sda_ena_n -- 1-bit input: 3-state enable input
-    );
-	
-	
-	
---    s_bit_cnt <= std_logic_vector(to_unsigned(bit_cnt,4));	
---i_vio_integrator_i2c : vio_integrator_i2c
---  port map (
---    clk => clk,
---    probe_in0(0) => scl_ena_n,
---    probe_in1(0) => sda_ena_n,
---    probe_in2(0) => sda_in, --scl_clk,
---    probe_in3(0) => scl_clk_in,
---    probe_in4(0) => scl_clk,
---    probe_in5(0) => stretch,
---    probe_in6(0) => s_rising_edge, --(others => '0'),
---    probe_in7(0) => s_falling_edge, --(others => '0'),
---    probe_in8(0) => reset_n,-- (others => '0'),
---    probe_in9 => data_rx, --(others => '0'),
---    probe_in10 => addr, --(others => '0'),
---    probe_in11 => s_bit_cnt,
---    probe_in12 => s_count,
---    probe_in13(0) => ena,
---    probe_in14(0) => data_clk,
---    probe_out0 => open
---  );
-	
+    p_sda_drive_out <= '0';
+    p_sda_tri_out   <= s_sda_ena_n;
+    s_sda_in        <= p_sda_read_in;
+
 end logic;
 

@@ -72,7 +72,6 @@ entity db6_gbt_encoder is
         p_master_reset_in : std_logic;
 		p_clknet_in : in t_db_clknet;
         p_db_reg_rx_in : in t_db_reg_rx;
-        --p_gbt_tx_data_out       : out std_logic_vector(115 downto 0);
         p_gbt_encoder_interface_in         : in t_gbt_encoder_interface;
         p_gbt_encoder_interface_out         : out t_gbt_encoder_interface;
 
@@ -109,17 +108,11 @@ architecture behavioral of db6_gbt_encoder is
     signal s_gbt_tx_data_from_vio : t_gbt_tx_data;
     signal s_gbt_encoder_interface_buffer, s_gbt_encoder_interface : t_gbt_encoder_interface;
     signal s_gbt_encoder_interface_tmr, s_gbt_encoder_interface_buffer_tmr : t_gbt_encoder_interface_tmr;
-    
---    attribute keep : string;
---    attribute dont_touch : string;
---    attribute keep of s_gbt_encoder_interface : signal is "true";
---    attribute dont_touch of s_gbt_encoder_interface : signal is "true";
-    
+
 ------- debug
 signal s_gbt_encoder_interface_debug         : t_gbt_encoder_interface;
 signal s_lg_crc, s_hg_crc, s_sync_crc : std_logic_vector(10 downto 0);
 signal s_lg_crc_count, s_hg_crc_count, s_sync_crc_count : std_logic_vector(4 downto 0);
---signal s_lg_adc0, s_lg_adc1, s_lg_adc2, s_lg_adc3, s_lg_adc4, s_lg_adc5, s_hg_adc0, s_hg_adc1, s_hg_adc2, s_hg_adc3, s_hg_adc4, s_hg_adc5 : std_logic_vector(11 downto 0);
 type t_adc_gbt_encoder_debug is array (0 to 5) of std_logic_vector(11 downto 0);
 signal s_lg_adc, s_hg_adc, s_sync_adc : t_adc_gbt_encoder_debug;
 signal s_lg_bcr, s_hg_bcr, s_sync_bcr, s_lg_tdo, s_hg_tdo, s_sync_tdo, s_lg_gain, s_hg_gain, s_sync_gain : std_logic;
@@ -127,12 +120,6 @@ signal s_lg_integrator, s_hg_integrator, s_sync_integrator : std_logic_vector(4 
 signal s_lg_sc, s_hg_sc, s_sync_sc : std_logic_vector(15 downto 0);
 signal s_lg_switches, s_hg_switches, s_sync_switches : std_logic_vector(1 downto 0);
 signal s_tmr_voter_lg, s_tmr_voter_hg, s_tmr_voter_sync : std_logic;
---signal s_gbt_txencdata                  : std_logic_vector(119 downto 0);      --! Encoded data buses used to connect the output of the datapath to the Tx gearbox
---type t_gbt_txencdata_tmr is array (1 to 2) of std_logic_vector(119 downto 0); 
---signal s_gbt_txencdata_tmr : t_gbt_txencdata_tmr;
---signal s_mgt_txword                     : std_logic_vector(39 downto 0);
---type t_mgt_txword_tmr is array (1 to 2) of std_logic_vector(39 downto 0);
---signal s_mgt_txword_tmr : t_mgt_txword_tmr;
 COMPONENT ila_gbt_encoder
 
 PORT (
@@ -616,20 +603,5 @@ gen_enable_ila_gbt_gearbox : if g_enable_ila_gbt_gearbox=1 generate
         probe31 => p_clknet_in.bcr.count(4 downto 0)
     );
 end generate;
-
-
---gen_vio_gbt_encoder : if g_vio_gbt_encoder = 1 generate
---    i_vio_gbt_encoder : vio_gbt_encoder
---      PORT MAP (
---        clk => p_clknet_in.refclk40,
---        probe_in0 => s_gbt_tx_data_from_vio.lg,
---        probe_in1 => s_gbt_tx_data_from_vio.hg,
---        probe_in2 => s_gbt_tx_data_from_vio.lg(10 downto 0),
---        probe_in3 => s_gbt_tx_data_from_vio.hg(10 downto 0),
---        probe_out0 => s_gbt_tx_data_from_vio.lg,
---        probe_out1 => s_gbt_tx_data_from_vio.hg,
---        probe_out2 => open
---      );
---end generate;
 
 end behavioral;

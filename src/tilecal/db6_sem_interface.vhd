@@ -139,19 +139,10 @@ begin
             s_command_strobe <= p_db_reg_rx_in(cfb_sem_control)(c_sem_command_strobe_bit);
             s_sem_interface.cap_gnt<=p_db_reg_rx_in(cfb_sem_control)(c_sem_cap_gnt_bit);
             s_sem_interface.cap_rel<=p_db_reg_rx_in(cfb_sem_control)(c_sem_cap_rel_bit);
-    --        s_command_strobe_buffer<=p_db_reg_rx_in(cfb_sem_control)(30);
-    --        if (p_db_reg_rx_in(cfb_sem_control)(30) = '1') and (s_command_strobe_buffer = '0') then
-    --            s_command_strobe <= '1'; -- p_db_reg_rx_in(cfb_sem_control)(30);
-    --        else
-    --            s_command_strobe <= '0';
-    --        end if;
     end if;
 end process;
 
---cfb_sem_control
-
-
-i_db6_sem_interface : sem_ultra_example_design 
+i_db6_sem_interface : sem_ultra_example_design
     port map (
   clk => p_clknet_in.osc_clk40,
 -- Status interface
@@ -177,18 +168,10 @@ i_db6_sem_interface : sem_ultra_example_design
   
   p_icap_clk => s_sem_interface.icap_clk_out,
 
--- Routed system clock 
---  icap_clk_out => s_sem_interface.icap_clk_out,
-
 --ICAP arbitration interface
   p_cap_rel => s_sem_interface.cap_rel,
   p_cap_gnt => s_sem_interface.cap_gnt,
   p_cap_req => s_sem_interface.cap_req
-
--- Auxiliary interface
---  aux_error_cr_ne => s_sem_interface.aux_error_cr_ne,
---  aux_error_cr_es => s_sem_interface.aux_error_cr_es,
---  aux_error_uc => s_sem_interface.aux_error_uc
   );
 
 

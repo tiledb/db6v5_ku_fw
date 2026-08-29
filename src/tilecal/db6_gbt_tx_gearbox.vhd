@@ -84,23 +84,9 @@ begin
    -- Standard --
    --==========--
    txGearboxStd_gen: if TX_OPTIMIZATION = STANDARD generate
-   
+
       --! Instantiation of the Standard Tx gearbox (DPRAM based)
---      txGearboxStd: entity gbt.gbt_tx_gearbox_std
---         port map (
---            TX_RESET_I                          => TX_RESET_I,  
---            ------------------------------------
---            TX_FRAMECLK_I                       => TX_FRAMECLK_I, 
---            TX_CLKEN_i                          => tx_clken_s(flipflopdepth),				
---            TX_WORDCLK_I                        => TX_WORDCLK_I,   
---            ------------------------------------
---            TX_FRAME_I                          => TX_FRAME_I,    
---            TX_WORD_O                           => TX_WORD_O
---         );
-			
---			TX_PHALIGNED_o  <= '1';
---			TX_PHCOMPUTED_o <= '1';
-   
+
    end generate;
    
     --===================--

@@ -56,7 +56,6 @@ entity db6_gbt_encoder_formatter is
         p_master_reset_in : std_logic;
 		p_clknet_in : in t_db_clknet;
         p_db_reg_rx_in : in t_db_reg_rx;
-        --p_gbt_tx_data_out       : out std_logic_vector(115 downto 0);
         p_gbt_encoder_interface_out         : out t_gbt_encoder_interface;
 		
 		--interfaces
@@ -73,49 +72,24 @@ entity db6_gbt_encoder_formatter is
 		);
 end db6_gbt_encoder_formatter;
 
+
 architecture Behavioral of db6_gbt_encoder_formatter is
 
 -- slow control data readout
-    
---    signal s_sc_address          	    : integer range 0 to c_number_of_cfgbus_regs + c_number_of_gbttx_regs; --std_logic_vector(15 downto 0):=(others=>'0');
-    
+
     signal s_adc_data_lg 	: std_logic_vector(71 downto 0) := (others => '0');
     signal s_adc_data_hg 	: std_logic_vector(71 downto 0) := (others => '0');
     signal s_adc_data_fc 	: std_logic_vector(71 downto 0) := (others => '0');    
     
     signal s_gbt_encoder_interface, s_gbt_encoder_interface_cdc : t_gbt_encoder_interface;
 
---    attribute keep : string;
---    attribute dont_touch : string;
---    attribute keep of s_adc_data_o_hg, s_adc_data_o_lg, s_adc_data_o_fc, s_gbt_encoder_interface  : signal is "true";
---    attribute dont_touch of s_adc_data_o_hg, s_adc_data_o_lg, s_gbt_encoder_interface, s_adc_data_o_fc  : signal is "true";    
     signal s_integrator_frame : std_logic_vector(9 downto 0);
     signal s_tdo : std_logic;
-    
-    
+
+
     constant c_pipeline_depth : integer := 3; --c_global_pipeline_depth;
     type t_gbt_encoder_interface_pipeline is array (0 to c_pipeline_depth-1) of t_gbt_encoder_interface;
     signal s_gbt_encoder_interface_pipeline: t_gbt_encoder_interface_pipeline;
-    
-    
------------------debug
-
-signal s_debug_tx_state : std_logic_vector (3 downto 0);
-COMPONENT ila_tile_encoder_tx_debug
-
-PORT (
-	clk : IN STD_LOGIC;
-
-
-
-	probe0 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
-	probe1 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); 
-	probe2 : IN STD_LOGIC_VECTOR(31 DOWNTO 0); 
-	probe3 : IN STD_LOGIC_VECTOR(3 DOWNTO 0); 
-	probe4 : IN STD_LOGIC_VECTOR(1 DOWNTO 0);
-	probe5 : IN STD_LOGIC_VECTOR(1 DOWNTO 0)
-);
-END COMPONENT  ;
 
 begin
 
@@ -124,24 +98,6 @@ begin
 
 -- assembling data words
 
---    p_gbt_encoder_interface_out<=s_gbt_encoder_interface_pipeline(c_pipeline_depth-1);--s_gbt_encoder_interface;
-
-
-
---    proc_gbt_interface_pipeline: process(p_clknet_in.gth_tx_wordclk(g_ch_number))
---    begin
---        if rising_edge(p_clknet_in.gth_tx_wordclk(g_ch_number)) then--(p_clknet_in.refclk40) then
---            for p in 0 to (c_pipeline_depth-1-1) loop
---                s_gbt_encoder_interface_pipeline(p+1)<=s_gbt_encoder_interface_pipeline(p);
---                s_gbt_encoder_interface_pipeline(0)<=s_gbt_encoder_interface_cdc;
---            end loop;
-----            if (p_clknet_in.gbt_cdc_counter = 2) and (p_clknet_in.gbt_cdc_phase = '1')then
-----                s_gbt_encoder_interface_cdc<=s_gbt_encoder_interface;
-----            end if;
---        end if;    
---    end process;
---    s_gbt_encoder_interface_cdc<=s_gbt_encoder_interface;
-    
     p_gbt_encoder_interface_out<=s_gbt_encoder_interface;
 
      proc_db_data_assembler : process(p_clknet_in.cfgbus_clk40)--(p_clknet_in.refclk40) --process(p_clknet_in.refclk40) -- (p_clknet_in.gth_txwordclk40_out(i))
@@ -159,12 +115,8 @@ begin
                                                     s_adc_data_lg
                                                     )(10 downto 0);
                 s_gbt_encoder_interface.gbt_tx_data_out.lg(15 downto 11)   <= p_clknet_in.bcr.count(4 downto 0);
---                    if s_gbt_encoder_interface.tx_fc_lg = '0' then
                     s_gbt_encoder_interface.gbt_tx_data_out.lg(87 downto 16)   <= s_adc_data_lg;
---                    else
---                        s_gbt_encoder_interface.gbt_tx_data_out.lg(87 downto 16)   <= s_adc_data_o_fc;
---                    end if;
-                s_gbt_encoder_interface.gbt_tx_data_out.lg(88)             <= p_clknet_in.bcr.bcr; 
+                s_gbt_encoder_interface.gbt_tx_data_out.lg(88)             <= p_clknet_in.bcr.bcr;
                 s_gbt_encoder_interface.gbt_tx_data_out.lg(89)             <= '0';
                 s_gbt_encoder_interface.gbt_tx_data_out.lg(90)             <= s_tdo;
                 s_gbt_encoder_interface.gbt_tx_data_out.lg(95 downto 91)   <= s_integrator_frame(9 downto 5);
@@ -183,11 +135,7 @@ begin
                                                     s_adc_data_hg
                                                     )(10 downto 0);                 
                 s_gbt_encoder_interface.gbt_tx_data_out.hg(15 downto 11)   <= p_clknet_in.bcr.count(4 downto 0);
---                    if s_gbt_encoder_interface.tx_fc_hg = '0' then
                     s_gbt_encoder_interface.gbt_tx_data_out.hg(87 downto 16)   <= s_adc_data_hg;
---                    else
---                        s_gbt_tx_data.hg(87 downto 16)   <= s_adc_data_o_fc;
---                    end if;
                 s_gbt_encoder_interface.gbt_tx_data_out.hg(88)             <= p_clknet_in.bcr.bcr;  -- bcr
                 s_gbt_encoder_interface.gbt_tx_data_out.hg(89)             <= '1';  -- gain
                 s_gbt_encoder_interface.gbt_tx_data_out.hg(90)             <= s_tdo;
@@ -265,15 +213,6 @@ i_db6_gbt_encoder_sc : entity tilecal.db6_gbt_encoder_sc
         p_sc_switch_out      => s_gbt_encoder_interface.sc_switch,
         p_sc_tx_out          => s_gbt_encoder_interface.sc_tx
 		);
-
-
---	probe0(0) => p_clknet_in.bcr.bcr, 
---	probe1 => s_gbt_encoder_interface.sc_address, 
---	probe2 => s_gbt_encoder_interface.sc_data, 
---	probe3 => s_debug_tx_state, 
---	probe4 => s_gbt_encoder_interface.sc_switch(0),
---	probe5 => s_gbt_encoder_interface.sc_switch(1)
---);
 
 
 end Behavioral;

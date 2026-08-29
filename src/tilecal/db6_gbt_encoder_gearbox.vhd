@@ -59,13 +59,7 @@ architecture Behavioral of db6_gbt_encoder_gearbox is
     signal s_data_phase,s_data_phase_sync : std_logic_vector(1 downto 0);
 
     constant c_pipeline_depth : integer := 2;
---    attribute keep : string;
---    attribute dont_touch : string;
---    attribute keep of s_gbt_encoder_interface : signal is "true";
---    attribute dont_touch of s_gbt_encoder_interface : signal is "true";
-  
 
-    
 begin
     p_gbt_encoder_interface_out.gbt_tx_data_out.lg <= s_gbt_encoder_interface.gbt_tx_data_out.lg;--p_gbt_encoder_interface_in.gbt_tx_data_out.lg;
     p_gbt_encoder_interface_out.gbt_tx_data_out.hg <= s_gbt_encoder_interface.gbt_tx_data_out.lg;--p_gbt_encoder_interface_in.gbt_tx_data_out.hg;
@@ -80,9 +74,6 @@ begin
     s_gbt_encoder_interface.gbt_tx_data_out.lg <= s_gbt_encoder_interface_buffer.gbt_tx_data_out.lg; --p_gbt_encoder_interface_in.gbt_tx_data_out.lg;
     s_gbt_encoder_interface.gbt_tx_data_out.hg <= s_gbt_encoder_interface_buffer.gbt_tx_data_out.hg; --p_gbt_encoder_interface_in.gbt_tx_data_out.hg;
 
-
---    s_cdc_reset_out <= (p_master_reset_in) or (not p_clknet_in.locked_db) or (not p_sfp_ku_mgt_in.gtwiz_reset_tx_done_out(0)) or (p_db_reg_rx_in(cfb_strobe_reg)(c_gbt_encoder_reset_bit));
-    
     i_hg_pipeline : entity tilecal.db6_pipeline_propagator
     generic map(    g_pipeline_stages => 3,
                     g_pipeline_item_lenght => 116)
@@ -104,20 +95,15 @@ begin
 
         if rising_edge(p_clknet_in.gth_tx_wordclk(g_ch_number)) then --(p_clknet_in.gth_tx_wordclk(g_ch_number)) then--p_clknet_in.gth_tx_frameclk(g_ch_number)) then
             if p_clknet_in.gbt_cdc_counter_array(g_ch_number) = 0 then
-                
---                s_data_buffer_lg <= p_gbt_encoder_interface_in.gbt_tx_data_out.lg;
---                s_data_buffer_hg <= p_gbt_encoder_interface_in.gbt_tx_data_out.hg;
 
                 s_data_phase <= s_data_phase(0)&p_clknet_in.gbt_cdc_phase_array(g_ch_number);
-               
+
                 if p_clknet_in.gbt_cdc_phase_array(g_ch_number) = ((p_clknet_in.gbt_cdc_gearbox_phase(g_ch_number) or p_db_reg_rx_in(cfb_db_debug)(c_db_debug_gbt_cdc_phase_array+g_ch_number))) then -- '0' then
-                    s_data_phase_sync<=s_data_phase_sync(0)&s_gbt_encoder_interface_buffer.gbt_tx_data_out.lg(89);--s_data_buffer_lg(89);
-                    s_gbt_encoder_interface.gbt_tx_data_out.sync <= s_gbt_encoder_interface_buffer.gbt_tx_data_out.lg;--s_data_buffer_lg; --s_gbt_encoder_interface.gbt_tx_data_out.lg;
-    --                s_gbt_encoder_interface.gbt_tx_data_out.hg <= p_gbt_encoder_interface_in.gbt_tx_data_out.hg;
+                    s_data_phase_sync<=s_data_phase_sync(0)&s_gbt_encoder_interface_buffer.gbt_tx_data_out.lg(89);
+                    s_gbt_encoder_interface.gbt_tx_data_out.sync <= s_gbt_encoder_interface_buffer.gbt_tx_data_out.lg;
                 else
-                    s_data_phase_sync<=s_data_phase_sync(0)&p_gbt_encoder_interface_in.gbt_tx_data_out.hg(89); --s_data_buffer_hg(89);
-                    s_gbt_encoder_interface.gbt_tx_data_out.sync <= s_gbt_encoder_interface_buffer.gbt_tx_data_out.hg;--s_data_buffer_hg; --s_gbt_encoder_interface.gbt_tx_data_out.hg;
-    --                s_gbt_encoder_interface.gbt_tx_data_out.lg <= p_gbt_encoder_interface_in.gbt_tx_data_out.lg;
+                    s_data_phase_sync<=s_data_phase_sync(0)&p_gbt_encoder_interface_in.gbt_tx_data_out.hg(89);
+                    s_gbt_encoder_interface.gbt_tx_data_out.sync <= s_gbt_encoder_interface_buffer.gbt_tx_data_out.hg;
                 end if;
             end if;
         end if;            

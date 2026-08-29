@@ -1,0 +1,13 @@
+---
+description: Coding rules for synthesizing VHDL with AMD Vivado
+globs: "*.vhd", "*.vhdl", "*.tcl", "*.xdc"
+---
+
+# VHDL Design Constraints for AI Generation
+- **Target Language**: Always generate VHDL-2008 compliant code unless specified.
+- **Libraries**: Use `ieee.std_logic_1164.all;` and `ieee.numeric_std.all;`. Never generate legacy arithmetic libraries like `std_logic_arith` or `std_logic_unsigned`.
+- **Outputs**: Do not read `out` mode signals directly within an architecture block; use intermediate local signals or VHDL-2008 output port reading.
+- **Reset Logic**: Default all processes to utilize explicit, synchronous active-high resets unless asynchronous is explicitly asked.
+- **Hardware Realism**: Never create multi-driven signals across process boundaries. Ensure every register element is clearly isolated in its own process block.
+- **Vivado Exclusions**: Do not analyze project artifacts from `.runs/`, `.gen/`, or `.sim/` folders.
+§

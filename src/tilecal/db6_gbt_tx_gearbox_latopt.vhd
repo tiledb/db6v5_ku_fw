@@ -124,22 +124,7 @@
         
        -- Sync reset
        gearboxSyncReset<=TX_RESET_I or not TX_CLKEN_i;
-    --   gbRstSynch_proc: process(TX_RESET_I, TX_FRAMECLK_I)
-    --   begin
-       
-    --       if TX_RESET_I = '1' then
-    --           gearboxSyncReset  <= '1';
-               
-    --       elsif rising_edge(TX_FRAMECLK_I) then
-           
-    --        if TX_CLKEN_i = '1' then
-    --           gearboxSyncReset <= '0';
-    --        end if;
-               
-    --       end if;
-       
-    --   end process;
-       
+
        --=====================--
        -- Word width (20 Bit) --
        --=====================--
@@ -208,38 +193,26 @@
        gbLatOpt40b_gen: if WORD_WIDTH = 40 generate   
     
           gbLatOpt40b: process(gearboxSyncReset, TX_WORDCLK_I)
-             --variable address                       : integer range 0 to 2;
           begin
              if gearboxSyncReset = '1' then
                 TX_WORD_O                           <= (others => '0');
-    --            address                             := 0;
                     TX_PHCOMPUTED_s							<= '0';
                     TX_PHALIGNED_s 							<= '0';
-                    
+
              elsif rising_edge(TX_WORDCLK_I) then
                 case gbt_cdc_counter_i is
-                   when 0 =>					
+                   when 0 =>
                       TX_WORD_O                     		   <= txFrame_from_frameInverter( 39 downto   0);
---                      s_word_debug                             <= txFrame_from_frameInverter( 39 downto   0);
-                            txFrame_from_frameInverter_reg         <= txFrame_from_frameInverter;	
+                            txFrame_from_frameInverter_reg         <= txFrame_from_frameInverter;
                             -- Monitoring
                             TX_PHCOMPUTED_s	<= '0';
-                            
-                            -- Control
-                      --address                       		 := 1;
-                            
-                   when 1 => 
+
+                   when 1 =>
                       TX_WORD_O                     <= txFrame_from_frameInverter_reg( 79 downto  40);
---                      s_word_debug                  <= txFrame_from_frameInverter_reg( 79 downto  40);
-                            
-                            -- Control
-    --                  address                       :=2;
-                            
-                   when 2 =>                 
+
+                   when 2 =>
                       TX_WORD_O                     <= txFrame_from_frameInverter_reg(119 downto  80);
---                      s_word_debug                  <= txFrame_from_frameInverter_reg(119 downto  80);
-    --                  address                       := 0;
-                            
+
                             TX_PHCOMPUTED_s	<= '1';
                             
                             if (txFrame_from_frameInverter(119 downto 80) = txFrame_from_frameInverter_reg(119 downto 80)) then

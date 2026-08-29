@@ -157,64 +157,6 @@ architecture structural of db6_mgt is
        signal rx_headerlocked_s            : std_logic_vector(1 to NUM_LINKS);
        signal rx_bitslipIsEven_s           : std_logic_vector(1 to NUM_LINKS);
 
---        COMPONENT xlx_ku_mgt_ip_gtg_testbeam
---          PORT (
---            gtwiz_userclk_tx_active_in : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
---            gtwiz_userclk_rx_active_in : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
---            gtwiz_buffbypass_tx_reset_in : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
---            gtwiz_buffbypass_tx_start_user_in : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
---            gtwiz_buffbypass_tx_done_out : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
---            gtwiz_buffbypass_tx_error_out : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
---            gtwiz_buffbypass_rx_reset_in : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
---            gtwiz_buffbypass_rx_start_user_in : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
---            gtwiz_buffbypass_rx_done_out : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
---            gtwiz_buffbypass_rx_error_out : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
---            gtwiz_reset_clk_freerun_in : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
---            gtwiz_reset_all_in : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
---            gtwiz_reset_tx_pll_and_datapath_in : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
---            gtwiz_reset_tx_datapath_in : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
---            gtwiz_reset_rx_pll_and_datapath_in : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
---            gtwiz_reset_rx_datapath_in : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
---            gtwiz_reset_rx_cdr_stable_out : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
---            gtwiz_reset_tx_done_out : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
---            gtwiz_reset_rx_done_out : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
---            gtwiz_userdata_tx_in : IN STD_LOGIC_VECTOR(79 DOWNTO 0);
---            gtwiz_userdata_rx_out : OUT STD_LOGIC_VECTOR(79 DOWNTO 0);
---            gtgrefclk0_in : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
---            gtgrefclk1_in : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
---            gtrefclk01_in : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
---            gtrefclk11_in : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
---            qpll1refclksel_in : IN STD_LOGIC_VECTOR(2 DOWNTO 0);
---            qpll1lock_out : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
---            qpll1outclk_out : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
---            qpll1outrefclk_out : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
---            cpllrefclksel_in : IN STD_LOGIC_VECTOR(5 DOWNTO 0);
---            gtgrefclk_in : IN STD_LOGIC_VECTOR(1 DOWNTO 0);
---            gthrxn_in : IN STD_LOGIC_VECTOR(1 DOWNTO 0);
---            gthrxp_in : IN STD_LOGIC_VECTOR(1 DOWNTO 0);
---            gtrefclk1_in : IN STD_LOGIC_VECTOR(1 DOWNTO 0);
---            rxoutclksel_in : IN STD_LOGIC_VECTOR(5 DOWNTO 0);
---            rxpllclksel_in : IN STD_LOGIC_VECTOR(3 DOWNTO 0);
---            rxsysclksel_in : IN STD_LOGIC_VECTOR(3 DOWNTO 0);
---            rxusrclk_in : IN STD_LOGIC_VECTOR(1 DOWNTO 0);
---            rxusrclk2_in : IN STD_LOGIC_VECTOR(1 DOWNTO 0);
---            txoutclksel_in : IN STD_LOGIC_VECTOR(5 DOWNTO 0);
---            txpllclksel_in : IN STD_LOGIC_VECTOR(3 DOWNTO 0);
---            txsysclksel_in : IN STD_LOGIC_VECTOR(3 DOWNTO 0);
---            txusrclk_in : IN STD_LOGIC_VECTOR(1 DOWNTO 0);
---            txusrclk2_in : IN STD_LOGIC_VECTOR(1 DOWNTO 0);
---            cplllock_out : OUT STD_LOGIC_VECTOR(1 DOWNTO 0);
---            gthtxn_out : OUT STD_LOGIC_VECTOR(1 DOWNTO 0);
---            gthtxp_out : OUT STD_LOGIC_VECTOR(1 DOWNTO 0);
---            gtpowergood_out : OUT STD_LOGIC_VECTOR(1 DOWNTO 0);
---            rxoutclk_out : OUT STD_LOGIC_VECTOR(1 DOWNTO 0);
---            rxpmaresetdone_out : OUT STD_LOGIC_VECTOR(1 DOWNTO 0);
---            txoutclk_out : OUT STD_LOGIC_VECTOR(1 DOWNTO 0);
---            txpmaresetdone_out : OUT STD_LOGIC_VECTOR(1 DOWNTO 0);
---            txprgdivresetdone_out : OUT STD_LOGIC_VECTOR(1 DOWNTO 0)
---          );
---        END COMPONENT;
-
 COMPONENT xlx_ku_mgt_ip_gtg_testbeam
   PORT (
     gtwiz_userclk_tx_active_in : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
@@ -322,33 +264,14 @@ begin                 --========####   Architecture Body   ####========--
                  
                  gtwiz_userdata_tx_in                   => s_ku_mgt.gtwiz_userdata_tx_in,
                  gtwiz_userdata_rx_out                  => s_ku_mgt.gtwiz_userdata_rx_out,
-                 
---                 drpaddr_in                             => s_ku_mgt.drpaddr_in,
---                 drpclk_in                              => s_ku_mgt.drpclk_in,
---                 drpdi_in                               => s_ku_mgt.drpdi_in,
---                 drpen_in                               => s_ku_mgt.drpen_in,
---                 drpwe_in                               => s_ku_mgt.drpwe_in,
---                 drpdo_out                              => s_ku_mgt.drpdo_out,
---                 drprdy_out                             => s_ku_mgt.drprdy_out,
-                 
+
                  gthrxn_in                              => s_ku_mgt.gthrxn_in,
                  gthrxp_in                              => s_ku_mgt.gthrxp_in,
                  gthtxn_out                             => s_ku_mgt.gthtxn_out,
                  gthtxp_out                             => s_ku_mgt.gthtxp_out,
-                 
-                 --gtrefclk0_in                           => s_ku_mgt.gtrefclk0_in,
+
                  gtrefclk1_in                           => s_ku_mgt.gtrefclk1_in,
-                 
-                 --loopback_in                            => s_ku_mgt.loopback_in,        
-                 --rxpolarity_in                          => s_ku_mgt.rxpolarity_in,
-                 --txpolarity_in                          => s_ku_mgt.txpolarity_in,
-                 
-                 --rxslide_in                             => s_ku_mgt.rxslide_in,
-                 
---                 txdiffctrl_in                          => s_ku_mgt.txdiffctrl_in,
---                 txpostcursor_in                        => s_ku_mgt.txpostcursor_in,
---                 txprecursor_in                         => s_ku_mgt.txprecursor_in,
-                 
+
                  cplllock_out                           => s_ku_mgt.cplllock_out,
                  qpll1lock_out                          => s_ku_mgt.qpll1lock_out,
                  
@@ -380,8 +303,6 @@ begin                 --========####   Architecture Body   ####========--
          s_ku_mgt.gtgrefclk0_in(1) <= '0'; --p_clknet_in.mmcm_refclk80; --p_clknet_in.mmcm_refclk240;--p_clknet_in.mmcm_refclk160;--p_clknet_in.mmcm_refclk80;--p_clknet_in.refclk240;--p_clknet_in.refclk80;
          s_ku_mgt.gtgrefclk1_in(1) <= '0'; --p_clknet_in.mmcm_refclk80; --p_clknet_in.mmcm_refclk240;--p_clknet_in.mmcm_refclk80;--p_clknet_in.refclk240; --p_clknet_in.refclk80;
 
---         s_ku_mgt.gtgrefclk0_in(0) <= '0';
---         s_ku_mgt.gtgrefclk1_in(0) <= '0';
          s_ku_mgt.qpll1refclksel_in <= p_clknet_in.qpllclksel & p_clknet_in.qpllclksel;
 
          
@@ -405,19 +326,13 @@ begin                 --========####   Architecture Body   ####========--
 
         s_ku_mgt.gtwiz_reset_rx_pll_and_datapath_in(0)  <= '0'; -- Same PLL is used for TX and RX !
         s_ku_mgt.gtwiz_reset_rx_datapath_in(0)          <= rx_reset_sig(1); --channel 0 with priviledge
-        --s_ku_mgt.gtrefclk01_in(0)                          <= MGT_REFCLK_i; 
         s_ku_mgt.gtrefclk11_in(0)                          <= MGT_REFCLK_i(1);
         s_ku_mgt.gtrefclk11_in(1)                          <= MGT_REFCLK_i(2);
   
    --==================================== User Logic =====================================--
    gtxLatOpt_gen: for i in 1 to NUM_LINKS generate
 
---    proc_cdc : process(tx_wordclk_sig(i))
---    begin
---        if rising_edge(tx_wordclk_sig(i)) then
             s_ku_mgt.gtwiz_userdata_tx_in((i)*40-1 downto (i-1)*40)                   <= MGT_USRWORD_i(i);
---        end if; 
---    end process;
 
 
          s_ku_mgt.rxoutclksel_in((i*3-1) downto (3*(i-1))) <= p_clknet_in.rxoutclksel;
@@ -427,18 +342,9 @@ begin                 --========####   Architecture Body   ####========--
          s_ku_mgt.txpllclksel_in((i*2-1) downto (2*(i-1))) <= p_clknet_in.txpllclksel;
          s_ku_mgt.txsysclksel_in((i*2-1) downto (2*(i-1))) <= p_clknet_in.txsysclksel;
 
---        s_ku_mgt.gtgrefclk_in(i-1) <= p_clknet_in.mmcm_refclk80; --p_clknet_in.mmcm_refclk240;--p_clknet_in.mmcm_refclk160;--p_clknet_in.mmcm_refclk80;--p_clknet_in.refclk240; --p_clknet_in.refclk80;
         s_ku_mgt.gtgrefclk_in(i-1) <= '0';
         s_ku_mgt.cpllrefclksel_in((i)*3-1 downto (i-1)*3) <= p_clknet_in.cpllclksel;
 
-
---        i_BUFGMUX_CTRL_refclk240 : BUFGMUX_CTRL
---        port map (
---            O => tx_wordclk_sig_muxed(i),--s_clk40, -- 1-bit output: Clock output
---            I0 => tx_wordclk_sig(i), -- 1-bit input: Clock input (S=0)
---            I1 => p_clknet_in.mmcm_refclk240, -- 1-bit input: Clock input (S=1)
---            S => p_clknet_in.gth_wordclk_sel --p_db_reg_rx_in(cfb_tx_control)(3) -- 1-bit input: Clock select
---        );
         tx_wordclk_sig_muxed(i)<= tx_wordclk240_sig(i);--p_clknet_in.mmcm_refclk240; --tx_wordclk480_sig(i); --p_clknet_in.mmcm_refclk240; --tx_wordclk_sig(1); --tx_wordclk_sig(i); --p_clknet_in.mmcm_refclk240;
         
         
@@ -457,8 +363,7 @@ begin                 --========####   Architecture Body   ####========--
         tx_reset_done(i) <= s_ku_mgt.gtwiz_reset_tx_done_out(0);
         rx_reset_done(i) <= s_ku_mgt.gtwiz_reset_rx_done_out(0);
 
---        s_ku_mgt.gtwiz_userdata_tx_in((i)*40-1 downto (i-1)*40)                   <= MGT_USRWORD_i(i);
-        MGT_USRWORD_s(i)                                                          <= s_ku_mgt.gtwiz_userdata_rx_out((i)*40-1 downto (i-1)*40);        
+        MGT_USRWORD_s(i)                                                          <= s_ku_mgt.gtwiz_userdata_rx_out((i)*40-1 downto (i-1)*40);
 
         s_ku_mgt.drpaddr_in((i)*9-1 downto (i-1)*9)                             <= MGT_DEVSPEC_i.drp_addr(i);
         s_ku_mgt.drpclk_in(i-1)                                                 <= MGT_DEVSPEC_i.drp_clk(i);
@@ -501,53 +406,15 @@ begin                 --========####   Architecture Body   ####========--
          MGT_USRWORD_o(i)    <= MGT_USRWORD_s(i);
       
          rx_reset_sig(i)                  <= MGT_RXRESET_i(i) or resetGtxRx_from_rxBitSlipControl(i);
-         tx_reset_sig(i)                  <= MGT_TXRESET_i(i) or resetGtxTx_from_rxBitSlipControl(i);      
-          
---          txResetDoneSync: entity gbt.xlx_ku_mgt_ip_reset_synchronizer
---              PORT MAP(
---                clk_in                                   => p_clknet_in.mmcm_refclk240, --tx_wordclk_sig(i), --p_clknet_in.refclk240,--tx_wordclk_sig(i),
---                rst_in                                   => tx_reset_done(i),
---                rst_out                                  => txResetDone_r2(i)
---              ); 
-              
---          rxResetSync: entity work.xlx_ku_mgt_ip_reset_synchronizer
---            PORT MAP(
---              clk_in                                   => rx_wordClk_sig(i),
---              rst_in                                   => rx_reset_done(i),
---              rst_out                                  => rxResetDone_r3(i)
---            ); 
-       
+         tx_reset_sig(i)                  <= MGT_TXRESET_i(i) or resetGtxTx_from_rxBitSlipControl(i);
 
-             
-          
---          resetSynch_tx: entity gbt.xlx_ku_mgt_ip_reset_synchronizer
---             PORT MAP(
---               clk_in                                   => tx_wordclk_sig(i), --p_clknet_in.refclk240, --tx_wordclk_sig(i),
---               rst_in                                   => not(gtwiz_userclk_tx_active_int(i)),
---               rst_out                                  => gtwiz_buffbypass_tx_reset_in_s(i)
---             );
-
-
---        gtwiz_userclk_tx_reset_int(i) <= not(txpmaresetdone(i));
---        i_db6_reset_synchronizer : entity tilecal.db6_reset_synchronizer
---            generic map(
---                   g_clk_steps => 1
---            )
---            Port map ( p_clk_in =>p_clknet_in.mmcm_refclk240,--tx_wordclk_sig(i),
---                       p_reset_in => not(gtwiz_userclk_tx_active_int(i)),
---                       p_reset_out => gtwiz_buffbypass_tx_reset_in_s(i));
-          
-          --gtwiz_buffbypass_tx_reset_in_s(i) <= gtwiz_userclk_tx_active_int(i);
           gtwiz_userclk_tx_active_int(i) <= txpmaresetdone(i);
           activetxUsrClk_proc: process(txpmaresetdone(i),tx_wordclk240_sig(i), p_db_reg_rx_in(cfb_strobe_reg)(c_gbt_ch0_reset_bit+i-1))--tx_wordclk_sig(i))-- p_clknet_in.mmcm_refclk240) --p_clknet_in.mmcm_refclk40)--  tx_wordclk_sig(i))
           begin
             if (txpmaresetdone(i) = '0') or (p_db_reg_rx_in(cfb_strobe_reg)(c_gbt_ch0_reset_bit+i-1)= '1') then
-                --gtwiz_userclk_tx_active_int(i) <= '0';
                 gtwiz_buffbypass_tx_reset_in_s(i) <= '1';
             elsif rising_edge(tx_wordclk240_sig(i)) then --(p_clknet_in.mmcm_refclk240) then--tx_wordclk_sig(i)) then
-                --s_gbt_cdc_counter_array(i)<=p_clknet_in.gbt_cdc_counter_array(i-1);
                 if (p_clknet_in.gbt_cdc_counter_array(i-1) = 2) then -- and (s_gbt_cdc_counter_array(i) = 1) then
-                    --gtwiz_userclk_tx_active_int(i) <= '1';
                     gtwiz_buffbypass_tx_reset_in_s(i) <= not gtwiz_userclk_tx_active_int(i);
                 end if;
             end if;
@@ -574,53 +441,6 @@ begin                 --========####   Architecture Body   ####========--
                CLK => txoutclk_sig(i),         -- 1-bit input: Clock
                CLR => '0'          -- 1-bit input: Asynchronous clear
             );
-
---            txWordClk240Buf_inst: bufg_gt
---              port map (
---                 O                                        => tx_wordclk240_sig(i), 
---                 I                                        => txoutclk_sig(i),
---                 CE                                       => gtwiz_userclk_tx_reset_int_bufg_gt_sync_ce(i),
---                 DIV                                      => "001",
---                 CLR                                      => gtwiz_userclk_tx_reset_int_bufg_gt_sync_clr(i),
---                 CLRMASK                                  => '0',
---                 CEMASK                                   => '0'
---              ); 
-                            
---            txWordClkBuf_inst: bufg_gt
---              port map (
---                 O                                        => tx_wordclk_sig(i), 
---                 I                                        => txoutclk_sig(i),
---                 CE                                       => not(gtwiz_userclk_tx_reset_int(i)),
---                 DIV                                      => "000",
---                 CLR                                      => '0',
---                 CLRMASK                                  => '0',
---                 CEMASK                                   => '0'
---              ); 
-          
---            txframeClkBuf_inst: bufg_gt
---              port map (
---                 O                                        => tx_frameclk_sig(i), 
---                 I                                        => txoutclk_sig(i),
---                 CE                                       => not(gtwiz_userclk_tx_reset_int(i)),
---                 DIV                                      => "010",
---                 CLR                                      => '0', --(gtwiz_userclk_tx_reset_int(i)),--'0',
---                 CLRMASK                                  => '0',
---                 CEMASK                                   => '0'
---              );           
-
---            txframeclk40ClkBuf_inst: bufg_gt
---              port map (
---                 O                                        => tx_frameclk40_sig(i), 
---                 I                                        => txoutclk_sig(i),
---                 CE                                       => not(gtwiz_userclk_tx_reset_int(i)),
---                 DIV                                      => "101",
---                 CLR                                      => '0', --(gtwiz_userclk_tx_reset_int(i)),--'0',
---                 CLRMASK                                  => '0',
---                 CEMASK                                   => '0'
---              );  
-
-
-                    
 
     end generate;
     

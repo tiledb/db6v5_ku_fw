@@ -52,8 +52,13 @@ ENTITY db7_simple_i2c_master IS
     p_busy_out      : OUT    STD_LOGIC;                    --indicates transaction in progress
     p_data_rd_out   : OUT    STD_LOGIC_VECTOR(7 DOWNTO 0); --data read from slave
     p_ack_error_out : buffer STD_LOGIC;                    --flag if improper acknowledge from slave
-    p_sda_inout       : INOUT  STD_LOGIC;                    --serial data output of i2c bus
-    p_scl_inout       : INOUT  STD_LOGIC;                   --serial clock output of i2c bus
+    -- IOBUF moved to db7_io_box; split O/I/T instead of inout.
+    p_sda_drive_out : out std_logic; -- was IOBUF I (drive value)
+    p_sda_tri_out   : out std_logic; -- was IOBUF T (tri-state enable)
+    p_sda_read_in   : in  std_logic; -- was IOBUF O (bus read-back)
+    p_scl_drive_out : out std_logic;
+    p_scl_tri_out   : out std_logic;
+    p_scl_read_in   : in  std_logic;
     p_sda_test_out    : out std_logic;
     p_scl_test_out    : out std_logic
 );
@@ -290,23 +295,16 @@ begin
 --	sda <= '0' when sda_ena_n = '0' else 'z';
 	s_scl_ena_n <= (not s_scl_ena) or s_scl_clk;
     p_scl_test_out <= s_scl_clk_in;
-	i_scl_iobuf : iobuf
-    port map (
-        o => s_scl_clk_in, -- 1-bit output: buffer output
-        i => s_scl_clk, -- 1-bit input: buffer input
-        io => p_scl_inout, -- 1-bit inout: buffer inout (connect directly to top-level port)
-        t => s_scl_ena_n -- 1-bit input: 3-state enable input
-    );
+    -- IOBUF moved to db7_io_box.
+    p_scl_drive_out <= s_scl_clk;
+    p_scl_tri_out   <= s_scl_ena_n;
+    s_scl_clk_in    <= p_scl_read_in;
 
     --sda_int
     p_sda_test_out <= s_sda_in;
-    i_sda_iobuf : iobuf
-    port map (
-        o => s_sda_in, -- 1-bit output: buffer output
-        i => '0', -- 1-bit input: buffer input
-        io => p_sda_inout, -- 1-bit inout: buffer inout (connect directly to top-level port)
-        t => s_sda_ena_n -- 1-bit input: 3-state enable input
-    );
+    p_sda_drive_out <= '0';
+    p_sda_tri_out   <= s_sda_ena_n;
+    s_sda_in        <= p_sda_read_in;
 	
 	
 END logic;

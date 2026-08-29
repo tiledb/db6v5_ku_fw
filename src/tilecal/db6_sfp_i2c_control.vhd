@@ -47,9 +47,18 @@ entity db6_sfp_i2c_control is
     p_sfp_los_in                : in std_logic_vector(1 downto 0);
     p_sfp_tx_fault_in                : in std_logic_vector(1 downto 0);
     
-    p_sfp_i2c_scl_inout 				: inout std_logic_vector(1 downto 0);
-    p_sfp_i2c_sda_inout                 : inout std_logic_vector(1 downto 0);
-    p_sfp_i2c_interface_out : out t_blk_mem_sfp_array
+    -- IOBUF moved to db7_io_box; split O/I/T instead of inout, one pair per SFP.
+    p_sda_drive_out : out std_logic_vector(1 downto 0);
+    p_sda_tri_out   : out std_logic_vector(1 downto 0);
+    p_sda_read_in   : in  std_logic_vector(1 downto 0);
+    p_scl_drive_out : out std_logic_vector(1 downto 0);
+    p_scl_tri_out   : out std_logic_vector(1 downto 0);
+    p_scl_read_in   : in  std_logic_vector(1 downto 0);
+    p_sfp_i2c_interface_out : out t_blk_mem_sfp_array;
+
+    -- debug readback: port b of each sfp's reg block ram
+    p_rx_register_in  : in  t_sfp_reg_addr_array;
+    p_tx_register_out : out t_sfp_reg_data_array
 
     );
 end db6_sfp_i2c_control;
@@ -73,9 +82,16 @@ i_db6_sfp_i2c_interface : entity tilecal.db6_sfp_i2c_interface
     p_sfp_los_in           => p_sfp_los_in(i),
     p_sfp_tx_fault_in      => p_sfp_tx_fault_in(i),
     
-    p_scl_inout    => p_sfp_i2c_scl_inout(i),
-    p_sda_inout    => p_sfp_i2c_sda_inout(i),
-    p_sfp_i2c_interface_out    => p_sfp_i2c_interface_out(i)
+    p_sda_drive_out => p_sda_drive_out(i),
+    p_sda_tri_out   => p_sda_tri_out(i),
+    p_sda_read_in   => p_sda_read_in(i),
+    p_scl_drive_out => p_scl_drive_out(i),
+    p_scl_tri_out   => p_scl_tri_out(i),
+    p_scl_read_in   => p_scl_read_in(i),
+    p_sfp_i2c_interface_out    => p_sfp_i2c_interface_out(i),
+
+    p_rx_register_in  => p_rx_register_in(i),
+    p_tx_register_out => p_tx_register_out(i)
 
     );
 

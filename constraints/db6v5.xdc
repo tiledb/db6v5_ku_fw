@@ -3,7 +3,7 @@ set_property BITSTREAM.GENERAL.COMPRESS TRUE [current_design]
 set_property BITSTREAM.CONFIG.CONFIGRATE 69 [current_design]
 set_property CONFIG_VOLTAGE 2.5 [current_design]
 set_property CFGBVS VCCO [current_design]
-set_property BITSTREAM.CONFIG.SPI_32BIT_ADDR no [current_design]
+set_property BITSTREAM.CONFIG.SPI_32BIT_ADDR NO [current_design]
 set_property BITSTREAM.CONFIG.SPI_BUSWIDTH 4 [current_design]
 set_property BITSTREAM.CONFIG.SPI_FALL_EDGE YES [current_design]
 #set_property BITSTREAM.STARTUP.DONE_CYCLE 6 [current_design]
@@ -311,7 +311,7 @@ set_property IOSTANDARD LVCMOS25 [get_ports p_adc_channel_pedestal_test_underflo
 set_property CLKFBOUT_MULT 12 [get_cells i_db6_clock_interface/i_pll_osc_clk/inst/plle3_adv_inst]
 set_property CLKOUT0_DIVIDE 30 [get_cells i_db6_clock_interface/i_pll_osc_clk/inst/plle3_adv_inst]
 set_property CLKOUT1_DIVIDE 6 [get_cells i_db6_clock_interface/i_pll_osc_clk/inst/plle3_adv_inst]
-set_property MAX_FANOUT_MODE CLOCK_REGION [get_nets {i_db6_gbtx_interface/i_db6_cfgbus_interface/db6_cfgbus_interface_decoder_iddr_local/gen_tmr_disabled.i_db6_cfgbus_interface_decoder_iddr/p_bcr_out[bcr_locked]}]
+set_property MAX_FANOUT_MODE clock_region [get_nets {i_db6_gbtx_interface/i_db6_cfgbus_interface/db6_cfgbus_interface_decoder_iddr_local/gen_tmr_disabled.i_db6_cfgbus_interface_decoder_iddr/p_bcr_out[bcr_locked]}]
 set_property FORCE_MAX_FANOUT 1 [get_nets {i_db6_gbtx_interface/i_db6_cfgbus_interface/db6_cfgbus_interface_decoder_iddr_local/gen_tmr_disabled.i_db6_cfgbus_interface_decoder_iddr/p_bcr_out[bcr_locked]}]
 set_property LUT_REMAP false [get_cells {i_db6_clock_interface/s_clknet_out[gbt_cdc_counter_array][0]_inst}]
 set_property LUT_REMAP false [get_cells {i_db6_clock_interface/s_clknet_out[gbt_cdc_counter_array][0]_inst__0}]
@@ -408,6 +408,16 @@ set_property IOSTANDARD LVCMOS25 [get_ports {p_mb_tck_out[q0]}]
 set_property PACKAGE_PIN AK13 [get_ports {p_mb_tms_out[q0]}]
 set_property PACKAGE_PIN AL13 [get_ports {p_mb_tck_out[q0]}]
 
-set_property PACKAGE_PIN AL9 [get_ports {p_proasic_trst_out}]
-set_property IOSTANDARD LVCMOS25 [get_ports {p_proasic_trst_out}]
+set_property PACKAGE_PIN AL9 [get_ports p_proasic_trst_out]
+set_property IOSTANDARD LVCMOS25 [get_ports p_proasic_trst_out]
 
+
+
+set_property PACKAGE_PIN AJ15 [get_ports {p_gth_refclk224_from_mmcm_out[p]}]
+set_property IOSTANDARD LVDS [get_ports {p_gth_refclk224_from_mmcm_out[p]}]
+
+set_property PACKAGE_PIN AA29 [get_ports {p_gth_refclk225_from_mmcm_out[p]}]
+set_property IOSTANDARD LVDS [get_ports {p_gth_refclk225_from_mmcm_out[p]}]
+
+set_property PACKAGE_PIN AG19 [get_ports {p_gth_refclk226_from_mmcm_out[p]}]
+set_property IOSTANDARD LVDS [get_ports {p_gth_refclk226_from_mmcm_out[p]}]

@@ -41,9 +41,14 @@ entity db6_gbtx_i2c_interface_testbeam is
     p_gbt_encoder_interface_in        : in t_gbt_encoder_interface;
     p_gbtx_control_in : in t_gbtx_control;
     p_gbtx_interface_out : out t_gbtx_interface;
-    p_scl_inout 	: inout std_logic;
-    p_sda_inout    : inout std_logic;
-        
+    -- IOBUF moved to db7_io_box; split O/I/T instead of inout.
+    p_sda_drive_out : out std_logic;
+    p_sda_tri_out   : out std_logic;
+    p_sda_read_in   : in  std_logic;
+    p_scl_drive_out : out std_logic;
+    p_scl_tri_out   : out std_logic;
+    p_scl_read_in   : in  std_logic;
+
     p_leds_out : out std_logic_vector(3 downto 0)
 				
 				
@@ -123,380 +128,6 @@ signal s_busy_buffer : std_logic:= '0';
 signal s_wipe_gbtx_registers     :  std_logic := '0';
 signal s_gbtx_default_configuration : std_logic:= '0';
 signal s_gbtx_side : std_logic_vector (1 downto 0):="01";
-
---signal s_gbtx_register_default_configuration, s_gbtx_register_configuration  : t_gbtx_register_configuration := 
---    (
---	x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"34",
---        x"34",
---        x"04",
---        x"04",
---        x"34",
---        x"34",
---        x"04",
---        x"04",
---        x"ff",
---        x"01",
---        x"7f",
---        x"00",
---        x"00",
---        x"03",
---        x"03",
---        x"03",
---        x"10",
---        x"00",
---        x"0d",
---        x"f2",
---        x"00",
---        x"0f",
---        x"04",
---        x"08",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"15",
---        x"15",
---        x"15",
---        x"00",
---        x"07",
---        x"00",
---        x"3f",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"3f",
---        x"3f",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"05",
---        x"ff",
---        x"ff",
---        x"05",
---        x"03",
---        x"dd",
---        x"01",
---        x"ff",
---        x"55",
---        x"01",
---        x"40",
---        x"55",
---        x"05",
---        x"01",
---        x"55",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"01",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"ff",
---        x"ff",
---        x"ff",
---        x"40",
---        x"40",
---        x"40",
---        x"2a",
---        x"2a",
---        x"2a",
---        x"00",
---        x"00",
---        x"ff",
---        x"ff",
---        x"ff",
---        x"40",
---        x"40",
---        x"40",
---        x"2a",
---        x"2a",
---        x"2a",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"00",
---        x"88",
---        x"88",
---        x"88",
---        x"88",
---        x"88",
---        x"05",
---        x"ff",
---        x"ff",
---        x"05",
---        x"03",
---        x"dd",
---        x"01",
---        x"ff",
---        x"55",
---        x"01",
---        x"40",
---        x"55",
---        x"05",
---        x"01",
---        x"55",
---        x"05",
---        x"ff",
---        x"ff",
---        x"05",
---        x"03",
---        x"dd",
---        x"01",
---        x"ff",
---        x"55",
---        x"01",
---        x"40",
---        x"55",
---        x"05",
---        x"01",
---        x"55",
---        x"00",
---        x"00",
---        x"00",
---        x"aa"
---            );
-        
-
-    
-    --signal s_gbtx_register_readout : t_gbtx_register_configuration := (others => x"00");
 
     signal s_start_register, s_register_index, s_end_register : integer := 0;
     --signal s_db_debug_gbtx_deskew_clk_mux_reg : std_logic;
@@ -718,44 +349,6 @@ begin
                   sm_i2c <= st_idle;
                 end if;
                 
---        when st_wait_for_bus_free=>
-                
---                --connect ports to the buffers
---                s_scl_inout_b<=p_scl_inout;
---                s_sda_inout_b<=p_sda_inout;
-                
---                --buffers sda and scl
---                v_previous_scl := s_scl_inout;
---                v_previous_sda := s_sda_inout;
---                --keeps sda and sdl in z state and the driver in reset mode 
---                s_reset_n <= '0';
-                
---                --debug
---                s_probe_ila_in3<=std_logic_vector(to_unsigned(v_counter,16));
---                s_probe_ila_in1<=v_previous_scl & v_previous_scl;
-                
---                --checks if there are any variations in them in an amount of time
---                if (v_counter <  to_integer(unsigned(p_db_side))*gbtx_i2c_arbitration_constant) then
---                    if (v_previous_scl = s_scl_inout_b) and (v_previous_sda = s_sda_inout_b) then 
---                        v_counter:=v_counter+1;
---                    else
---                        v_counter:=0;
---                    end if;
---                else
---                --no variations then check if they are equal and move forward if so, if not then come back to
---                    if (v_previous_scl=v_previous_sda) then
---                        sm_i2c <= st_set_reset;
---                    else
---                        v_counter:=0;
---                        sm_i2c <= st_wait_for_bus_free;
---                    end if;
-                
---                end if;
-                
---                sm_i2c <= st_set_address_lsb; 
-                
---                s_leds_out(2 downto 0)<="001"; 
- 
         when st_set_reset =>
                 p_gbtx_interface_out.busy <= '1';
                 s_reset_n <= '1';
@@ -842,9 +435,6 @@ begin
               s_leds_out(2 downto 0)<="101";
         
         
---        when st_limbo =>
---            sm_i2c <= st_trigger_register_operation;
-
         when st_stop => -- wait for i2c master to finish the last operation
               p_gbtx_interface_out.busy <= '1';
               s_verify_bus <='1';-- and s_probe_out0(15);               p_busy_out <= '1';
@@ -864,29 +454,6 @@ end process; -- i2c_control
 
 
 
---i_db4_integrator_i2c_master: entity tilecal.db4_integrator_i2c_master
-----generic_map(
-----	input_clk => 100000000,   --input clock speed from user logic in 10*khz
-----	bus_clk => 10000)     --speed the i2c bus (scl) will run at in 10*khz
---port map (
---    clk   => p_clknet_in.osc_clk40, --156.25khz max1169 specs say 400khz max rate for scl
---    reset_n => s_reset_n,     --active low reset
---	ena        => s_ena,         --latch in command
---	addr       => s_addr,        --address of target slave
---	rw         => s_rw,          --'0' is write, '1' is read
---	data_wr    => s_data_wr,     --data to write to slave
---	busy       => s_busy,        --indicates transaction in progress
---	data_rd    => s_data_rd, --data_rd,     --data read from slave
---	ack_error  => s_ack_error,   --flag if improper acknowledge from slave
---	sda        => p_sda_inout,         --serial data output of i2c bus
---	scl        => p_scl_inout,
-----	p_bus_busy => s_bus_busy,
-----	sda_mon    => open, -- s_probe_ila_in1(0),--s_sda_ila(0),
-----	scl_mon    => open, -- s_probe_ila_in1(1)--s_scl_ila(0)
---    test0   => open,
---    test1   => open
-  
---    ); 
 s_reset<=not s_reset_n;
 i_db6_i2c_master : entity tilecal.db6_i2c_master
   port map(
@@ -901,8 +468,12 @@ i_db6_i2c_master : entity tilecal.db6_i2c_master
         p_busy_out     => s_busy,
         p_data_out     => s_data_rd,
         p_ack_error_buffer => s_ack_error,
-        p_sda_inout       => p_sda_inout,
-        p_scl_inout       => p_scl_inout,
+        p_sda_drive_out => p_sda_drive_out,
+        p_sda_tri_out   => p_sda_tri_out,
+        p_sda_read_in   => p_sda_read_in,
+        p_scl_drive_out => p_scl_drive_out,
+        p_scl_tri_out   => p_scl_tri_out,
+        p_scl_read_in   => p_scl_read_in,
         p_sda_test_out    => s_sda_test,
         p_scl_test_out => s_scl_test,
         p_read_state_out  => open,
@@ -938,27 +509,5 @@ begin
 	end if;
 end process;
     
---i_vio_db6_gbtx_interface : vio_db6_gbtx_interface
---  PORT MAP (
---    clk => p_clknet_in.osc_clk40,
---    probe_in0 => p_db_reg_rx_in(cfb_mb_phase_config),
---    probe_in1(0) => s_rw, --s_leds_out,
---    probe_in1(3 downto 1) => s_leds_out(2 downto 0),
---    probe_in2(0) => s_global_trigger,
---    probe_in3(0) => s_trigger_i2c_operation,
---    probe_in4(0) => s_busy,
---    probe_in5(0) => s_reset_n,
---    probe_in6(0) => s_ena,
---    probe_in7(0) => s_i2c_busy_rising_edge,
---    probe_in8(0) => s_i2c_busy_falling_edge,
---    probe_in9(0) => s_gbtx_default_configuration,
---    probe_in10(0) => s_sda_test,
---    probe_in11(0) => s_scl_test,
---    probe_out0(0) => s_global_trigger_from_vio,
---    probe_out1(0) => s_i2c_read_write_operation,
---    probe_out2 => s_i2c_divider,
---    probe_out3(0) => s_i2c_clk_stretch
---  );
-
 
 end behavioral;

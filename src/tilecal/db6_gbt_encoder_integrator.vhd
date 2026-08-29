@@ -131,20 +131,6 @@ begin
         end case;
     end if;
 
-end process; 
-    
---    i_ila_gbt_decoder_integrator : ila_gbt_decoder_integrator
---PORT MAP (
---	clk => p_clknet_in.cfgbus_clk40,--p_clknet_in.bcr.bcr,--p_clknet_in.mmcm_refclk240,
+end process;
 
-
---	probe0 => std_logic_vector(to_unsigned(p_clknet_in.gbt_cdc_counter,2)), 
---	probe1(0) => p_clknet_in.gbt_cdc_phase, 
---	probe2 => s_integrator_frame, 
---	probe3 => s_integrator_channel_id, 
---	probe4(0) => p_clknet_in.bcr.bcr, 
---	probe5(0) => p_mb_interface_in.mb_integrator.end_of_read,
---	probe6 => "0"
---);            
-                
 end Behavioral;

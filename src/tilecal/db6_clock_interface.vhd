@@ -40,7 +40,6 @@ entity db6_clock_interface is
         g_priority_side : std_logic_vector(1 downto 0) := "01";                 --! side to priotitize
         g_num_gth_links                 : integer := 1;                            --! NUM_LINKS: number of links instantiated by the core (Altera: up to 6, Xilinx: up to 4)
         g_num_gth_ref_clks             : integer := c_number_of_gth_refclks;
-        g_vio_clknet_status            : integer := 1; --1;--1;
         g_clk_generation               : natural := 0;   -- 2-> advanced bufg_gt, 1 -> use bug_gt, 0 -> use mmcm for gtg_refclk
         g_slow_clk_generation          : natural := 1;   -- 1 -> use slow_clk_gen, 0 -> no use slow clk gen
         g_use_mmcm_mb_quads            : natural := 0;   -- 1 -> use mmcms for b ttc, 0 -> mb ttc directly to IO
@@ -59,10 +58,24 @@ entity db6_clock_interface is
     p_cfgbus_interface_in : t_cfgbus_interface;
     --p_db_reg_rx_in  : in t_db_reg_rx;
     --p_clk_sel_in   : in std_logic
-    
+
+    -- vio_clknet_status now lives in db6v5_top: status it can't get anywhere else, and
+    -- the debug knobs it used to drive as internal signals when it lived in this module.
+    p_clknet_debug_status_out  : out t_clknet_debug_status;
+    p_clknet_debug_control_in  : in  t_clknet_debug_control;
+
+    -- plain-logic side of the raw pads/wizards now in db7_io_box (IBUFDS_GTE3 for
+    -- GT refclk, IBUFDS + pll_osc_clk for the oscillator, IBUFDS for cfgbus local)
+    p_gth_refclk_local_in   : in std_logic_vector(g_num_gth_ref_clks-1 downto 0);
+    p_osc_clk100_in         : in std_logic;
+    p_osc_clk40_in          : in std_logic;
+    p_osc_clk200_in         : in std_logic;
+    p_osc_locked_in         : in std_logic;
+    p_cfgbus_clk40_local_in : in std_logic;
+
     --leds
     p_leds_out : out std_logic_vector(3 downto 0)
-    
+
     );
 
 end db6_clock_interface;
@@ -383,88 +396,6 @@ signal s_counter_binary_s : t_counter_binary_32bit;
 signal s_counter_binary_100khz : t_counter_binary_32bit;
 
 
-COMPONENT vio_clknet_status
-  PORT (
-    clk : IN STD_LOGIC;
-    probe_in0 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in1 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in2 : IN STD_LOGIC_VECTOR(2 DOWNTO 0);
-    probe_in3 : IN STD_LOGIC_VECTOR(2 DOWNTO 0);
-    probe_in4 : IN STD_LOGIC_VECTOR(1 DOWNTO 0);
-    probe_in5 : IN STD_LOGIC_VECTOR(1 DOWNTO 0);
-    probe_in6 : IN STD_LOGIC_VECTOR(2 DOWNTO 0);
-    probe_in7 : IN STD_LOGIC_VECTOR(2 DOWNTO 0);
-    probe_in8 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in9 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in10 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in11 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in12 : IN STD_LOGIC_VECTOR(1 DOWNTO 0);
-    probe_in13 : IN STD_LOGIC_VECTOR(3 DOWNTO 0);
-    probe_in14 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in15 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in16 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in17 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in18 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in19 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in20 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in21 : IN STD_LOGIC_VECTOR(1 DOWNTO 0);
-    probe_in22 : IN STD_LOGIC_VECTOR(10 DOWNTO 0);
-    probe_in23 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
-    probe_in24 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in25 : IN STD_LOGIC_VECTOR(3 DOWNTO 0);
-    probe_in26 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in27 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in28 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in29 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in30 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in31 : IN STD_LOGIC_VECTOR(11 DOWNTO 0);
-    probe_in32 : IN STD_LOGIC_VECTOR(47 DOWNTO 0);
-    probe_in33 : IN STD_LOGIC_VECTOR(23 DOWNTO 0);
-    probe_in34 : IN STD_LOGIC_VECTOR(5 DOWNTO 0);
-    probe_in35 : IN STD_LOGIC_VECTOR(5 DOWNTO 0);
-    probe_in36 : IN STD_LOGIC_VECTOR(5 DOWNTO 0);
-    probe_in37 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
-    probe_in38 : IN STD_LOGIC_VECTOR(18 DOWNTO 0);
-    probe_in39 : IN STD_LOGIC_VECTOR(2 DOWNTO 0);
-    probe_in40 : IN STD_LOGIC_VECTOR(3 DOWNTO 0);
-    probe_in41 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
-    probe_in42 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in43 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in44 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in45 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in46 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in47 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in48 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in49 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in50 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in51 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in52 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in53 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in54 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in55 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
-    probe_in56 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
-    probe_in57 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
-    probe_in58 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
-    probe_in59 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
-    probe_in60 : IN STD_LOGIC_VECTOR(95 DOWNTO 0);
-    probe_in61 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in62 : IN STD_LOGIC_VECTOR(1 DOWNTO 0);
-    probe_in63 : IN STD_LOGIC_VECTOR(1 DOWNTO 0);
-    probe_out0 : OUT STD_LOGIC_VECTOR(5 DOWNTO 0);
-    probe_out1 : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_out2 : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_out3 : OUT STD_LOGIC_VECTOR(2 DOWNTO 0);
-    probe_out4 : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_out5 : OUT STD_LOGIC_VECTOR(39 DOWNTO 0);
-    probe_out6 : OUT STD_LOGIC_VECTOR(1 DOWNTO 0);
-    probe_out7 : out std_logic_vector(0 downto 0);
-    probe_out8 : out std_logic_vector(11 downto 0);
-    probe_out9 : out std_logic_vector(11 downto 0);
-    probe_out10 : out std_logic_vector(2 downto 0);
-    probe_out11 : out std_logic_vector(25 downto 0)
-  );
-END COMPONENT;
-
 component pll_gbt_wordclk
 port
  (-- Clock in ports
@@ -488,16 +419,8 @@ port
 end component;
 
 
-signal s_dna_reset : std_logic;
-signal s_dna_done_out : std_logic;
-signal s_dna_read_out : std_logic_vector(95 downto 0);
-
-
 signal s_clkin_in                       : t_db_clkin;
 
-signal s_reset_clknet_from_vio : std_logic;
-signal s_reset_main_sm_from_vio : std_logic;
-signal s_gth_clksel_from_vio : std_logic_vector(2 downto 0); 
 --signal s_cesync, s_clrsync : std_logic_vector(c_gbt_bank_number_of_links-1 downto 0);
 
 --attribute keep of p_clk_sel_in, s_gbt40_q0_delay_control, s_gbt40_q1_delay_control, s_osc_clk100, s_clk40, s_tp_clk40_q0_local, s_tp_clk40_q1_local, s_tp_clk40_q0_remote, s_tp_clk40_q1_remote : signal is "TRUE";
@@ -543,25 +466,9 @@ s_clknet_out.txoutclksel <= p_clkin_in.txoutclksel;
 s_clknet_out.txpllclksel <= p_clkin_in.txpllclksel;
 s_clknet_out.rxpllclksel <= p_clkin_in.rxpllclksel;
 
-gen_ref_clks : for i in 0 to g_num_gth_ref_clks -1 generate
-
-    i_gth_refclk_local: ibufds_gte3
-     generic map
-     (
-         refclk_en_tx_path=>'0',
-         refclk_hrow_ck_sel=>"01",
-         refclk_icntl_rx=>"00"
-     )
-     port map
-     (
-        ceb => '0',
-        i  => p_clkin_in.gth_refclk_gbtx_local(i).p,
-        ib => p_clkin_in.gth_refclk_gbtx_local(i).n,
-        o => s_clknet_out.gth_refclk_local(i),
-        odiv2 => s_gth_refclk_local_BUFG_GT_SYNC(i).clk
-     );
-
-end generate;
+-- IBUFDS_GTE3 (per-link GT refclk buffer) moved to db7_io_box, next to the db6_mgt
+-- instance it feeds. odiv2 was already unused beyond a debug VIO probe display.
+s_clknet_out.gth_refclk_local <= p_gth_refclk_local_in;
                             
             s_clknet_out.mb_fpga_reset_low.q0 <= s_mmcm_gbt40_mb_q0.locked_out and (not p_cfgbus_interface_in.db_reg_rx(cfb_strobe_reg)(c_mb0_reset_bit)) and s_clknet_out.locked_db and not s_reset_mb.q0;
             s_clknet_out.mb_fpga_reset_low.q1 <= s_mmcm_gbt40_mb_q1.locked_out and (not p_cfgbus_interface_in.db_reg_rx(cfb_strobe_reg)(c_mb1_reset_bit)) and s_clknet_out.locked_db and not s_reset_mb.q1;
@@ -627,7 +534,7 @@ end generate;
     proc_cdc_reset : process(s_clknet_out.cfgbus_clk40)
     begin
         if rising_edge(s_clknet_out.cfgbus_clk40) then
-            s_cdc_reset_in <= (p_master_reset_in) or (not s_mmcm_gtg_refclk.locked_out) or (not s_clkin_in.sfp_ku_mgt.gtwiz_reset_tx_done_out(0)) or (s_reset_clknet_from_vio);
+            s_cdc_reset_in <= (p_master_reset_in) or (not s_mmcm_gtg_refclk.locked_out) or (not s_clkin_in.sfp_ku_mgt.gtwiz_reset_tx_done_out(0)) or (p_clknet_debug_control_in.reset_clknet);
         end if;
     end process;
 
@@ -823,58 +730,15 @@ s_clknet_out.osc_clk100 <= s_osc_clk100;
 --https://www.xilinx.com/support/documentation/ip_documentation/clk_wiz/v6_0/pg065-clk-wiz.pdf
 --https://www.xilinx.com/support/documentation/sw_manuals/xilinx2014_1/ug974-vivado-ultrascale-libraries.pdf
 
- i_ibufds_osc_clk : ibufds
- generic map (
-    diff_term => true, -- differential termination
-    iostandard => "sub_lvds")
- port map (
-    o => s_osc_clk100,  -- clock buffer output
-    i => p_clkin_in.osc_clkin.p,  -- diff_p clock buffer input (connect directly to top-level port)
-    ib => p_clkin_in.osc_clkin.n -- diff_n clock buffer input (connect directly to top-level port)
- );
+-- IBUFDS (osc pad) + pll_osc_clk (DRP tied off, no real dynamic reconfig in this
+-- design) moved to db7_io_box. Its outputs relayed in as plain ports.
+s_osc_clk100 <= p_osc_clk100_in;
+s_clknet_out.osc_clk40 <= p_osc_clk40_in;
+s_clknet_out.osc_clk200 <= p_osc_clk200_in;
+s_clknet_out.locked_osc <= p_osc_locked_in;
 
-
-i_pll_osc_clk : pll_osc_clk
-   port map ( 
-  -- Clock out ports  
-   p_clk40_out => s_clknet_out.osc_clk40,
-   p_clk200_out => s_clknet_out.osc_clk200,
-  -- Dynamic reconfiguration ports             
-   p_daddr_in => s_pll_osc.daddr_in,
-   p_dclk_in => s_osc_clk100,
-   p_den_in => s_pll_osc.den_in,
-   p_din_in => s_pll_osc.din_in,
-   p_dout_out => s_pll_osc.dout_out,
-   p_drdy_out => s_pll_osc.drdy_out,
-   p_dwe_in => s_pll_osc.dwe_in,
-  -- Status and control signals                
-   p_reset_in => s_pll_osc.reset_in,
-   p_locked_out => s_pll_osc.locked_out,
-   -- Clock in ports
-   p_clk_in => s_osc_clk100
- );
-
-s_pll_osc.daddr_in <= (others =>'0');
-s_pll_osc.den_in <= '0';
-s_pll_osc.din_in <= (others =>'0');
-s_pll_osc.dwe_in <= '0';
-s_pll_osc.psclk_in <= '0';
-s_pll_osc.psen_in <= '0';
-s_pll_osc.psincdec_in <= '0';
-s_pll_osc.reset_in <= '0';
-s_pll_osc.cddcreq_in <= '0';
-s_clknet_out.locked_osc <= s_pll_osc.locked_out;
-
-
- i_ibufds_cfgbus_local : ibufds
- generic map (
-    diff_term => true, -- differential termination
-    iostandard => "sub_lvds")
- port map (
-    o => s_clknet_out.cfgbus_clk40_local,  -- clock buffer output
-    i => p_clkin_in.cfgbus_clkin_local.p,  -- diff_p clock buffer input (connect directly to top-level port)
-    ib => p_clkin_in.cfgbus_clkin_local.n -- diff_n clock buffer input (connect directly to top-level port)
- );
+-- IBUFDS (cfgbus local pad) moved to db7_io_box.
+s_clknet_out.cfgbus_clk40_local <= p_cfgbus_clk40_local_in;
 
 
 -- i_ibufds_mmcm_gbt40_mb_q0_local : ibufds
@@ -983,167 +847,29 @@ p_leds_out(1) <= s_mmcm_gbt40_db6.locked_out;--s_mmcm_gbt40_mb_q0.locked_out;
 p_leds_out(0) <= s_mmcm_gbt40_mb_q1.locked_out and s_mmcm_gbt40_mb_q1.locked_out;
 
 
-i_db6_ku_dna : entity tilecal.db6_ku_dna  
-    port map(            
-        p_clk_in => s_clknet_out.osc_clk40,
-        p_reset_in => s_dna_reset or p_master_reset_in,  
-        p_done_out => s_dna_done_out,
-        p_dna_value_out => s_dna_read_out
-    );                
+s_clkin_in <= p_clkin_in;
 
-s_clknet_out.ku_dna<=s_dna_read_out;
+-- vio_clknet_status was moved to db6v5_top; these are exactly the debug knobs it used to
+-- drive as internal signals when it was instantiated here (see db6_design_package.vhd's
+-- t_clknet_debug_control), now sourced from the top-level instance instead.
+s_reset_mb <= p_clknet_debug_control_in.reset_mb;
 
+s_clknet_out.skip_main_sm                         <= p_clknet_debug_control_in.skip_main_sm;
+s_clknet_out.force_gtx_i2c_config                 <= p_clknet_debug_control_in.force_gtx_i2c_config;
+s_clknet_out.gbt_cdc_gearbox_phase                <= p_clknet_debug_control_in.gbt_cdc_gearbox_phase;
+s_clknet_out.adc_readout_high_threshold           <= p_clknet_debug_control_in.adc_readout_high_threshold;
+s_clknet_out.adc_readout_low_threshold            <= p_clknet_debug_control_in.adc_readout_low_threshold;
+s_clknet_out.adc_readout_threshold_select_channel <= p_clknet_debug_control_in.adc_readout_threshold_select_channel;
+s_clknet_out.cis_enable                           <= p_clknet_debug_control_in.cis_enable;
+s_clknet_out.cis_gain                             <= p_clknet_debug_control_in.cis_gain;
+s_clknet_out.cis_bcid_charge                      <= p_clknet_debug_control_in.cis_bcid_charge;
+s_clknet_out.cis_bcid_discharge                   <= p_clknet_debug_control_in.cis_bcid_discharge;
 
-gen_vio_clknet_status : if g_vio_clknet_status = 1 generate
-
---proc_clock_cross_domain : process(s_clknet_out.osc_clk100)
---begin
---    if rising_edge(s_clknet_out.osc_clk100) then
-        s_clkin_in <= p_clkin_in;
---    end if;
---end process;
-
-    i_vio_clknet_status : vio_clknet_status
-      PORT MAP (
-        clk => s_clknet_out.osc_clk40,
-        probe_in0(0) => s_clkin_in.bcr.bcr_locked,
-        probe_in1(0) => s_clknet_out.locked_db, -- '0', --p_clkin_in.bcr.bcr_local,--p_clkin_in.clksel,
-        probe_in2 => s_clkin_in.qpllclksel,
-        probe_in3(0) => s_clkin_in.bcr.bcr_tmr_error,-- p_clkin_in.cpllclksel,
-        probe_in3(1) => s_clkin_in.bcr.bcr_locked_tmr_error,
-        probe_in3(2) => s_clkin_in.bcr.count_tmr_error,
-        probe_in4 => s_clkin_in.txsysclksel,
-        probe_in5 => s_clkin_in.rxsysclksel,
-        --probe_in5(1) => p_cfgbus_interface_in.tmr_error_remote,
-        probe_in6 => s_clkin_in.rxoutclksel,
-        probe_in7 => s_clkin_in.txoutclksel,
-        probe_in8(0) => s_mmcm_gbt40_db6.locked_out,
-        probe_in9(0) => s_clknet_out.clk_1hz,--s_clknet_out.clk_1hz,-- s_mmcm_gbt40_cfgbus.locked_out,
-        probe_in10(0) => s_clkin_in.mb_interface.mb_driver.mb_tx_collission_out.q0,-- s_mmcm_gbt40_mb_q0.locked_out,
-        probe_in11(0) => s_clkin_in.mb_interface.mb_driver.mb_tx_collission_out.q1,--s_mmcm_gbt40_mb_q1.locked_out,
-        probe_in12(0) => s_gth_refclk_local_BUFG_GT_SYNC(0).CE,
-        probe_in12(1) => s_gth_refclk_local_BUFG_GT_SYNC(0).CLR,
-        probe_in13 => s_clkin_in.db6_gbt_bank.tx_phcomputed_o(0)&s_clkin_in.db6_gbt_bank.tx_phcomputed_o(1)&s_clkin_in.db6_gbt_bank.tx_phaligned_o(0)&s_clkin_in.db6_gbt_bank.tx_phaligned_o(1), --"0000",-- p_clkin_in.db6_gbt_bank.tx_phcomputed_o(0)&p_clkin_in.db6_gbt_bank.tx_phcomputed_o(1)&p_clkin_in.db6_gbt_bank.tx_phaligned_o(0)&p_clkin_in.db6_gbt_bank.tx_phaligned_o(1), --p_clkin_in.sfp_ku_mgt.leds_out,--p_clkin_in.sfp_ku_mgt.leds_out,
-        probe_in14(0) => s_clknet_out.mb_fpga_reset_low.q0 and s_clknet_out.mb_fpga_reset_low.q1,
-        probe_in15(0) => s_clkin_in.gbtx_rxready(0),
-        probe_in16(0) => s_clknet_out.locked_tp_q0, --"0",
-        probe_in17 => "0",
-        probe_in18(0) => s_clknet_out.gth_wordclk_sel,--s_clkin_in.sfp_ku_mgt.gtwiz_reset_rx_done_out,
-        probe_in19 =>"0",
-        probe_in20 => "0",
-        probe_in21(0) => s_clknet_out.gbt_cdc_gearbox_phase(0) or p_cfgbus_interface_in.db_reg_rx(cfb_db_debug)(c_db_debug_gbt_cdc_phase_array),--"00",
-        probe_in21(1) => s_clknet_out.gbt_cdc_gearbox_phase(1) or p_cfgbus_interface_in.db_reg_rx(cfb_db_debug)(c_db_debug_gbt_cdc_phase_array+1),
-        probe_in22(0) => s_clkin_in.sfp_ku_mgt.qpll1refclklost_out(0),
-        probe_in22(1) => s_clkin_in.sfp_ku_mgt.gtwiz_reset_tx_done_out(0),
-        probe_in22(2) => s_clkin_in.sfp_ku_mgt.qpll1fbclklost_out(0),
-        probe_in22(3) => s_clkin_in.sfp_ku_mgt.qpll1refclklost_out(0),
-        probe_in22(4) => s_clkin_in.sfp_ku_mgt.gtwiz_buffbypass_tx_done_out(0),
-        probe_in22(5) => s_clkin_in.sfp_ku_mgt.gtwiz_buffbypass_tx_error_out(0),
-        probe_in22(6) => s_clkin_in.sfp_ku_mgt.qpll1lock_out(0) and s_clkin_in.sfp_ku_mgt.qpll1lock_out(1),
-        probe_in22(7) => s_clkin_in.sfp_ku_mgt.qpll1fbclklost_out(0),
-        probe_in22(8) => s_clkin_in.sfp_ku_mgt.gtwiz_buffbypass_tx_start_user_in(0),
-        probe_in22(9) => s_clkin_in.sfp_ku_mgt.gtwiz_reset_tx_done_out(0),
-        probe_in22(10) => s_clkin_in.sfp_ku_mgt.gtwiz_reset_rx_cdr_stable_out(0),
-        probe_in23(31 downto 30) => p_clkin_in.sfp_interface.mod_abs,--"0",
-        probe_in23(29 downto 28) => p_clkin_in.sfp_interface.mod_los,--"0",
-        probe_in23(27 downto 26) => p_clkin_in.sfp_interface.tx_fault,--"0",
-        probe_in23(25 downto 0) => (others=>'0'),--"0",
-        
-        probe_in24(0) => p_clkin_in.mb_interface.adc_readout_control.adc_config_done,--s_clkin_in.sfp_ku_mgt.gtwiz_reset_rx_done_out,
-        probe_in25 => s_clkin_in.db_leds,
-        probe_in26(0) => s_clkin_in.db_side(0),--p_clkin_in.sfp_ku_mgt.cplllock_out(0),
-        probe_in27 => "0",
-        probe_in28(0) => s_clkin_in.db6_sem_interface.sem_interface.cap_gnt,--s_clkin_in.sfp_ku_mgt.gtwiz_reset_rx_cdr_stable_out,        
-        probe_in29(0) => s_clkin_in.db6_sem_interface.sem_interface.cap_rel,--s_clkin_in.sfp_ku_mgt.gtwiz_buffbypass_rx_done_out,
-        probe_in30(0) => s_clkin_in.db6_sem_interface.sem_interface.cap_req,--s_clkin_in.sfp_ku_mgt.gtwiz_buffbypass_rx_error_out,
-        probe_in31(11 downto 6) => s_clkin_in.mb_interface.adc_readout.channel_pedestal_test_overflow,
-        probe_in31(5 downto 0) => s_clkin_in.mb_interface.adc_readout.channel_pedestal_test_underflow,
-        probe_in32(47 downto 40) => s_clkin_in.gbtx_interface.blk_mem_gbtx_regs.dina,--(others => '0'),
-        probe_in32(39 downto 31) => s_clkin_in.gbtx_interface.blk_mem_gbtx_regs.addra,
-        probe_in32(30) => s_clkin_in.gbtx_interface.busy,
-        probe_in32(29 downto 21) => s_clkin_in.gbtx_interface.gbtx_control.gbtx_reg_address(8 downto 0),
-        probe_in32(20) => s_clkin_in.gbtx_interface.gbtx_control.gbtx_trigger_i2c_operation,
-        probe_in32(19 downto 12) => s_clkin_in.gbtx_interface.gbtx_control.gbtx_reg_value,
-        probe_in32(11) => s_clkin_in.gbtx_interface.gbtx_control.gbtx_i2c_read_write_operation,
-        probe_in32(10 downto 3) => s_clkin_in.gbtx_interface.blk_mem_gbtx_regs.douta,
-        probe_in32(2) => s_clkin_in.gbtx_interface.gbtx_control.gbtx_default_config,
-        probe_in32(1 downto 0) => (others => '0'),
-        probe_in33(5 downto 0) => s_clkin_in.mb_interface.adc_readout.channel_clk280_locked,
-        probe_in33(11 downto 6) => s_clkin_in.mb_interface.adc_readout.channel_missed_locked,
-        probe_in33(17 downto 12) => s_clkin_in.mb_interface.adc_readout.channel_locked,
-        probe_in33(23) => s_clkin_in.mb_interface.adc_readout.channel_missed_bit_count(5),
-        probe_in33(22) => s_clkin_in.mb_interface.adc_readout.channel_missed_bit_count(4),
-        probe_in33(21) => s_clkin_in.mb_interface.adc_readout.channel_missed_bit_count(3),
-        probe_in33(20) => s_clkin_in.mb_interface.adc_readout.channel_missed_bit_count(2),
-        probe_in33(19) => s_clkin_in.mb_interface.adc_readout.channel_missed_bit_count(1),
-        probe_in33(18) => s_clkin_in.mb_interface.adc_readout.channel_missed_bit_count(0),
-        probe_in34 => s_clkin_in.mb_interface.adc_readout.tmr_error_lg,
-        probe_in35 => s_clkin_in.mb_interface.adc_readout.tmr_error_hg,
-        probe_in36 => s_clkin_in.mb_interface.adc_readout.tmr_error_fc,
-        probe_in37 => '0' & s_running_time_s(31 downto 1), --(others => '0'), -- p_cfgbus_interface_in.tmr_error_local(15 downto 0),
-        probe_in38(18) => s_clkin_in.mb_interface.mb_integrator.end_of_read_quadrant.q0,
-        probe_in38(17) => s_clkin_in.mb_interface.mb_integrator.end_of_read_quadrant.q1,
-        probe_in38(16) => s_clkin_in.mb_interface.mb_integrator.end_of_read,
-        probe_in38(15 downto 0) => s_clkin_in.mb_interface.mb_integrator.bc_count_readout,
---        probe_in38(7 downto 6) => s_clkin_in.gbt_encoder_interface.data_phase_sync,
---        probe_in38(5 downto 4) => s_clkin_in.gbt_encoder_interface.data_phase,
---        probe_in38(3 downto 0) => s_clkin_in.db_leds, --"0000",
-        probe_in39 => s_clkin_in.db6_gbt_bank.gbt_bank_sync,
-        probe_in40 => s_clkin_in.md_number,
-        probe_in41 => p_cfgbus_interface_in.db_reg_rx(to_integer(unsigned(p_cfgbus_interface_in.db_reg_rx(cfb_loopback)(3 downto 0)))),       
-
-        probe_in42(0) => s_clkin_in.db6_sem_interface.sem_interface.status_heartbeat,
-        probe_in43(0) => s_clkin_in.db6_sem_interface.sem_interface.status_initialization,
-        probe_in44(0) => s_clkin_in.db6_sem_interface.sem_interface.status_observation,
-        probe_in45(0) => s_clkin_in.db6_sem_interface.sem_interface.status_correction,
-        probe_in46(0) => s_clkin_in.db6_sem_interface.sem_interface.status_classification,
-        probe_in47(0) => s_clkin_in.db6_sem_interface.sem_interface.status_injection,
-        probe_in48(0) => s_clkin_in.db6_sem_interface.sem_interface.status_essential,
-        
-        probe_in49(0) => s_clkin_in.db6_sem_interface.sem_interface.status_detect_only,
-        probe_in50(0) => s_clkin_in.db6_sem_interface.sem_interface.command_busy,
-        probe_in51(0) => s_clkin_in.db6_sem_interface.sem_interface.monitor_txfull,
-        probe_in52(0) => s_clkin_in.db6_sem_interface.sem_interface.status_uncorrectable,
-        probe_in53(0) => s_clkin_in.db6_sem_interface.sem_interface.status_diagnostic_scan,
-        probe_in54(0) => s_clkin_in.db6_sem_interface.sem_interface.command_strobe,
-        probe_in55 => s_clkin_in.db6_sem_interface.sem_interpreter.correctable_errors,
-        probe_in56 => s_clkin_in.db6_sem_interface.sem_interpreter.uncorrectable_errors,
-        probe_in57 => s_clkin_in.db6_sem_interface.sem_interface.command_code(39 downto 8),
-
-        probe_in58 => GLOBAL_DATE,
-        probe_in59 => GLOBAL_TIME,
-        
-        probe_in60 => s_dna_read_out,
-        probe_in61(0) => s_dna_done_out,
-        probe_in62 => s_wordclk_locked(1 downto 0),
-        probe_in63 => s_cdc_reset_array_out(1 downto 0),
-        
-        probe_out0(0) => s_reset_mb.q0,
-        probe_out0(1) => s_reset_mb.q1,
-        probe_out0(2) => s_dna_reset,
-        probe_out0(3) => s_reset_main_sm_from_vio,
-        probe_out0(4) => s_reset_clknet_from_vio,
-        probe_out0(5) => s_clknet_out.skip_main_sm,
-        
-        probe_out1(0) => s_clknet_out.force_gtx_i2c_config,
-        probe_out2 => open,
-        probe_out3 => s_gth_clksel_from_vio,
-        probe_out4 => open,
-        probe_out5 => open,
-        probe_out6 => s_clknet_out.gbt_cdc_gearbox_phase,
-        probe_out7 => open,
-        
-        probe_out8 => s_clknet_out.adc_readout_high_threshold,
-        probe_out9 => s_clknet_out.adc_readout_low_threshold,
-        probe_out10 => s_clknet_out.adc_readout_threshold_select_channel,
-        
-        probe_out11(25) => s_clknet_out.cis_enable,
-        probe_out11(24) => s_clknet_out.cis_gain, 
-        probe_out11(23 downto 12) => s_clknet_out.cis_bcid_charge,  
-        probe_out11(11 downto 0) => s_clknet_out.cis_bcid_discharge
-        
-      );
-end generate;
+-- status the top-level vio_clknet_status can't reach any other way (not part of
+-- t_db_clknet/t_db_clkin).
+p_clknet_debug_status_out.mmcm_gbt40_db6_locked <= s_mmcm_gbt40_db6.locked_out;
+p_clknet_debug_status_out.wordclk_locked        <= s_wordclk_locked(1 downto 0);
+p_clknet_debug_status_out.cdc_reset_array       <= s_cdc_reset_array_out(1 downto 0);
 
 
 end RTL;

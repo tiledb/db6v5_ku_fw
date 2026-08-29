@@ -64,34 +64,39 @@ entity db6_sfp_interface is
         p_db_reg_rx_in : in t_db_reg_rx;
         
         --ref_clks
-        --p_gth_refclk_gbtx_local_in    : in   t_diff_pair;
-        --p_gth_refclk_gbtx_remote_in    : in   t_diff_pair;
---        p_gth_txwordclk80_out            : out std_logic_vector(g_num_gth_links-1 downto 0);
---        p_gth_txwordclk40_out            : out std_logic_vector(g_num_gth_links-1 downto 0);
---        p_gth_rxwordclk40_out            : out std_logic_vector(g_num_gth_links-1 downto 0);
---        p_gth_txoutclkfabric_out         : out std_logic_vector(g_num_gth_links-1 downto 0);
---        p_gth_rxoutclkfabric_out         : out std_logic_vector(g_num_gth_links-1 downto 0);
         p_ku_mgt                         : out t_ku_mgt;
-      
-        --sfp/gth
---        p_tx_sfp_out         : out  t_mgt_diff_pair;
---        p_rx_sfp_in         : in  t_mgt_diff_pair;
-        p_tx_sfp_out  : out t_diff_pair_vector(1 downto 0);
-        p_rx_sfp_in  : in t_diff_pair_vector(0 downto 0);
+
+        -- db6_mgt now lives in db7_io_box; plain-logic pass-through to/from
+        -- db6_gbt_gth_interface (see that file's header for the port meanings).
+        p_ku_mgt_in                      : in t_ku_mgt;
+        p_mgt_txusrclk_in                : in std_logic_vector(1 to g_num_gth_links);
+        p_mgt_rxusrclk_in                : in std_logic_vector(1 to g_num_gth_links);
+        p_mgt_txreset_out                : out std_logic_vector(1 to g_num_gth_links);
+        p_mgt_rxreset_out                : out std_logic_vector(1 to g_num_gth_links);
+        p_mgt_txready_in                 : in std_logic_vector(1 to g_num_gth_links);
+        p_mgt_rxready_in                 : in std_logic_vector(1 to g_num_gth_links);
+        p_mgt_headerlocked_in            : in std_logic_vector(1 to g_num_gth_links);
+        p_mgt_rstcnt_in                  : in gbt_reg8_A(1 to g_num_gth_links);
+        p_mgt_autorsten_out              : out std_logic_vector(1 to g_num_gth_links);
+        p_mgt_autorstoneven_out          : out std_logic_vector(1 to g_num_gth_links);
+        p_mgt_usrword_out                : out word_mxnbit_A(1 to g_num_gth_links);
+        p_mgt_devspec_i_out              : out mgtDeviceSpecific_i_R;
+        p_mgt_devspec_o_in               : in mgtDeviceSpecific_o_R;
 
         p_sfp_abs_in                : in std_logic_vector(1 downto 0);
         p_sfp_los_in                : in std_logic_vector(1 downto 0);
         p_sfp_tx_fault_in                : in std_logic_vector(1 downto 0);
-        
-        --p_tx_gbtx_to_fpga_out : out t_diff_pair_vector(0 downto 0);
-        p_rx_gbtx_from_fpga_in  : in t_diff_pair_vector(0 downto 0);
-        --p_rx_gbtx_tx_in  : in t_diff_pair_vector(0 downto 0);
 
-        p_sfp_i2c_scl_inout 				: inout std_logic_vector(1 downto 0);
-        p_sfp_i2c_sda_inout                 : inout std_logic_vector(1 downto 0);
+        -- IOBUF moved to db7_io_box; split O/I/T instead of inout.
+        p_sda_drive_out : out std_logic_vector(1 downto 0);
+        p_sda_tri_out   : out std_logic_vector(1 downto 0);
+        p_sda_read_in   : in  std_logic_vector(1 downto 0);
+        p_scl_drive_out : out std_logic_vector(1 downto 0);
+        p_scl_tri_out   : out std_logic_vector(1 downto 0);
+        p_scl_read_in   : in  std_logic_vector(1 downto 0);
         p_sfp_control_in                       : in t_sfp_control;
         p_sfp_interface_out             : out t_sfp_interface;
-            
+
         --tdo from other fpga
         p_tdo_remote_in	            : in	std_logic;
         
@@ -117,7 +122,15 @@ architecture Behavioral of db6_sfp_interface is
 signal s_gbt_encoder_interface : t_gbt_encoder_interface;
 signal s_sfp_interface : t_sfp_interface;
 
+-- sfp+ reg block ram port b readback: address is commanded by db_reg_rx
+-- (cfb_sfp_reg_address), value is folded into t_ku_mgt (see db6_gbt_gth_interface).
+signal s_sfp_rx_register : t_sfp_reg_addr_array;
+signal s_sfp_tx_register : t_sfp_reg_data_array;
+
 begin
+
+s_sfp_rx_register(0) <= p_db_reg_rx_in(cfb_sfp_reg_address)(6 downto 0);
+s_sfp_rx_register(1) <= p_db_reg_rx_in(cfb_sfp_reg_address)(14 downto 8);
 
 
 i_db6_gbt_gth_interface : entity tilecal.db6_gbt_gth_interface
@@ -143,24 +156,23 @@ i_db6_gbt_gth_interface : entity tilecal.db6_gbt_gth_interface
         p_db_reg_rx_in => p_db_reg_rx_in,
         p_gbt_encoder_interface_out => p_gbt_encoder_interface_out,
         
-        --refclk inputs
---        p_gth_refclk_gbtx_local_in    => p_gth_refclk_gbtx_local_in,
---        p_gth_refclk_gbtx_remote_in    => p_gth_refclk_gbtx_remote_in,
---        p_gth_txwordclk80_out       => p_gth_txwordclk80_out,
---        p_gth_txwordclk40_out       => p_gth_txwordclk40_out,
---        p_gth_rxwordclk40_out       => p_gth_rxwordclk40_out,
---        p_gth_txoutclkfabric_out => p_gth_txoutclkfabric_out,
---        p_gth_rxoutclkfabric_out => p_gth_rxoutclkfabric_out,
         p_ku_mgt                     => p_ku_mgt,
-        
-        --sfp/gth
-        p_tx_sfp_out  => p_tx_sfp_out,
-        p_rx_sfp_in  => p_rx_sfp_in,
-        
-        --p_tx_gbtx_to_fpga_out => p_tx_gbtx_to_fpga_out,
-        p_rx_gbtx_from_fpga_in => p_rx_gbtx_from_fpga_in,
-        --p_rx_gbtx_tx_in => p_rx_gbtx_tx_in,
-                
+
+        p_ku_mgt_in              => p_ku_mgt_in,
+        p_mgt_txusrclk_in        => p_mgt_txusrclk_in,
+        p_mgt_rxusrclk_in        => p_mgt_rxusrclk_in,
+        p_mgt_txreset_out        => p_mgt_txreset_out,
+        p_mgt_rxreset_out        => p_mgt_rxreset_out,
+        p_mgt_txready_in         => p_mgt_txready_in,
+        p_mgt_rxready_in         => p_mgt_rxready_in,
+        p_mgt_headerlocked_in    => p_mgt_headerlocked_in,
+        p_mgt_rstcnt_in          => p_mgt_rstcnt_in,
+        p_mgt_autorsten_out      => p_mgt_autorsten_out,
+        p_mgt_autorstoneven_out  => p_mgt_autorstoneven_out,
+        p_mgt_usrword_out        => p_mgt_usrword_out,
+        p_mgt_devspec_i_out      => p_mgt_devspec_i_out,
+        p_mgt_devspec_o_in       => p_mgt_devspec_o_in,
+
         --tdo from remote fpga
         p_tdo_remote_in => p_tdo_remote_in,
         
@@ -173,7 +185,9 @@ i_db6_gbt_gth_interface : entity tilecal.db6_gbt_gth_interface
         p_serial_id_interface_in => p_serial_id_interface_in,
         p_db6_sem_interface_in => p_db6_sem_interface_in,
         p_cfgbus_interface_in => p_cfgbus_interface_in,
-        p_sfp_interface_in => s_sfp_interface
+        p_sfp_interface_in => s_sfp_interface,
+
+        p_sfp_tx_register_in => s_sfp_tx_register
   );
 
 
@@ -199,17 +213,17 @@ i_db6_sfp_i2c_control : entity tilecal.db6_sfp_i2c_control
     p_sfp_los_in           => p_sfp_los_in,
     p_sfp_tx_fault_in      => p_sfp_tx_fault_in,
     
-    p_sfp_i2c_scl_inout    => p_sfp_i2c_scl_inout,
-    p_sfp_i2c_sda_inout    => p_sfp_i2c_sda_inout,
-    p_sfp_i2c_interface_out    => s_sfp_interface.i2c_interface 
+    p_sda_drive_out => p_sda_drive_out,
+    p_sda_tri_out   => p_sda_tri_out,
+    p_sda_read_in   => p_sda_read_in,
+    p_scl_drive_out => p_scl_drive_out,
+    p_scl_tri_out   => p_scl_tri_out,
+    p_scl_read_in   => p_scl_read_in,
+    p_sfp_i2c_interface_out    => s_sfp_interface.i2c_interface,
+
+    p_rx_register_in  => s_sfp_rx_register,
+    p_tx_register_out => s_sfp_tx_register
 
     );
-
---p_leds_out(3) <= (p_master_reset_in);
---p_leds_out(2) <= (p_master_reset_in);
---p_leds_out(1) <= (p_master_reset_in);
---p_leds_out(0) <= (p_master_reset_in);
-
-
 
 end Behavioral;

@@ -38,7 +38,7 @@ entity db6_gbtx_interface is
     p_clknet_in 		: in t_db_clknet;
     p_master_reset_in  : in std_logic_vector(31 downto 0);
     
-    p_cfgbus_data_local_in       : in t_cfgbus_data_in;
+    p_cfgbus_data_local_in       : in t_cfgbus_bitslice; -- plain logic; IO primitives in db6_cfgbus_interface_io_iddr.vhd, instantiated from db7_io_box
 --    p_cfgbus_data_remote_in       : in t_cfgbus_data_in;      
     --p_db_reg_rx_out      : out t_db_reg_rx;
     p_cfgbus_interface : out t_cfgbus_interface;
@@ -49,8 +49,13 @@ entity db6_gbtx_interface is
     p_gbtx_i2c_rem_enable_out   : out std_logic;
     p_gbtx_control_in : in t_gbtx_control;
     p_gbtx_interface_out : out t_gbtx_interface;
-    p_scl_inout 	: inout std_logic_vector(0 downto 0);
-    p_sda_inout    : inout std_logic_vector(0 downto 0);
+    -- IOBUF moved to db7_io_box; split O/I/T instead of inout.
+    p_sda_drive_out : out std_logic_vector(0 downto 0);
+    p_sda_tri_out   : out std_logic_vector(0 downto 0);
+    p_sda_read_in   : in  std_logic_vector(0 downto 0);
+    p_scl_drive_out : out std_logic_vector(0 downto 0);
+    p_scl_tri_out   : out std_logic_vector(0 downto 0);
+    p_scl_read_in   : in  std_logic_vector(0 downto 0);
     p_gbtx_configsel_out : out std_logic_vector(0 downto 0);
         
     p_leds_out : out std_logic_vector(3 downto 0)
@@ -62,15 +67,7 @@ signal s_gbtx_control : t_gbtx_control;
 begin
 
 p_gbtx_configsel_out(0) <= (not p_db_reg_rx_in(cfb_gbtx_reg_config)(c_gbtxb_configsel_bit));-- & (not p_db_reg_rx_in(cfb_gbtx_reg_config)(c_gbtxa_configsel_bit));
---s_gbtx_control.gbtx_default_config <= p_db_reg_rx_in(cfb_gbtx_reg_config)(c_gbtx_default_config_bit);
---s_gbtx_control.gbtx_trigger_i2c_operation <= p_db_reg_rx_in(cfb_gbtx_reg_config)(c_gbtx_trigger_i2c_operation_bit);
---s_gbtx_control.gbtx_i2c_read_write_operation <= p_db_reg_rx_in(cfb_gbtx_reg_config)(26);
 p_gbtx_i2c_rem_enable_out <= '0';
---s_gbtx_control.gbtx_reset <= '0';
---s_gbtx_control.gbtx_default_config <= '0';
---s_gbtx_control.gbtx_i2c_read_write_operation <= '0';
---s_gbtx_control.gbtx_trigger_i2c_operation <= '0';
---s_gbtx_control.wipe_gbtx_registers <= '0';
 proc_gbtx_control: process(p_db_reg_rx_in(cfb_gbtx_reg_config)(c_gbtx_control_bit ))
 begin
     if p_db_reg_rx_in(cfb_gbtx_reg_config)(29) = '0' then
@@ -94,8 +91,12 @@ i_db6_gbtx_i2c_interface : entity tilecal.db6_gbtx_i2c_interface_testbeam
         
         p_gbtx_control_in => s_gbtx_control,
         p_gbtx_interface_out => p_gbtx_interface_out,
-        p_scl_inout =>p_scl_inout(0),
-        p_sda_inout =>p_sda_inout(0),
+        p_sda_drive_out => p_sda_drive_out(0),
+        p_sda_tri_out   => p_sda_tri_out(0),
+        p_sda_read_in   => p_sda_read_in(0),
+        p_scl_drive_out => p_scl_drive_out(0),
+        p_scl_tri_out   => p_scl_tri_out(0),
+        p_scl_read_in   => p_scl_read_in(0),
             
         p_leds_out => open
 );

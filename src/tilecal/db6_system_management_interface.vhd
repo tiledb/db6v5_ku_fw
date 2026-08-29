@@ -29,8 +29,8 @@ use IEEE.NUMERIC_STD.ALL;
 
 -- Uncomment the following library declaration if instantiating
 -- any Xilinx leaf cells in this code.
---library UNISIM;
---use UNISIM.VComponents.all;
+library UNISIM;
+use UNISIM.VComponents.all;
 
 library tilecal;
 use tilecal.db6_design_package.all;
@@ -41,11 +41,16 @@ entity db6_system_management_interface is
     p_master_reset_in : in std_logic;
     p_db_reg_rx_in : in t_db_reg_rx;
     
-    --xadc pins to top level
-    p_xadc_analog_in : in t_xadc_analog_in;
+    --xadc: plain logic; system_management IP (with the analog pads and i2c inout
+    --it owns directly) now lives in db7_io_box.
     p_pgood_in       : in t_p_pgood_in;
-    
-    
+    p_xadc_control_out : out t_xadc_control; -- di_in/daddr_in/den_in/dwe_in/dclk_in/reset_in, to the IP
+    p_xadc_control_in  : in  t_xadc_control; -- drdy_out/do_out/alarms/status, from the IP
+
+    -- device DNA (db6_ku_dna, moved here from db6_clock_interface); manual re-read
+    -- trigger from the top-level debug vio, ORed with this module's own master reset
+    p_dna_reset_in : in std_logic;
+
     --output
     p_system_management_interface_out : out t_system_management_interface; 
     
@@ -60,73 +65,8 @@ architecture Behavioral of db6_system_management_interface is
 attribute keep : string;
 attribute dont_touch : string;
 
---https://www.xilinx.com/support/documentation/user_guides/ug580-ultrascale-sysmon.pdf
-COMPONENT system_management
-  PORT (
-    di_in : IN STD_LOGIC_VECTOR(15 DOWNTO 0);
-    daddr_in : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
-    den_in : IN STD_LOGIC;
-    dwe_in : IN STD_LOGIC;
-    drdy_out : OUT STD_LOGIC;
-    do_out : OUT STD_LOGIC_VECTOR(15 DOWNTO 0);
-    dclk_in : IN STD_LOGIC;
-    reset_in : IN STD_LOGIC;
-    vp : IN STD_LOGIC;
-    vn : IN STD_LOGIC;
-    vauxp0 : IN STD_LOGIC;
-    vauxn0 : IN STD_LOGIC;
-    vauxp1 : IN STD_LOGIC;
-    vauxn1 : IN STD_LOGIC;
-    vauxp2 : IN STD_LOGIC;
-    vauxn2 : IN STD_LOGIC;
-    vauxp3 : IN STD_LOGIC;
-    vauxn3 : IN STD_LOGIC;
-    vauxp4 : IN STD_LOGIC;
-    vauxn4 : IN STD_LOGIC;
-    vauxp5 : IN STD_LOGIC;
-    vauxn5 : IN STD_LOGIC;
-    vauxp6 : IN STD_LOGIC;
-    vauxn6 : IN STD_LOGIC;
-    vauxp7 : IN STD_LOGIC;
-    vauxn7 : IN STD_LOGIC;
-    vauxp8 : IN STD_LOGIC;
-    vauxn8 : IN STD_LOGIC;
-    vauxp9 : IN STD_LOGIC;
-    vauxn9 : IN STD_LOGIC;
-    vauxp10 : IN STD_LOGIC;
-    vauxn10 : IN STD_LOGIC;
-    vauxp11 : IN STD_LOGIC;
-    vauxn11 : IN STD_LOGIC;
-    vauxp12 : IN STD_LOGIC;
-    vauxn12 : IN STD_LOGIC;
-    vauxp13 : IN STD_LOGIC;
-    vauxn13 : IN STD_LOGIC;
-    vauxp14 : IN STD_LOGIC;
-    vauxn14 : IN STD_LOGIC;
-    vauxp15 : IN STD_LOGIC;
-    vauxn15 : IN STD_LOGIC;
-    user_temp_alarm_out : OUT STD_LOGIC;
-    vccint_alarm_out : OUT STD_LOGIC;
-    vccaux_alarm_out : OUT STD_LOGIC;
-    user_supply0_alarm_out : OUT STD_LOGIC;
-    user_supply1_alarm_out : OUT STD_LOGIC;
-    user_supply2_alarm_out : OUT STD_LOGIC;
-    --user_supply3_alarm_out : OUT STD_LOGIC;
-    ot_out : OUT STD_LOGIC;
-    channel_out : OUT STD_LOGIC_VECTOR(5 DOWNTO 0);
-    muxaddr_out : OUT STD_LOGIC_VECTOR(4 DOWNTO 0);
-    eoc_out : OUT STD_LOGIC;
-    vbram_alarm_out : OUT STD_LOGIC;
-    alarm_out : OUT STD_LOGIC;
-    eos_out : OUT STD_LOGIC;
-    busy_out : OUT STD_LOGIC;
-    jtaglocked_out : OUT STD_LOGIC;
-    jtagmodified_out : OUT STD_LOGIC;
-    jtagbusy_out : OUT STD_LOGIC
-    --i2c_sda : INOUT STD_LOGIC;
-    --i2c_sclk : INOUT STD_LOGIC
-  );
-END COMPONENT;
+-- system_management IP component/instance moved to db7_io_box (owns the analog
+-- pads and i2c inout directly, per https://www.xilinx.com/support/documentation/user_guides/ug580-ultrascale-sysmon.pdf).
 
 --signal s_xadc_data : t_xadc_data;
 --signal s_xadc_voltages : t_xadc_voltages;
@@ -208,9 +148,43 @@ PORT (
 );
 END COMPONENT  ;
 
+signal s_xadc_clk40 : std_logic;
+
+signal s_dna_read_out : std_logic_vector(95 downto 0);
+signal s_dna_done_out : std_logic;
+
 begin
 
-s_xadc_control.dclk_in <= p_clknet_in.cfgbus_clk40;
+i_db6_ku_dna : entity tilecal.db6_ku_dna
+    port map (
+        p_clk_in         => p_clknet_in.osc_clk40,
+        p_reset_in       => p_dna_reset_in or p_master_reset_in,
+        p_done_out       => s_dna_done_out,
+        p_dna_value_out  => s_dna_read_out
+    );
+
+p_system_management_interface_out.ku_dna      <= s_dna_read_out;
+p_system_management_interface_out.ku_dna_done <= s_dna_done_out;
+
+
+-- BUFGMUX: Global Clock Mux Buffer
+--          7 Series
+-- Xilinx HDL Language Template, version 2026.1
+
+-- BUFGMUX: Global Clock Mux Buffer
+--          7 Series
+-- Xilinx HDL Language Template, version 2026.1
+
+--i_bufgmux : BUFGMUX
+--port map (
+--    o=>s_xadc_clk40,
+--    i0=>p_clknet_in.osc_clk40,
+--    i1=>p_clknet_in.cfgbus_clk40,
+--    s=>p_clknet_in.gbtx_rxready(0)
+--);
+
+s_xadc_clk40 <= p_clknet_in.osc_clk40;
+s_xadc_control.dclk_in <= s_xadc_clk40; --p_clknet_in.cfgbus_clk40;
 s_xadc_control.di_in <= (others => '0');
 
 --p_system_management_interface_out.xadc_voltages <= s_xadc_voltages;
@@ -263,71 +237,32 @@ p_system_management_interface_out.p_good <= s_pgood;
 
 p_system_management_interface_out.xadc_control <= s_xadc_control;
 
-i_system_management : system_management
-  PORT MAP (
-    di_in => s_xadc_control.di_in,
-    daddr_in => s_xadc_control.daddr_in,
-    den_in => s_xadc_control.den_in,
-    dwe_in => s_xadc_control.dwe_in,
-    drdy_out => s_xadc_control.drdy_out,
-    do_out => s_xadc_control.do_out,
-    dclk_in => s_xadc_control.dclk_in,
-    reset_in => s_xadc_control.reset_in,
-    vp => p_xadc_analog_in.v.p,
-    vn => p_xadc_analog_in.v.n,
-    vauxp0 => p_xadc_analog_in.vaux0.p,
-    vauxn0 => p_xadc_analog_in.vaux0.n,
-    vauxp1 => p_xadc_analog_in.vaux1.p,
-    vauxn1 => p_xadc_analog_in.vaux1.n,
-    vauxp2 => p_xadc_analog_in.vaux2.p,
-    vauxn2 => p_xadc_analog_in.vaux2.n,
-    vauxp3 => p_xadc_analog_in.vaux3.p,
-    vauxn3 => p_xadc_analog_in.vaux3.n,
-    vauxp4 => p_xadc_analog_in.vaux4.p,
-    vauxn4 => p_xadc_analog_in.vaux4.n,
-    vauxp5 => p_xadc_analog_in.vaux5.p,
-    vauxn5 => p_xadc_analog_in.vaux5.n,
-    vauxp6 => p_xadc_analog_in.vaux6.p,
-    vauxn6 => p_xadc_analog_in.vaux6.n,
-    vauxp7 => p_xadc_analog_in.vaux7.p,
-    vauxn7 => p_xadc_analog_in.vaux7.n,
-    vauxp8 => p_xadc_analog_in.vaux8.p,
-    vauxn8 => p_xadc_analog_in.vaux8.n,
-    vauxp9 => p_xadc_analog_in.vaux9.p,
-    vauxn9 => p_xadc_analog_in.vaux9.n,
-    vauxp10 => p_xadc_analog_in.vaux10.p,
-    vauxn10 => p_xadc_analog_in.vaux10.n,
-    vauxp11 => p_xadc_analog_in.vaux11.p,
-    vauxn11 => p_xadc_analog_in.vaux11.n,
-    vauxp12 => p_xadc_analog_in.vaux12.p,
-    vauxn12 => p_xadc_analog_in.vaux12.n,
-    vauxp13 => p_xadc_analog_in.vaux13.p,
-    vauxn13 => p_xadc_analog_in.vaux13.n,
-    vauxp14 => p_xadc_analog_in.vaux14.p,
-    vauxn14 => p_xadc_analog_in.vaux14.n,
-    vauxp15 => p_xadc_analog_in.vaux15.p,
-    vauxn15 => p_xadc_analog_in.vaux15.n,
-    user_temp_alarm_out => s_xadc_control.user_temp_alarm_out,
-    vccint_alarm_out => s_xadc_control.vccint_alarm_out,
-    vccaux_alarm_out => s_xadc_control.vccaux_alarm_out,
-    user_supply0_alarm_out => s_xadc_control.user_supply0_alarm_out,
-    user_supply1_alarm_out => s_xadc_control.user_supply1_alarm_out,
-    user_supply2_alarm_out => s_xadc_control.user_supply2_alarm_out,
-    --user_supply3_alarm_out => s_xadc_control.user_supply3_alarm_out,
-    ot_out => s_xadc_control.ot_out,
-    channel_out => s_xadc_control.channel_out,
-    muxaddr_out => s_xadc_control.muxaddr_out,
-    eoc_out => s_xadc_control.eoc_out,
-    vbram_alarm_out => s_xadc_control.vbram_alarm_out,
-    alarm_out => s_xadc_control.alarm_out,
-    eos_out => s_xadc_control.eos_out,
-    busy_out => s_xadc_control.busy_out,
-    jtaglocked_out => s_xadc_control.jtaglocked_out,
-    jtagmodified_out => s_xadc_control.jtagmodified_out,
-    jtagbusy_out => s_xadc_control.jtagbusy_out
---    i2c_sda => s_xadc_control.i2c_sda,
---    i2c_sclk => s_xadc_control.i2c_sclk
-  );
+-- system_management IP now instantiated in db7_io_box. Command fields
+-- (di_in/daddr_in/den_in/dwe_in/dclk_in/reset_in) are computed by this file's own
+-- logic below and relayed out whole-record; status/data fields the IP produces are
+-- merged back in individually (never both directions on the same field, to avoid
+-- putting two drivers on the same bits -- same pattern as the GT/MGT extraction).
+p_xadc_control_out <= s_xadc_control;
+
+s_xadc_control.drdy_out               <= p_xadc_control_in.drdy_out;
+s_xadc_control.do_out                 <= p_xadc_control_in.do_out;
+s_xadc_control.user_temp_alarm_out    <= p_xadc_control_in.user_temp_alarm_out;
+s_xadc_control.vccint_alarm_out       <= p_xadc_control_in.vccint_alarm_out;
+s_xadc_control.vccaux_alarm_out       <= p_xadc_control_in.vccaux_alarm_out;
+s_xadc_control.user_supply0_alarm_out <= p_xadc_control_in.user_supply0_alarm_out;
+s_xadc_control.user_supply1_alarm_out <= p_xadc_control_in.user_supply1_alarm_out;
+s_xadc_control.user_supply2_alarm_out <= p_xadc_control_in.user_supply2_alarm_out;
+s_xadc_control.ot_out                 <= p_xadc_control_in.ot_out;
+s_xadc_control.channel_out            <= p_xadc_control_in.channel_out;
+s_xadc_control.muxaddr_out            <= p_xadc_control_in.muxaddr_out;
+s_xadc_control.eoc_out                <= p_xadc_control_in.eoc_out;
+s_xadc_control.vbram_alarm_out        <= p_xadc_control_in.vbram_alarm_out;
+s_xadc_control.alarm_out              <= p_xadc_control_in.alarm_out;
+s_xadc_control.eos_out                <= p_xadc_control_in.eos_out;
+s_xadc_control.busy_out               <= p_xadc_control_in.busy_out;
+s_xadc_control.jtaglocked_out         <= p_xadc_control_in.jtaglocked_out;
+s_xadc_control.jtagmodified_out       <= p_xadc_control_in.jtagmodified_out;
+s_xadc_control.jtagbusy_out           <= p_xadc_control_in.jtagbusy_out;
 
 
 p_system_management_interface_out.xadc_new_conversion <= s_new_conversion;
@@ -338,12 +273,12 @@ s_xadc_control.reset_in <= p_master_reset_in;
 s_xadc_control.den_in <= '1';
 s_xadc_control.dwe_in <= '0';
 
-proc_read_xadc : process (p_clknet_in.cfgbus_clk40)
+proc_read_xadc : process(s_xadc_clk40) -- (p_clknet_in.cfgbus_clk40)
 
 
   begin
-    if rising_edge(p_clknet_in.cfgbus_clk40) then
-
+    --if rising_edge(p_clknet_in.cfgbus_clk40) then
+    if rising_edge(s_xadc_clk40) then
         p_leds_out <= "0000";--s_xadc_data.temperature(15) & (s_xadc_data.temperature(14) or s_xadc_data.temperature(13) or s_xadc_data.temperature(12)) & s_xadc_data.temperature(11) & s_xadc_data.temperature(10);
         
         -- xadc is running in continuous mode, so check each clock cycle for a new end-of-conversion

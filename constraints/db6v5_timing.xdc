@@ -124,3 +124,4 @@ set_clock_groups -asynchronous -group [get_clocks {p_gbt_cfgbus_clk40_local_in[p
 
 set_clock_groups -asynchronous -group [get_clocks {p_gbt_cfgbus_clk40_local_in[p]}] -group [get_clocks p_clk200_out_pll_osc_clk]
 
+

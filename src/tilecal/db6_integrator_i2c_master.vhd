@@ -42,20 +42,19 @@ PORT(
 	busy      : OUT    STD_LOGIC;                    --indicates transaction in progress
 	data_rd   : OUT    STD_LOGIC_VECTOR(7 DOWNTO 0); --data read from slave
 	ack_error : INOUT STD_LOGIC;                    --flag if improper acknowledge from slave
-	sda       : INOUT  STD_LOGIC;                    --serial data output of i2c bus
-	scl       : INOUT  STD_LOGIC;                   --serial clock output of i2c bus
+	-- IOBUF moved to db7_io_box; split O/I/T instead of inout.
+	sda_drive_out : out std_logic;
+	sda_tri_out   : out std_logic;
+	sda_read_in   : in  std_logic;
+	scl_drive_out : out std_logic;
+	scl_tri_out   : out std_logic;
+	scl_read_in   : in  std_logic;
 	test0     : OUT  STD_LOGIC;
 	test1     : OUT  STD_LOGIC);	 
 END db6_integrator_i2c_master;
 
 
 ARCHITECTURE logic OF db6_integrator_i2c_master IS
---	CONSTANT divider  :  INTEGER := (input_clk/bus_clk)/4; --number of clocks in 1/4 cycle of scl
---	CONSTANT divider  :  INTEGER := 27; --128; --number of clocks in 1/4 cycle of scl
---	CONSTANT dx2  :  INTEGER := divider*2;--256; --number of clocks in 1/4 cycle of scl
---	CONSTANT dm1  :  INTEGER := divider-1; --127; --divider-1
---	CONSTANT dx2m1  :  INTEGER := divider*2-1;--255; --divider*2-1
---	CONSTANT dx3m1  :  INTEGER := divider*3-1;--383; --divider*3-1
 	TYPE machine IS(ready, start, command, slv_ack1, wr, rd, slv_ack2, mstr_ack, stop); --needed states
 	SIGNAL  state     :  machine;                          --state machine
 	SIGNAL  data_clk  :  STD_LOGIC;                        --clock edges for sda
@@ -75,29 +74,7 @@ ARCHITECTURE logic OF db6_integrator_i2c_master IS
 	signal s_divider : integer range 0 to 65535;
 	signal s_bit_cnt : std_logic_vector(3 downto 0);
 	signal s_count : std_logic_vector(31 downto 0);
-	
-		COMPONENT vio_integrator_i2c
-  PORT (
-    clk : IN STD_LOGIC;
-    probe_in0 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in1 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in2 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in3 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in4 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in5 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in6 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in7 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in8 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in9 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
-    probe_in10 : IN STD_LOGIC_VECTOR(6 DOWNTO 0);
-    probe_in11 : IN STD_LOGIC_VECTOR(3 DOWNTO 0);
-    probe_in12 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
-    probe_in13 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in14 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_out0 : OUT STD_LOGIC_VECTOR(0 DOWNTO 0)
-  );
-END COMPONENT;
-	
+
 BEGIN
 
 
@@ -294,45 +271,14 @@ BEGIN
 --	scl <= scl_clk WHEN scl_ena = '1' ELSE 'Z';
 --	sda <= '0' WHEN sda_ena_n = '0' ELSE 'Z';
 	scl_ena_n <= (not scl_ena) or scl_clk;
-	i_scl_IOBUF : IOBUF
-    port map (
-        O => scl_clk_in, -- 1-bit output: Buffer output
-        I => scl_clk, -- 1-bit input: Buffer input
-        IO => scl, -- 1-bit inout: Buffer inout (connect directly to top-level port)
-        T => scl_ena_n -- 1-bit input: 3-state enable input
-    );
+    -- IOBUF moved to db7_io_box.
+    scl_drive_out <= scl_clk;
+    scl_tri_out   <= scl_ena_n;
+    scl_clk_in    <= scl_read_in;
 
     --sda_int
-    i_sda_IOBUF : IOBUF
-    port map (
-        O => sda_in, -- 1-bit output: Buffer output
-        I => '0', -- 1-bit input: Buffer input
-        IO => sda, -- 1-bit inout: Buffer inout (connect directly to top-level port)
-        T => sda_ena_n -- 1-bit input: 3-state enable input
-    );
-	
-	
-	
---    s_bit_cnt <= std_logic_vector(to_unsigned(bit_cnt,4));	
---i_vio_integrator_i2c : vio_integrator_i2c
---  PORT MAP (
---    clk => clk,
---    probe_in0(0) => scl_ena_n,
---    probe_in1(0) => sda_ena_n,
---    probe_in2(0) => sda_in, --scl_clk,
---    probe_in3(0) => scl_clk_in,
---    probe_in4(0) => scl_clk,
---    probe_in5(0) => stretch,
---    probe_in6(0) => s_rising_edge, --(others => '0'),
---    probe_in7(0) => s_falling_edge, --(others => '0'),
---    probe_in8(0) => reset_n,-- (others => '0'),
---    probe_in9 => data_rx, --(others => '0'),
---    probe_in10 => addr, --(others => '0'),
---    probe_in11 => s_bit_cnt,
---    probe_in12 => s_count,
---    probe_in13(0) => ena,
---    probe_in14(0) => data_clk,
---    probe_out0 => open
---  );
-	
+    sda_drive_out <= '0';
+    sda_tri_out   <= sda_ena_n;
+    sda_in        <= sda_read_in;
+
 END logic;

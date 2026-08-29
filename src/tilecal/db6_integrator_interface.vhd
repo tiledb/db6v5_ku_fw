@@ -32,37 +32,20 @@ Port (
 	p_master_reset_in                   : IN std_logic;
     p_clknet_in                  : in    t_db_clknet;
 	p_db_reg_rx_in : in t_db_reg_rx;
-    p_integrator_sda_inout   :      inout t_mb_std_logic;
-    p_integrator_scl_inout   :      inout t_mb_std_logic; 	
+    -- IOBUF moved to db7_io_box; split O/I/T instead of inout.
+    p_integrator_sda_drive_out : out t_mb_std_logic;
+    p_integrator_sda_tri_out   : out t_mb_std_logic;
+    p_integrator_sda_read_in   : in  t_mb_std_logic;
+    p_integrator_scl_drive_out : out t_mb_std_logic;
+    p_integrator_scl_tri_out   : out t_mb_std_logic;
+    p_integrator_scl_read_in   : in  t_mb_std_logic;
     p_mb_integrator_out : out t_mb_integrator
 );
 end db6_integrator_interface;
 
 architecture Behavioral of db6_integrator_interface is
 
---signal s_mb_integrator_out : t_mb_integrator;
-
---COMPONENT ila_integrator_debug
---PORT (
---	clk : IN STD_LOGIC;
---	probe0 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
---	probe1 : IN STD_LOGIC_VECTOR(31 DOWNTO 0); 
---	probe2 : IN STD_LOGIC_VECTOR(4 DOWNTO 0); 
---	probe3 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); 
---	probe4 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); 
---	probe5 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
---	probe6 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
---	probe7 : IN STD_LOGIC_VECTOR(1 DOWNTO 0);
---	probe8 : IN STD_LOGIC_VECTOR(3 DOWNTO 0);
---	probe9 : IN STD_LOGIC_VECTOR(3 DOWNTO 0);
---	probe10 : IN STD_LOGIC_VECTOR(3 DOWNTO 0)
---);
---END COMPONENT  ;
-
---signal s_reset_o : std_logic := '0';
 begin
-
---s_reset_o <= p_db_reg_rx_in(cfb_strobe_reg)(c_integrator_reset_bit);
 
   db4_integrator_wrapper : entity tilecal.db4_integrator_wrapper
     port map(
@@ -74,10 +57,18 @@ begin
         --GBT_Integrator        => p_mb_integrator_out.gbt,
         EndOfOrbit            => p_clknet_in.bcr.bcr,
         p_end_of_read_out     => p_mb_integrator_out.end_of_read,
-        I2C_SDA(0)               => p_integrator_sda_inout.q0, --BUS_4_I2C_SDA,
-        I2C_SDA(1)               => p_integrator_sda_inout.q1,       
-        I2C_SCL(0)               => p_integrator_scl_inout.q0, --BUS_4_I2C_SCL,
-        I2C_SCL(1)               => p_integrator_scl_inout.q1,
+        I2C_SDA_DRIVE_OUT(0) => p_integrator_sda_drive_out.q0,
+        I2C_SDA_DRIVE_OUT(1) => p_integrator_sda_drive_out.q1,
+        I2C_SDA_TRI_OUT(0)   => p_integrator_sda_tri_out.q0,
+        I2C_SDA_TRI_OUT(1)   => p_integrator_sda_tri_out.q1,
+        I2C_SDA_READ_IN(0)   => p_integrator_sda_read_in.q0,
+        I2C_SDA_READ_IN(1)   => p_integrator_sda_read_in.q1,
+        I2C_SCL_DRIVE_OUT(0) => p_integrator_scl_drive_out.q0,
+        I2C_SCL_DRIVE_OUT(1) => p_integrator_scl_drive_out.q1,
+        I2C_SCL_TRI_OUT(0)   => p_integrator_scl_tri_out.q0,
+        I2C_SCL_TRI_OUT(1)   => p_integrator_scl_tri_out.q1,
+        I2C_SCL_READ_IN(0)   => p_integrator_scl_read_in.q0,
+        I2C_SCL_READ_IN(1)   => p_integrator_scl_read_in.q1,
         Integ1DataOut         => p_mb_integrator_out.integrator_data.q0, -- BUS_to_Chipscope(15 downto 0),
         Integ2DataOut         => p_mb_integrator_out.integrator_data.q1, -- BUS_to_Chipscope(31 downto 16),
         Integ1EOR			    => p_mb_integrator_out.end_of_read_quadrant.q0, -- BUS_to_Chipscope(32),
@@ -86,24 +77,5 @@ begin
         p_bc_count_readout_out => p_mb_integrator_out.bc_count_readout,
         p_integrator_adc_data_out  => p_mb_integrator_out.integrator_adc_data
       );
-
-
---i_ila_integrator_debug : ila_integrator_debug
---PORT map(
---	clk  => p_clknet_in.refclk40,
---	probe0(0) => s_mb_integrator_out.end_of_read, 
---	probe1 => p_db_reg_rx_in(cfb_integrator_interval), 
---	probe2 => (others=> '0'),
---	probe3 => s_mb_integrator_out.integrator_data.q0, 
---	probe4 => s_mb_integrator_out.integrator_data.q1, 
---	probe5(0) => p_clknet_in.bcr.bcr,
---	probe6 => s_mb_integrator_out.orbit_counter,
---	probe7(0) => s_mb_integrator_out.end_of_read_quadrant.q0,
---	probe7(1) => s_mb_integrator_out.end_of_read_quadrant.q1,
---	probe8 => (others=> '0'),
---	probe9 => (others=> '0'),
---	probe10 => (others=> '0')
---);
-
 
 end Behavioral;

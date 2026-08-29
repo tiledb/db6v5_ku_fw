@@ -112,30 +112,10 @@ architecture Behavioral of db6_adc_interface_io_iddr_bitclk280 is
     signal s_counter_array : t_counter_bitclkdiv_state;
 
     constant c_pipeline_depth : integer := 7; --c_global_pipeline_depth;
---    type t_bitslice_sr_pipeline is array (0 to c_pipeline_depth-1) of t_bitslice_sr;
---    signal s_bitslice_sr_pipeline_lg, s_bitslice_sr_pipeline_hg, s_bitslice_sr_pipeline_fc : t_bitslice_sr_pipeline;
 
-    --debug    
---    COMPONENT ila_adc_interface_iddr_io_channel
---    PORT (
---        clk : IN STD_LOGIC;
-    
---        probe0 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
---        probe1 : IN STD_LOGIC_VECTOR(1 DOWNTO 0); 
---        probe2 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
---        probe3 : IN STD_LOGIC_VECTOR(7 DOWNTO 0)
---    );
---    END COMPONENT  ;
-    
 begin
 
 p_adc_bitclk_out <= s_bitclk_se;
---p_adc_gbtx_frameclk_out <= s_frameclk_gbtx_se;
---p_adc_frameclk_out <= s_bitslice_sr_pipeline_fc(c_pipeline_depth-1);--s_bitslice_fc_sr;
---p_adc_lg_data_out <= s_bitslice_sr_pipeline_lg(c_pipeline_depth-1);--s_bitslice_lg_sr;
---p_adc_hg_data_out <= s_bitslice_sr_pipeline_hg(c_pipeline_depth-1);--s_bitslice_hg_sr;
-
-
 
 -- differential to single-ended conversion of adc inputs from fmc
 gen_adc_data_diff_to_se : for i in 0 to 5 generate

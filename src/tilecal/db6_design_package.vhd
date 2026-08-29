@@ -69,6 +69,11 @@ package db6_design_package is
         p : std_logic;
     end record;
 
+    type t_i2c_bus is record
+        sda : std_logic;
+        scl : std_logic;
+    end record;
+
     type t_i2c is record
         reset        : std_logic;
         ena_in       : std_logic;                    --latch in command
@@ -121,6 +126,11 @@ package db6_design_package is
     end record;
     
     type t_blk_mem_sfp_array is array (0 to 1) of t_blk_mem_sfp;
+
+    -- port b debug readback of the sfp reg block ram: rx_register addresses a byte
+    -- (0-127) of the A2h diagnostic region, tx_register carries that byte back out.
+    type t_sfp_reg_addr_array is array (0 to 1) of std_logic_vector(6 downto 0);
+    type t_sfp_reg_data_array is array (0 to 1) of std_logic_vector(7 downto 0);
     --t_sfp_i2c_interface_out is record
 
     type t_sfp_interface is record
@@ -387,7 +397,12 @@ end record;
         tx_wordclk : STD_LOGIC_VECTOR((c_gbt_bank_number_of_links*1-1) DOWNTO 0);
         tx_frameclk : STD_LOGIC_VECTOR((c_gbt_bank_number_of_links*1-1) DOWNTO 0);
         tx_frameclk40 : STD_LOGIC_VECTOR((c_gbt_bank_number_of_links*1-1) DOWNTO 0);
-        
+
+        -- sfp+ reg block ram port b readback value, per side (see cfb_sfp_reg_address /
+        -- stb_sfp_reg_readback); rides along with the rest of the sfp/gth status bundle
+        -- so it's visible everywhere p_sfp_ku_mgt_in already is (db6_gbt_encoder_sc etc.)
+        sfp_tx_register : t_sfp_reg_data_array;
+
     end record;
 
 
@@ -1076,7 +1091,7 @@ end record;
 	type t_gbt_reg_addr_type is array (natural range <>) of integer;
 
 --gbttx registers
-    constant c_number_of_gbttx_regs : integer := 32+1;--14+1;-- 21 + 1;
+    constant c_number_of_gbttx_regs : integer := 35+1;--14+1;-- 21 + 1;
     type t_db_reg_tx is array (integer range 0 to c_number_of_gbttx_regs-1) of std_logic_vector(31 downto 0);
     type t_db_reg_tx_lut is array (integer range 0 to c_number_of_gbttx_regs-1) of std_logic_vector(15 downto 0);
     
@@ -1124,6 +1139,11 @@ end record;
     constant stb_dna_0 : integer := 29+1;
     constant stb_running_time_status : integer := 30+1;
     constant stb_integrator_status : integer := 31+1;
+    constant stb_mb_jtag_id_q0 : integer := 32+1;
+    constant stb_mb_jtag_id_q1 : integer := 33+1;
+    -- sfp+ reg block ram port b readback (see cfb_sfp_reg_address): bits 6:0/14:8 echo the
+    -- commanded per-side address, bits 23:16/31:24 carry the resulting read value
+    constant stb_sfp_reg_readback : integer := 34+1;
 
 constant c_db_reg_tx_lut : t_db_reg_tx_lut := (
     x"0" & x"001", --stb_mb,
@@ -1169,8 +1189,11 @@ constant c_db_reg_tx_lut : t_db_reg_tx_lut := (
     x"0" & x"10D", --stb_dna_1
     x"0" & x"10E", --stb_dna_0
     x"0" & x"10F", --stb_running_time_status
-    x"0" & x"00A" --stb_integrator_status
-    );  
+    x"0" & x"00A", --stb_integrator_status
+    x"0" & x"018", --stb_mb_jtag_id_q0
+    x"0" & x"019", --stb_mb_jtag_id_q1
+    x"0" & x"01A"  --stb_sfp_reg_readback
+    );
 
 
 
@@ -1189,7 +1212,7 @@ constant c_db_reg_tx_lut : t_db_reg_tx_lut := (
         constant cfb_mb_adc_config          : integer := 1;
         constant cfb_mb_phase_config        : integer := 2;
         constant cfb_cis_config             : integer := 3;
---        constant cfb_cs_command             : integer := 4;
+        constant cfb_sfp_reg_address         : integer := 4; -- sfp+ reg block ram port b address, per side: bits 6:0 = side 0, bits 14:8 = side 1
         constant cfb_integrator_interval    : integer := 5;
         constant cfb_tx_reg_address          : integer := 6;
         constant cfb_sem_control            : integer := 7;
@@ -1325,6 +1348,8 @@ constant c_db_reg_tx_lut : t_db_reg_tx_lut := (
         constant c_db_debug_gbt_txword_phase : integer := 13;
         constant c_db_debug_cfgbus_strobe_persist : integer := 14;
         constant c_db_debug_skip_main_sm : integer :=24;
+        constant c_db_debug_mb_jtag_read_enable_q0 : integer := 25;
+        constant c_db_debug_mb_jtag_read_enable_q1 : integer := 26;
         
         --cfb_tx_control
         constant c_gbt_encoder_tx_fc_lg_bit : integer := 0;
@@ -1390,7 +1415,7 @@ constant c_db_reg_tx_lut : t_db_reg_tx_lut := (
         x"001", --cfb_mb_adc_config,
         x"002", --cfb_mb_phase_config,
         x"121", --cfb_cis_config,
-        x"004", --bc_number -- x"0e0", --cfb_cs_command,
+        x"004", --cfb_sfp_reg_address,
         x"115", --cfb_integrator_interval,
         x"006", --cfb_tx_reg_address,
         x"007", --cfb_sem_control,
@@ -1557,7 +1582,9 @@ type t_mb_interface is record
     adc_readout_control : t_adc_readout_control;
     mb_integrator : t_mb_integrator;
     cis_interface : t_cis_interface;
-end record; 
+    mb_jtag_id : t_mb_std_logic_vector_32;
+    mb_jtag_done : t_mb_std_logic;
+end record;
 
 
 
@@ -1699,8 +1726,7 @@ type t_mmcm_clk_control_array is array (0 to 1) of t_mmcm_clk_control;
         cis_gain 				: std_logic; 
         cis_bcid_charge 		: std_logic_vector(11 downto 0);  
         cis_bcid_discharge 	    : std_logic_vector(11 downto 0);
-        ku_dna                  : std_logic_vector(95 downto 0);
-    
+
         --configuration
         db_side : std_logic_vector(0 downto 0);
         md_number : std_logic_vector(3 downto 0);
@@ -1858,6 +1884,31 @@ type t_mmcm_clk_control_array is array (0 to 1) of t_mmcm_clk_control;
         gth_rxoutclkfabric_out : std_logic_vector(c_gbt_bank_number_of_links-1 downto 0);
     end record;
 
+    -- vio_clknet_status lives in db6v5_top (see db6_clock_interface.vhd header); these two
+    -- records carry exactly what it needs across the db6_clock_interface boundary: status
+    -- signals with no other home in t_db_clknet/t_db_clkin, and the handful of debug knobs
+    -- the vio used to drive directly as internal signals when it lived inside the module.
+    type t_clknet_debug_status is record
+        mmcm_gbt40_db6_locked : std_logic;
+        wordclk_locked        : std_logic_vector(1 downto 0);
+        cdc_reset_array       : std_logic_vector(1 downto 0);
+    end record;
+
+    type t_clknet_debug_control is record
+        reset_mb                             : t_mb_std_logic;
+        reset_clknet                         : std_logic;
+        skip_main_sm                         : std_logic;
+        force_gtx_i2c_config                 : std_logic;
+        gbt_cdc_gearbox_phase                : std_logic_vector(1 downto 0);
+        adc_readout_high_threshold           : std_logic_vector(11 downto 0);
+        adc_readout_low_threshold            : std_logic_vector(11 downto 0);
+        adc_readout_threshold_select_channel : std_logic_vector(2 downto 0);
+        cis_enable                           : std_logic;
+        cis_gain                             : std_logic;
+        cis_bcid_charge                      : std_logic_vector(11 downto 0);
+        cis_bcid_discharge                   : std_logic_vector(11 downto 0);
+    end record;
+
 
 
     type t_xadc_control is record
@@ -1905,7 +1956,9 @@ type t_mmcm_clk_control_array is array (0 to 1) of t_mmcm_clk_control;
         xadc_new_conversion : std_logic;
 --        xadc_data : t_xadc_data;
 --        xadc_voltages : t_xadc_voltages;
-        tmr_error : std_logic;   
+        tmr_error : std_logic;
+        ku_dna : std_logic_vector(95 downto 0);
+        ku_dna_done : std_logic;
     end record;
 
 

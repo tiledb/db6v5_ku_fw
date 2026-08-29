@@ -200,6 +200,16 @@ s_db_reg_rx_in <= p_db_reg_rx_in;
 s_db_reg_tx_in(stb_mb) <= p_mb_interface_in.mb_driver.rxword_out.q1(15 downto 0) & p_mb_interface_in.mb_driver.rxword_out.q0(15 downto 0);
 s_db_reg_tx_in(stb_mb_q0) <= "00" & p_mb_interface_in.mb_driver.txword_in(23 downto 12) & p_mb_interface_in.mb_driver.rxword_out.q0;
 s_db_reg_tx_in(stb_mb_q1) <= "00" & p_mb_interface_in.mb_driver.txword_in(23 downto 12) & p_mb_interface_in.mb_driver.rxword_out.q1;
+s_db_reg_tx_in(stb_mb_jtag_id_q0) <= p_mb_interface_in.mb_jtag_id.q0;
+s_db_reg_tx_in(stb_mb_jtag_id_q1) <= p_mb_interface_in.mb_jtag_id.q1;
+-- sfp+ reg block ram port b readback: echo the commanded address alongside the value
+-- so the far end can confirm which byte it's looking at (see cfb_sfp_reg_address)
+s_db_reg_tx_in(stb_sfp_reg_readback)(6 downto 0)   <= s_db_reg_rx_in(cfb_sfp_reg_address)(6 downto 0);
+s_db_reg_tx_in(stb_sfp_reg_readback)(7)            <= '0';
+s_db_reg_tx_in(stb_sfp_reg_readback)(14 downto 8)  <= s_db_reg_rx_in(cfb_sfp_reg_address)(14 downto 8);
+s_db_reg_tx_in(stb_sfp_reg_readback)(15)           <= '0';
+s_db_reg_tx_in(stb_sfp_reg_readback)(23 downto 16) <= p_sfp_ku_mgt_in.sfp_tx_register(0);
+s_db_reg_tx_in(stb_sfp_reg_readback)(31 downto 24) <= p_sfp_ku_mgt_in.sfp_tx_register(1);
 --s_db_reg_tx_in(stb_db_cfbstrobe) <= s_db_reg_rx_in(cfb_strobe_reg);
 s_db_reg_tx_in(stb_db_debug) <= s_db_reg_rx_in(cfb_db_debug);
 s_db_reg_tx_in(stb_db_fwversion) <= c_fw_version;-- x"EDEDEDED";
@@ -209,9 +219,9 @@ s_db_reg_tx_in(stb_pgood_reg)(27) <= p_clknet_in.db_side(0);
 s_db_reg_tx_in(stb_loopback) <= s_db_reg_rx_in(cfb_loopback);
 
 
-s_db_reg_tx_in(stb_dna_2) <=p_clknet_in.ku_dna(31+32+32 downto 32+32);
-s_db_reg_tx_in(stb_dna_1) <=p_clknet_in.ku_dna(31+32 downto 32);
-s_db_reg_tx_in(stb_dna_0) <=p_clknet_in.ku_dna(31 downto 0);
+s_db_reg_tx_in(stb_dna_2) <=p_system_management_interface_in.ku_dna(31+32+32 downto 32+32);
+s_db_reg_tx_in(stb_dna_1) <=p_system_management_interface_in.ku_dna(31+32 downto 32);
+s_db_reg_tx_in(stb_dna_0) <=p_system_management_interface_in.ku_dna(31 downto 0);
 
 
 s_db_reg_tx_in(stb_sfp0_reg)(c_sfp_status_mod_los_bit) <= p_sfp_interface_in.mod_los(0);
@@ -306,27 +316,6 @@ end generate;
         s_db_reg_tx_in(stb_HOG_SHA) <= HOG_SHA; -- 32 bit Hog submodule git commit hash (SHA).
 --        s_db_reg_tx_in(stb_XML_VER) <= XML_VER; -- 32 bit (optional) IPbus xml version. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
 --        s_db_reg_tx_in(stb_XML_SHA) <= XML_SHA; -- 32 bit (optional) IPbus xml git commit hash (SHA).
-
---    i_blk_mem_gbt_sc : blk_mem_gbt_sc
---      PORT MAP (
---        clka => s_blk_mem_gbt_sc.clka,
---        wea => s_blk_mem_gbt_sc.wea,
---        addra => s_blk_mem_gbt_sc.addra,
---        dina => s_blk_mem_gbt_sc.dina,
---        douta => s_blk_mem_gbt_sc.douta,
---        clkb => s_blk_mem_gbt_sc.clkb,
---        web => s_blk_mem_gbt_sc.web,
---        addrb => s_blk_mem_gbt_sc.addrb,
---        dinb => s_blk_mem_gbt_sc.dinb,
---        doutb => s_blk_mem_gbt_sc.doutb
---      );
-      
---      s_blk_mem_gbt_sc.clka<=p_clknet_in.cfgbus_clk40;
---      s_blk_mem_gbt_sc.wea(0)<='1';
---      s_blk_mem_gbt_sc.clkb<=p_clknet_in.cfgbus_clk40;
---      s_blk_mem_gbt_sc.web(0)<='0';
-      
-
 
     proc_sync : process(p_clknet_in.cfgbus_clk40)
     begin
@@ -557,20 +546,6 @@ end generate;
         end if;
     end process;
     
---    i_xadc_blk_mem : xadc_blk_mem
---      PORT MAP (
---        clka => p_clknet_in.refclk40,
---        wea(0) => p_system_management_interface_in.xadc_new_conversion,--"1",
---        addra => p_system_management_interface_in.xadc_channel(4 downto 0),-- std_logic_vector(to_unsigned(p_system_management_interface_in.xadc_channel,5)),
---        dina => p_system_management_interface_in.xadc_channel_voltage,
-----        douta => s_xadc_channel_voltage_debug, --open,
---        clkb => p_clknet_in.refclk40,
-----        web => "0",
---        addrb => std_logic_vector(to_unsigned(s_xadc_channel,5)),
-----        dinb => (others=> '0'),
---        doutb => s_xadc_channel_voltage
---      );
-    
     proc_sc_data_tx: process(p_clknet_in.cfgbus_clk40, p_master_reset_in, p_clknet_in.locked_db, p_sfp_ku_mgt_in.gtwiz_reset_tx_done_out, s_db_reg_rx_in(cfb_strobe_reg)(c_gbt_encoder_reset_bit))--process(p_clknet_in.refclk40)
         
         begin
@@ -611,55 +586,6 @@ end generate;
 --                        end if;
                end if;                                  
         end if;
-    end process;  
-
-
-
-
-
---debug
-
---i_ila_blk_mem_gbt_sc : ila_blk_mem_gbt_sc
---PORT MAP (
---	clk => p_clknet_in.cfgbus_clk40,
-
-
-
---	probe0 => s_blk_mem_gbt_sc.wea, 
---	probe1 => s_blk_mem_gbt_sc.addra, 
---	probe2 => s_blk_mem_gbt_sc.dina, 
---	probe3 => s_blk_mem_gbt_sc.douta, 
---	probe4 => s_blk_mem_gbt_sc.web, 
---	probe5 => s_blk_mem_gbt_sc.addrb, 
---	probe6 => s_blk_mem_gbt_sc.dinb, 
---	probe7 => s_blk_mem_gbt_sc.doutb, 
---	probe8 => s_sc_address_out, 
---	probe9 => s_sc_data_out, 
---	probe10(3 downto 2) => s_sc_switch_out(1),
---	probe10(1 downto 0) => s_sc_switch_out(0),
---	probe11(31 downto 16) => s_sc_tx_out(1),
---    probe11(15 downto 0) => s_sc_tx_out(1), 
- 
---	probe12 => s_sc_address_tx, 
---	probe13 => s_sc_data_tx, 
---	probe14(0) => s_sending,
---	probe15(0) => p_clknet_in.bcr.bcr
---);
-
---i_ila_xadc_encoder_sc : ila_xadc_encoder_sc
---PORT MAP (
---	clk => p_clknet_in.refclk40,
-	
---	probe0(0) => p_system_management_interface_in.xadc_new_conversion,--"1", 
---	probe1 => p_system_management_interface_in.xadc_channel(4 downto 0),--std_logic_vector(to_unsigned(p_system_management_interface_in.xadc_channel,5)), 
---	probe2 => p_system_management_interface_in.xadc_channel_voltage,
---	probe3 => s_xadc_channel_voltage_debug, --(others=> '0'), 
---	probe4 => "0", 
---	probe5 => std_logic_vector(to_unsigned(s_xadc_channel,5)), 
---	probe6 => std_logic_vector(to_unsigned(s_sc_address,16)), --(others=> '0'), 
---	probe7 => s_xadc_channel_voltage, 
---	probe8 => s_sc_address_out,
---	probe9 => s_sc_data_out
---);
+    end process;
 
 end Behavioral;

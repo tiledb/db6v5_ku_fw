@@ -62,9 +62,6 @@ architecture Behavioral of db4_integrator_main is
 	type state_request is (idle, requestch0, requestch1, requestch2,endch0,endch1,endch2);
 	signal current_rq, next_rq   : state_request;
 
---	type state_transmit is (idle_tx, transmit_chid, transmit_data1, transmit_data2, transmit_data3,transmit_data4, endoftransmit, waitbcr);
---	signal current_tx, next_tx   : state_transmit;
-
 	signal s_bc_count_readout, s_bc_count_readout_reg : std_logic_vector(31 downto 0) := x"00000000"; 
 	signal Orbit_cnt, Readout_rate : std_logic_vector(7 downto 0) := x"00";
 	signal ResetOrbitCnt : std_logic;
@@ -279,93 +276,5 @@ begin
             end case;
         end if;    
     end process;
-
-    ---------------------------------------------------------
-    --- STATE MACHINE TO SEND THE INTEGRATOR DATA TO sROD ----
-    ---------------------------------------------------------
-    
-    
---    process(clk80)
---    begin
---    if (rising_edge(clk80)) then
---        if (reset='1') then
---            current_tx <= idle_tx;
---        else
-        
-----            if (current_tx = idle_tx) then
-----                chid <= "0000";
-----            elsif (current_tx = endoftransmit) then
-----                chid <= chid + '1';
-----            else 
-----                chid <= chid;
-----            end if;
-----            current_tx <= next_tx;
-
-        
-    
---    --- Update channel identification
-
-        
---        case current_tx is
---                when idle_tx => 
---                stateB <= x"1";
---                GBT_Integrator <= "00000";
---                if (current_rq = endch2) then
---                    current_tx <= transmit_chid;
---                else
---                    current_tx <= idle_tx;
---                end if;
-            
---            when transmit_chid =>
---                stateB <= x"2";
---                GBT_Integrator <= "1" & chid;
---                current_tx <= transmit_data1;
-            
---            when transmit_data1 =>
---                    stateB <= x"3";
---                GBT_Integrator <= "1" & DataCh(to_integer(unsigned(chid)))(3 downto 0);
---                current_tx <= transmit_data2;
-                
---            when transmit_data2 =>
---                    stateB <= x"4";
---                GBT_Integrator <= "1" & DataCh(to_integer(unsigned(chid)))(7 downto 4);
---                current_tx <= transmit_data3;
-                
---            when transmit_data3 =>
---                    stateB <= x"5";
---                GBT_Integrator <= "1" & DataCh(to_integer(unsigned(chid)))(11 downto 8);
---                current_tx <= transmit_data4;
---    --			current_tx <= endoftransmit;	
-    
---            when transmit_data4 =>
---                    stateB <= x"6";
---                GBT_Integrator <= "1" & DataCh(to_integer(unsigned(chid)))(15 downto 12);
---                current_tx <= endoftransmit;
-                
---            when endoftransmit  =>
---                    stateB <= x"f";
---                GBT_Integrator <= "00000";
---                if(chid=x"5") then
---                    current_tx <= waitbcr;
---                else
---                    chid <= std_logic_vector(to_unsigned((to_integer(unsigned(chid))) + 1,4));
---                    current_tx <= transmit_chid;
---                end if;
---            when waitbcr =>
---                    chid <= "0000"; 
---                    stateB <= x"d";                   
---                GBT_Integrator <= "00000";
---                    if EndOfOrbit = '1' then
---                        current_tx <= idle_tx;
---                    end if;
---            end case;
-        
---        end if;
---    end if;
---    end process;
-    
-		
-	
-
 
 end Behavioral;

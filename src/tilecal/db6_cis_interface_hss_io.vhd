@@ -40,7 +40,6 @@ entity db6_cis_interface_hss_io is
         p_clknet_in                        : in t_db_clknet;
         p_db_reg_rx_in                     : in t_db_reg_rx; 
         p_master_reset_in       : in  std_logic;
---        p_cis_wordclk_out           : out std_logic;
         p_tph_out               : out t_mb_diff_pair;
         p_tpl_out               : out t_mb_diff_pair;
         p_tph_in               : in t_mb_std_logic;
@@ -91,7 +90,6 @@ type t_hss_cis is record
     rst_seq_done : STD_LOGIC;
     shared_pll0_clkoutphy_out : STD_LOGIC;
     pll0_clkout0 : STD_LOGIC; --160mhz @ 1280mbps
-    --pll0_clkout1 : STD_LOGIC;
     rst : STD_LOGIC;
     clk_p : STD_LOGIC;
     clk_n : STD_LOGIC;
@@ -139,52 +137,6 @@ signal s_bcr_cis, s_bcr_buffer_cis : std_logic;
 type t_sm_sync is (st_syncying,st_wait,st_synced);
 signal s_sm_cis_sync : t_sm_sync := st_syncying;
 
-COMPONENT ila_cis_interface_hs_io
-
-PORT (
-	clk : IN STD_LOGIC;
-
-
-
-	probe0 : IN STD_LOGIC_VECTOR(7 DOWNTO 0); 
-	probe1 : IN STD_LOGIC_VECTOR(7 DOWNTO 0); 
-	probe2 : IN STD_LOGIC_VECTOR(7 DOWNTO 0); 
-	probe3 : IN STD_LOGIC_VECTOR(7 DOWNTO 0); 
-	probe4 : IN STD_LOGIC_VECTOR(1 DOWNTO 0); 
-	probe5 : IN STD_LOGIC_VECTOR(1 DOWNTO 0); 
-	probe6 : IN STD_LOGIC_VECTOR(1 DOWNTO 0); 
-	probe7 : IN STD_LOGIC_VECTOR(1 DOWNTO 0); 
-	probe8 : IN STD_LOGIC_VECTOR(31 DOWNTO 0); 
-	probe9 : IN STD_LOGIC_VECTOR(31 DOWNTO 0); 
-	probe10 : IN STD_LOGIC_VECTOR(31 DOWNTO 0); 
-	probe11 : IN STD_LOGIC_VECTOR(31 DOWNTO 0); 
-	probe12 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-	probe13 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-	probe14 : IN STD_LOGIC_VECTOR(1 DOWNTO 0)
-);
-END COMPONENT  ;
-
-
-COMPONENT vio_cis_interface_hss_io
-  PORT (
-    clk : IN STD_LOGIC;
-    probe_in0 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in1 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in2 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in3 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in4 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in5 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in6 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in7 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in8 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in9 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_out0 : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_out1 : OUT STD_LOGIC_VECTOR(0 DOWNTO 0) 
-  );
-END COMPONENT;
-
---signal s_vio_mux, s_vio_reset : std_logic;
-
 begin
 
 i_hss_cis : hss_cis
@@ -198,7 +150,6 @@ i_hss_cis : hss_cis
     rst_seq_done => s_hss_cis.rst_seq_done,
     shared_pll0_clkoutphy_out => s_hss_cis.shared_pll0_clkoutphy_out,
     pll0_clkout0 => s_hss_cis.pll0_clkout0,
-    --pll0_clkout1 => s_hss_cis.pll0_clkout1,
     rst => s_hss_cis.rst,
     clk_p => s_hss_cis.clk_p,
     clk_n => s_hss_cis.clk_n,
@@ -222,15 +173,7 @@ i_hss_cis : hss_cis
   s_hss_cis.clk_n <= p_clknet_in.cis_hss_clk80.n;
   
   s_hss_cis.riu_clk <= p_clknet_in.cfgbus_clk40;
-  
---  p_cis_wordclk_out <= s_hss_cis.pll0_clkout0;
-  
---  s_hss_cis.data_from_fabric_bg0_pin0_0 <= p_tpl_in.q0;
---  s_hss_cis.data_from_fabric_bg0_pin2_2 <= p_tph_in.q0;
---  s_hss_cis.data_from_fabric_bg0_pin4_4 <= p_tpl_in.q1;
---  s_hss_cis.data_from_fabric_bg0_pin6_6 <= p_tph_in.q1;
-  
-  
+
   p_tpl_out.q0.p <= s_hss_cis.bg0_pin0_0;
   p_tpl_out.q0.n <= s_hss_cis.bg0_pin1_1;
 
@@ -243,7 +186,7 @@ i_hss_cis : hss_cis
   p_tph_out.q1.p <= s_hss_cis.bg0_pin6_6;
   p_tph_out.q1.n <= s_hss_cis.bg0_pin7_7;
   
-  proc_mux : process(s_data_mux) --, s_vio_mux)
+  proc_mux : process(s_data_mux)
   begin
     if s_data_mux = '0' then
       s_hss_cis.data_from_fabric_bg0_pin0_0 <= (others=> '0');
@@ -251,17 +194,10 @@ i_hss_cis : hss_cis
       s_hss_cis.data_from_fabric_bg0_pin4_4 <= (others=> '0');
       s_hss_cis.data_from_fabric_bg0_pin6_6 <= (others=> '0');
     else
---        if s_vio_mux = '0' then 
           s_hss_cis.data_from_fabric_bg0_pin0_0 <= s_mb_hss_cis_std_logic_vector_8_tpl_inv.q0;
           s_hss_cis.data_from_fabric_bg0_pin2_2 <= s_mb_hss_cis_std_logic_vector_8_tph_inv.q0;
           s_hss_cis.data_from_fabric_bg0_pin4_4 <= s_mb_hss_cis_std_logic_vector_8_tpl_inv.q1;
           s_hss_cis.data_from_fabric_bg0_pin6_6 <= s_mb_hss_cis_std_logic_vector_8_tph_inv.q1;
---        else
---          s_hss_cis.data_from_fabric_bg0_pin0_0 <= s_mb_hss_cis_std_logic_vector_8_tpl.q0;
---          s_hss_cis.data_from_fabric_bg0_pin2_2 <= s_mb_hss_cis_std_logic_vector_8_tph.q0;
---          s_hss_cis.data_from_fabric_bg0_pin4_4 <= s_mb_hss_cis_std_logic_vector_8_tpl.q1;
---          s_hss_cis.data_from_fabric_bg0_pin6_6 <= s_mb_hss_cis_std_logic_vector_8_tph.q1;        
---        end if;
     end if;
   end process;
   
@@ -279,7 +215,7 @@ i_hss_cis : hss_cis
         s_hss_cis.rst<='1';
         s_data_mux <='0';
     elsif rising_edge(p_clknet_in.cfgbus_clk40) then
-        s_hss_cis.rst<='0';-- or s_vio_reset;
+        s_hss_cis.rst<='0';
         s_hss_cis.en_vtc_bsc0<='1';
         s_hss_cis.en_vtc_bsc1<='1';
         s_data_mux <= s_hss_cis.pll0_locked and s_hss_cis.rst_seq_done;
@@ -351,17 +287,12 @@ end process;
             if s_cdc_counter=3 then
                 s_tph_reg <= p_tph_in;
                 s_tpl_reg <= p_tpl_in;
-                
+
                 v_tph_q0_mon:= s_tph_reg.q0 & p_tph_in.q0;
                 v_tph_q1_mon:= s_tph_reg.q1 & p_tph_in.q1;
                 v_tpl_q0_mon:= s_tpl_reg.q0 & p_tpl_in.q0;
                 v_tpl_q1_mon:= s_tpl_reg.q1 & p_tpl_in.q1;
 
---                s_tph_q0_mon <= v_tph_q0_mon;
---                s_tph_q1_mon <= v_tph_q1_mon;
---                s_tpl_q0_mon <= v_tpl_q0_mon;
---                s_tpl_q1_mon <= v_tpl_q1_mon;
-               
                 case v_tph_q0_mon is
                     when "00" =>
                         s_tph_q0_shape<=(others=>'0');
@@ -428,44 +359,4 @@ end process;
     s_q1_end_shape<= c_end_shape(c_range-1 + s_q1_phase_config downto 0 + s_q1_phase_config);--c_end_shape(31 + 2*s_q1_phase_config downto 0 + 2*s_q1_phase_config);
 
 
---    i_ila_cis_interface_hs_io : ila_cis_interface_hs_io
---    PORT MAP (
---        clk => s_hss_cis.pll0_clkout0,
-    
---        probe0 => s_mb_hss_cis_std_logic_vector_8_tph.q0, 
---        probe1 => s_mb_hss_cis_std_logic_vector_8_tph.q0, 
---        probe2 => s_mb_hss_cis_std_logic_vector_8_tpl.q1, 
---        probe3 => s_mb_hss_cis_std_logic_vector_8_tpl.q1, 
---        probe4 => s_tph_reg.q0 & p_tph_in.q0, 
---        probe5 => s_tph_reg.q0 & p_tph_in.q0,
---        probe6 => s_tpl_reg.q1 & p_tpl_in.q1, 
---        probe7 => s_tpl_reg.q1 & p_tpl_in.q1,
---        probe8 => s_q0_start_shape, 
---        probe9 => s_q0_end_shape, 
---        probe10 => s_q1_start_shape, 
---        probe11 => s_q1_end_shape, 
---        probe12(0) => s_cdc_phase,
---        probe13(0) => p_clknet_in.bcr.bcr,
---        probe14 => std_logic_vector(to_unsigned(s_cdc_counter,2))
---    );
-    
---  i_vio_cis_interface_hss_io : vio_cis_interface_hss_io
---  PORT MAP (
---    clk => p_clknet_in.cfgbus_clk40,
---    probe_in0(0) => s_hss_cis.vtc_rdy_bsc0,
---    probe_in1(0) => s_hss_cis.en_vtc_bsc0,
---    probe_in2(0) => s_hss_cis.vtc_rdy_bsc1,
---    probe_in3(0) => s_hss_cis.en_vtc_bsc1,
---    probe_in4(0) => s_hss_cis.dly_rdy_bsc0,
---    probe_in5(0) => s_hss_cis.dly_rdy_bsc1,
---    probe_in6(0) => s_hss_cis.rst_seq_done,
---    probe_in7(0) => s_hss_cis.rst,
---    probe_in8(0) => s_hss_cis.pll0_locked,
---    probe_in9(0) => s_vio_mux,
---    probe_out0(0) => s_vio_mux,
---    probe_out1(0) => s_vio_reset
---  );
-  
-
-  
 end Behavioral;

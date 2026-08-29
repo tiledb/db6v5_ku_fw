@@ -45,10 +45,10 @@ entity db6_mainboard_driver is
         p_master_reset_in : in std_logic;
         p_clknet_in       : in  t_db_clknet;
         p_mb_config_trigger_in : in std_logic;
-        p_ssel_out         : out t_mb_diff_pair; --std_logic_vector (1 downto 0);
-        p_sclk_out         : out t_mb_diff_pair; --std_logic_vector (1 downto 0);
-        p_sdata_out     : out t_mb_diff_pair; --std_logic_vector (1 downto 0);
-        p_sdata_in    : in  t_mb_diff_pair; --std_logic_vector (1 downto 0);
+        p_ssel_out         : out t_mb_std_logic; -- plain logic; IO primitives moved to db6_mainboard_driver_io.vhd (instantiated from db7_io_box)
+        p_sclk_out         : out t_mb_std_logic; -- plain logic
+        p_sdata_out     : out t_mb_std_logic; -- plain logic
+        p_sdata_in    : in  t_mb_std_logic; -- plain logic
         p_mb_txword_in      : in  std_logic_vector (31 downto 0);
         p_mb_rxword_out       : out t_mb_rxword;
         p_mb_tx_collision_out : out t_mb_std_logic;
@@ -230,62 +230,15 @@ begin
 --signals to/from the top, numbered for easier debug implementation 
 
 
-i_mb_q0_sdata_out_OBUFDS : OBUFDS
-    port map (
-    O => p_sdata_out.q0.p, -- 1-bit output: Diff_p output (connect directly to top-level port)
-    OB => p_sdata_out.q0.n, -- 1-bit output: Diff_n output (connect directly to top-level port)
-    I => s_mb_data_out(0) -- 1-bit input: Buffer input
-    );
-
-i_mb_q1_sdata_out_OBUFDS : OBUFDS
-    port map (
-    O => p_sdata_out.q1.p, -- 1-bit output: Diff_p output (connect directly to top-level port)
-    OB => p_sdata_out.q1.n, -- 1-bit output: Diff_n output (connect directly to top-level port)
-    I => s_mb_data_out(1) -- 1-bit input: Buffer input
-    );
-
-i_mb_q0_sdata_in_IBUFDS : IBUFDS
-    port map (
-    I => p_sdata_in.q0.p, -- 1-bit output: Diff_p output (connect directly to top-level port)
-    IB => p_sdata_in.q0.n, -- 1-bit output: Diff_n output (connect directly to top-level port)
-    O => s_mb_data_in(0) -- 1-bit input: Buffer input
-    );
-
-i_mb_q1_sdata_in_IBUFDS : IBUFDS
-    port map (
-    I => p_sdata_in.q1.p, -- 1-bit output: Diff_p output (connect directly to top-level port)
-    IB => p_sdata_in.q1.n, -- 1-bit output: Diff_n output (connect directly to top-level port)
-    O => s_mb_data_in(1) -- 1-bit input: Buffer input
-    );
-
-
-i_mb_q0_sclk_OBUFDS : OBUFDS
-    port map (
-    O => p_sclk_out.q0.p, -- 1-bit output: Diff_p output (connect directly to top-level port)
-    OB => p_sclk_out.q0.n, -- 1-bit output: Diff_n output (connect directly to top-level port)
-    I => s_sclk_out_buf(0) -- 1-bit input: Buffer input
-    );
-
-i_mb_q1_sclk_OBUFDS : OBUFDS
-    port map (
-    O => p_sclk_out.q1.p, -- 1-bit output: Diff_p output (connect directly to top-level port)
-    OB => p_sclk_out.q1.n, -- 1-bit output: Diff_n output (connect directly to top-level port)
-    I => s_sclk_out_buf(1) -- 1-bit input: Buffer input
-    );
-
-i_mb_q0_psel_OBUFDS : OBUFDS
-    port map (
-    O => p_ssel_out.q0.p, -- 1-bit output: Diff_p output (connect directly to top-level port)
-    OB => p_ssel_out.q0.n, -- 1-bit output: Diff_n output (connect directly to top-level port)
-    I => s_mb_exe(0) -- 1-bit input: Buffer input
-    );
-
-i_mb_q1_psel_OBUFDS : OBUFDS
-    port map (
-    O => p_ssel_out.q1.p, -- 1-bit output: Diff_p output (connect directly to top-level port)
-    OB => p_ssel_out.q1.n, -- 1-bit output: Diff_n output (connect directly to top-level port)
-    I => s_mb_exe(1) -- 1-bit input: Buffer input
-    );
+-- IO primitives (OBUFDS/IBUFDS) moved to db6_mainboard_driver_io.vhd, instantiated from db7_io_box.
+p_sdata_out.q0 <= s_mb_data_out(0);
+p_sdata_out.q1 <= s_mb_data_out(1);
+s_mb_data_in(0) <= p_sdata_in.q0;
+s_mb_data_in(1) <= p_sdata_in.q1;
+p_sclk_out.q0 <= s_sclk_out_buf(0);
+p_sclk_out.q1 <= s_sclk_out_buf(1);
+p_ssel_out.q0 <= s_mb_exe(0);
+p_ssel_out.q1 <= s_mb_exe(1);
 
 
     --s_mb_clk(0)<=s_sclk_out_buf(0);  --s_mb_clk(1);

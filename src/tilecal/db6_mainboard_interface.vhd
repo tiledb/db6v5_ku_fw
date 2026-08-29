@@ -45,28 +45,40 @@ entity db6_mainboard_interface is
         p_clknet_in                        : in t_db_clknet;
         p_db_reg_rx_in : in t_db_reg_rx;
         
-        --adc readout
-        p_adc_bitclk_in : in t_adc_clk_in;
-        p_adc_frameclk_in : in t_adc_clk_in;
-        p_adc_lg_data_in : in t_adc_data_in;
-        p_adc_hg_data_in : in t_adc_data_in;
---        p_adc_gbtx_frameclk_in : in t_adc_clk_in;
-        
-        --mb_driver
-        p_ssel_out         : out t_mb_diff_pair;
-        p_sclk_out         : out t_mb_diff_pair;
-        p_sdata_out     : out t_mb_diff_pair;
-        p_sdata_in    : in  t_mb_diff_pair;
+        --adc readout (plain logic; IO primitives in db6_adc_interface_io_iddr_bitclk280/240.vhd, instantiated from db7_io_box)
+        p_adc_bitclk_in : in std_logic_vector(5 downto 0);
+        p_adc_bitclkdiv_in : in std_logic_vector(5 downto 0);
+        p_frame_missalignment_in : in std_logic_vector(5 downto 0);
+        p_adc_frameclk_in : in t_bitslice_sr;
+        p_adc_lg_data_in : in t_bitslice_sr;
+        p_adc_hg_data_in : in t_bitslice_sr;
 
-        --cis interface
-        p_tph_out               : out t_mb_diff_pair;
-        p_tpl_out               : out t_mb_diff_pair;
-        
+        --mb_driver (plain logic; IO primitives live in db6_mainboard_driver_io.vhd, instantiated from db7_io_box)
+        p_ssel_out         : out t_mb_std_logic;
+        p_sclk_out         : out t_mb_std_logic;
+        p_sdata_out     : out t_mb_std_logic;
+        p_sdata_in    : in  t_mb_std_logic;
+
+        --cis interface (plain logic; hss_cis IP in db6_cis_interface_hss_io.vhd, instantiated from db7_io_box)
+        p_tph_out               : out t_mb_std_logic;
+        p_tpl_out               : out t_mb_std_logic;
+
+        --mainboard jtag chain (db6_jtag_readers_controller drives these directly, no pad primitives needed)
+        p_mb_jtag_tck_out : out t_mb_std_logic;
+        p_mb_jtag_tms_out : out t_mb_std_logic;
+        p_mb_jtag_tdi_out : out t_mb_std_logic;
+        p_mb_jtag_tdo_in  : in  t_mb_std_logic;
+
         p_mb_interface_out          : out t_mb_interface;
         
         --integrator
-        p_integrator_sda_inout   :      inout t_mb_std_logic;
-        p_integrator_scl_inout   :      inout t_mb_std_logic; 
+        -- IOBUF moved to db7_io_box; split O/I/T instead of inout.
+        p_integrator_sda_drive_out : out t_mb_std_logic;
+        p_integrator_sda_tri_out   : out t_mb_std_logic;
+        p_integrator_sda_read_in   : in  t_mb_std_logic;
+        p_integrator_scl_drive_out : out t_mb_std_logic;
+        p_integrator_scl_tri_out   : out t_mb_std_logic;
+        p_integrator_scl_read_in   : in  t_mb_std_logic;
         
         p_leds_out : out std_logic_vector(3 downto 0)
   );
@@ -139,6 +151,22 @@ signal s_adc_register_config_from_configbus, s_adc_register_config_from_readout 
 -- integrator
 signal s_mb_integrator : t_mb_integrator;
 --attribute keep of s_mb_integrator : signal is "TRUE";
+
+-- mainboard jtag id reader
+signal s_mb_jtag_enable : t_mb_std_logic;
+signal s_mb_jtag_id     : t_mb_std_logic_vector_32;
+signal s_mb_jtag_done   : t_mb_std_logic;
+
+-- auto-read: one full jtag id readout per side, fired on the falling edge (release) of
+-- that side's p_master_reset_in bit. s_mbX_reset_sync_ff1/2 is a 2-ff synchronizer
+-- bringing the bit into the jtag controller's osc_clk200 domain (p_master_reset_in is
+-- registered on cfgbus_clk40 at db6v5_top); ff3 is ff2 delayed one more cycle so the
+-- edge compare (ff3='1' and ff2='0') is done entirely on settled, synchronized values.
+signal s_mb0_reset_sync_ff1, s_mb0_reset_sync_ff2, s_mb0_reset_sync_ff3 : std_logic := '1';
+signal s_mb1_reset_sync_ff1, s_mb1_reset_sync_ff2, s_mb1_reset_sync_ff3 : std_logic := '1';
+type t_mb_jtag_auto_read_sm is (st_idle, st_read);
+signal s_mb_jtag_auto_read_sm_q0, s_mb_jtag_auto_read_sm_q1 : t_mb_jtag_auto_read_sm := st_idle;
+signal s_mb_jtag_auto_trigger : t_mb_std_logic := (q0 => '0', q1 => '0');
 
 COMPONENT vio_adc_config_driver
   PORT (
@@ -343,6 +371,8 @@ gen_db6_adc_interface_iddr : if g_db6_adc_interface = 0 generate
             p_clknet_in => p_clknet_in,
             p_db_reg_rx_in => p_db_reg_rx_in,
             p_adc_bitclk_in => p_adc_bitclk_in,
+            p_adc_bitclkdiv_in => p_adc_bitclkdiv_in,
+            p_frame_missalignment_in => p_frame_missalignment_in,
             p_adc_frameclk_in => p_adc_frameclk_in,
             p_adc_lg_data_in => p_adc_lg_data_in,
             p_adc_hg_data_in => p_adc_hg_data_in,
@@ -354,27 +384,13 @@ gen_db6_adc_interface_iddr : if g_db6_adc_interface = 0 generate
       );
 end generate;
 
-gen_db6_adc_interface_iserdese : if g_db6_adc_interface = 1 generate
-
-    i_db6_adc_interface_iserdese : entity tilecal.db6_adc_interface_iserdese
-      generic map(
-        g_tmr_enabled      => '0'       -- 0 = no no_tmr, 1 = tmr
-        )
-      Port map (
-            p_master_reset_in => s_reset_adc_interface,
-            p_clknet_in => p_clknet_in,
-            p_db_reg_rx_in => p_db_reg_rx_in,
-            p_adc_bitclk_in => p_adc_bitclk_in,
-            p_adc_frameclk_in => p_adc_frameclk_in,
-            p_adc_lg_data_in => p_adc_lg_data_in,
-            p_adc_hg_data_in => p_adc_hg_data_in,
-            p_adc_readout_control_in => s_adc_readout_control,
---            p_adc_readout_control_out => s_adc_readout_control_out,
-            p_adc_readout_out => s_adc_readout,
-            p_leds_out       => s_db6_adc_interface_leds
-      );
-
-end generate;
+-- gen_db6_adc_interface_iserdese (g_db6_adc_interface = 1) removed: g_db6_adc_interface
+-- is never overridden anywhere in this codebase (always defaults to 0/iddr), and
+-- db6_adc_interface_iserdese.vhd was never updated for the db7_io_box port-type
+-- migration (still expects pad-typed t_adc_clk_in/t_adc_data_in directly), which made
+-- this dead branch a hard elaboration error once db6_mainboard_interface's ADC ports
+-- became plain logic. Revisit db6_adc_interface_iserdese.vhd (and its companion
+-- db6_adc_interface_io_iserdese.vhd) if this readout mode is ever needed again.
 
         s_adc_readout_control.db_side <= p_clknet_in.db_side;
         
@@ -534,8 +550,77 @@ i_db6_mainboard_driver : entity tilecal.db6_mainboard_driver
         p_mb_config_trigger_in => s_mb_config_trigger_out,
         p_rx_done_out       => s_mb_driver.rx_done_out, --s_mb_done_out,
         p_tx_done_out       => s_mb_driver.tx_done_out, --s_mb_done_out,
-        p_leds_out       => a_db6_mainboard_driver_leds 
+        p_leds_out       => a_db6_mainboard_driver_leds
 );
+
+-- mainboard jtag id reader: enable is the manual configbus bit (decoupled from vios)
+-- ORed with the auto-read trigger below (fires once per mb0/mb1 reset release); id/done
+-- are registered into p_mb_interface_out for downstream consumers.
+s_mb_jtag_enable.q0 <= s_mb_jtag_auto_trigger.q0 or p_db_reg_rx_in(cfb_db_debug)(c_db_debug_mb_jtag_read_enable_q0);
+s_mb_jtag_enable.q1 <= s_mb_jtag_auto_trigger.q1 or p_db_reg_rx_in(cfb_db_debug)(c_db_debug_mb_jtag_read_enable_q1);
+
+proc_mb_jtag_auto_read : process(p_clknet_in.osc_clk200)
+begin
+    if rising_edge(p_clknet_in.osc_clk200) then
+
+        s_mb0_reset_sync_ff1 <= p_master_reset_in(c_mb0_reset_bit);
+        s_mb0_reset_sync_ff2 <= s_mb0_reset_sync_ff1;
+        s_mb0_reset_sync_ff3 <= s_mb0_reset_sync_ff2;
+
+        s_mb1_reset_sync_ff1 <= p_master_reset_in(c_mb1_reset_bit);
+        s_mb1_reset_sync_ff2 <= s_mb1_reset_sync_ff1;
+        s_mb1_reset_sync_ff3 <= s_mb1_reset_sync_ff2;
+
+        case s_mb_jtag_auto_read_sm_q0 is
+            when st_idle =>
+                if s_mb0_reset_sync_ff3 = '1' and s_mb0_reset_sync_ff2 = '0' then -- falling edge: mb0 reset released
+                    s_mb_jtag_auto_trigger.q0  <= '1';
+                    s_mb_jtag_auto_read_sm_q0  <= st_read;
+                end if;
+            when st_read =>
+                if s_mb_jtag_done.q0 = '1' then
+                    s_mb_jtag_auto_trigger.q0  <= '0';
+                    s_mb_jtag_auto_read_sm_q0  <= st_idle;
+                end if;
+            when others =>
+                s_mb_jtag_auto_read_sm_q0 <= st_idle;
+        end case;
+
+        case s_mb_jtag_auto_read_sm_q1 is
+            when st_idle =>
+                if s_mb1_reset_sync_ff3 = '1' and s_mb1_reset_sync_ff2 = '0' then -- falling edge: mb1 reset released
+                    s_mb_jtag_auto_trigger.q1  <= '1';
+                    s_mb_jtag_auto_read_sm_q1  <= st_read;
+                end if;
+            when st_read =>
+                if s_mb_jtag_done.q1 = '1' then
+                    s_mb_jtag_auto_trigger.q1  <= '0';
+                    s_mb_jtag_auto_read_sm_q1  <= st_idle;
+                end if;
+            when others =>
+                s_mb_jtag_auto_read_sm_q1 <= st_idle;
+        end case;
+
+    end if;
+end process;
+
+p_mb_interface_out.mb_jtag_id   <= s_mb_jtag_id;
+p_mb_interface_out.mb_jtag_done <= s_mb_jtag_done;
+
+i_db6_jtag_readers_controller : entity tilecal.db6_jtag_readers_controller
+    generic map (
+        g_clk_div => 50
+    )
+    port map (
+        p_clk_in       => p_clknet_in.osc_clk200,
+        p_enable_in    => s_mb_jtag_enable,
+        p_jtag_tck_out => p_mb_jtag_tck_out,
+        p_jtag_tms_out => p_mb_jtag_tms_out,
+        p_jtag_tdi_out => p_mb_jtag_tdi_out,
+        p_jtag_tdo_in  => p_mb_jtag_tdo_in,
+        p_id_out       => s_mb_jtag_id,
+        p_done_out     => s_mb_jtag_done
+    );
 
 
 s_adc_register_config_from_configbus.mb_fpga_select <= "100";-- all fpgas --p_db_reg_rx_in(adc_config_module)(2 downto 0);
@@ -836,8 +921,12 @@ port map(
 	p_master_reset_in                   => p_master_reset_in(c_integrator_reset_bit),
     p_clknet_in                  => p_clknet_in,
 	p_db_reg_rx_in               => p_db_reg_rx_in,
-    p_integrator_sda_inout       => p_integrator_sda_inout,
-    p_integrator_scl_inout       => p_integrator_scl_inout, 	
+    p_integrator_sda_drive_out => p_integrator_sda_drive_out,
+    p_integrator_sda_tri_out   => p_integrator_sda_tri_out,
+    p_integrator_sda_read_in   => p_integrator_sda_read_in,
+    p_integrator_scl_drive_out => p_integrator_scl_drive_out,
+    p_integrator_scl_tri_out   => p_integrator_scl_tri_out,
+    p_integrator_scl_read_in   => p_integrator_scl_read_in, 	
     p_mb_integrator_out          => s_mb_integrator
 );
 

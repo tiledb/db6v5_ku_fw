@@ -21,6 +21,7 @@ src/tilecal/db6_cfgbus_interface_decoder_iddr.vhd
 src/tilecal/db6_cfgbus_interface_decoder_iddr_wrapper.vhd
 src/tilecal/db6_cfgbus_interface_io_iddr.vhd
 src/tilecal/db6_cht8305c_interface.vhd
+src/tilecal/db7_io_box.vhd
 src/tilecal/db6_cis_driver_cdc.vhd
 src/tilecal/db6_cis_driver_cdc_oddr.vhd
 src/tilecal/db6_cis_driver_hss.vhd
@@ -37,6 +38,9 @@ src/tilecal/db6_integrator_i2c_master.vhd
 src/tilecal/db6_integrator_interface.vhd
 src/tilecal/db6_ku_dna.vhd
 src/tilecal/db6_mainboard_driver.vhd
+src/tilecal/db6_mainboard_driver_io.vhd
+src/tilecal/db6_altera_jtag_driver.vhd
+src/tilecal/db6_jtag_readers_controller.vhd
 src/tilecal/db6_mainboard_interface.vhd
 src/tilecal/db6_pipeline_propagator.vhd
 src/tilecal/db6_reset_synchronizer.vhd

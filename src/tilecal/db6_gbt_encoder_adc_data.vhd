@@ -64,10 +64,6 @@ architecture Behavioral of db6_gbt_encoder_adc_data is
     
 begin
 
---p_adc_data_lg_out <= s_adc_data_lg_pipeline(c_pipeline_depth-1); --s_adc_data_lg;
---p_adc_data_hg_out <= s_adc_data_hg_pipeline(c_pipeline_depth-1); --s_adc_data_hg;
---p_adc_data_fc_out <= s_adc_data_fc_pipeline(c_pipeline_depth-1); --s_adc_data_fc;
-
 p_adc_data_lg_out <= s_adc_data_lg;
 p_adc_data_hg_out <= s_adc_data_hg;
 p_adc_data_fc_out <= s_adc_data_fc;
