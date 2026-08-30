@@ -1,0 +1,22 @@
+.xadc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: .45rem; }
+.xadc-highlight { background: #1a2740; }
+.xadc-highlight td.value { color: var(--accent2); font-weight: 600; font-family: var(--mono); }
+.xadc-highlight.temp td.value { color: var(--warn); }
+
+.xadc-split { flex: 1; min-height: 0; display: flex; gap: .55rem; overflow: hidden; }
+.xadc-table-panel { flex: 1; min-width: 0; min-height: 0; overflow: auto; }
+.xadc-plots-panel { width: 44%; min-width: 300px; max-width: 520px; flex-shrink: 0; display: flex; flex-direction: column; gap: .45rem; min-height: 0; }
+.xadc-plot-box { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; padding: .4rem .5rem .35rem; }
+.xadc-plot-box h3 { font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: .2rem; flex-shrink: 0; }
+.xadc-plot-box.temp h3 { color: var(--warn); }
+.xadc-plot-box.volt h3 { color: var(--accent2); }
+.xadc-canvas-wrap { flex: 1; min-height: 100px; position: relative; }
+.xadc-section-title { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: .55rem 0 .3rem; }
+.xadc-section-title:first-child { margin-top: 0; }
+.xadc-table-panel table.data { margin-bottom: .25rem; }
+
+.xadc-card { background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; padding: .5rem .6rem; }
+.xadc-card .label { font-size: .68rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.xadc-card .value { font-size: 1.05rem; font-weight: 600; margin-top: .15rem; font-family: var(--mono); }
+.xadc-card.temp .value { color: var(--warn); }
+.xadc-card.volt .value { color: var(--accent2); }

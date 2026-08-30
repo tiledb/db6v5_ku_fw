@@ -188,6 +188,17 @@ type t_mb_jtag_auto_read_sm is (st_idle, st_read_id, st_gap, st_read_boundary);
 signal s_mb_jtag_auto_read_sm_q0, s_mb_jtag_auto_read_sm_q1 : t_mb_jtag_auto_read_sm := st_idle;
 signal s_mb_jtag_auto_trigger : t_mb_std_logic := (q0 => '0', q1 => '0');
 signal s_mb_boundary_scan_auto_trigger : t_mb_std_logic := (q0 => '0', q1 => '0');
+-- db6_altera_jtag_driver only re-checks its st_done exit condition (both start
+-- inputs low) once per jtag tick pair, i.e. every 2*g_clk_div = 100 osc_clk200
+-- cycles (see i_db6_jtag_readers_controller g_clk_div=>50 below); a single-cycle
+-- low pulse on both start signals -- as st_gap used to produce -- is essentially
+-- always missed by that ~100-cycle sampling and, since it never recurs, leaves the
+-- driver deadlocked in st_done forever (boundary scan then never starts, even
+-- though the chained idcode read that preceded it completes fine). st_gap now
+-- holds for c_jtag_gap_cycles instead of one cycle, comfortably covering at least
+-- one full sampling window.
+constant c_jtag_gap_cycles : integer := 256;
+signal s_mb_jtag_gap_cnt_q0, s_mb_jtag_gap_cnt_q1 : integer range 0 to c_jtag_gap_cycles-1 := 0;
 
 -- mainboard boundary-scan (sample) reader -- see db6_altera_jtag_driver.vhd /
 -- db6_jtag_readers_controller.vhd
@@ -678,14 +689,16 @@ begin
                     s_mb_jtag_auto_read_sm_q0  <= st_gap;
                 end if;
             when st_gap =>
-                -- both auto-triggers are guaranteed low for exactly this one cycle,
-                -- giving the driver fsm's st_done state (which requires BOTH
-                -- p_start_in and p_start_boundary_scan_in low before it will return
-                -- to st_idle -- see db6_altera_jtag_driver.vhd) a chance to actually
-                -- get there before the boundary-scan start pulse arrives; asserting
-                -- both triggers on the same transition would deadlock it in st_done.
-                s_mb_boundary_scan_auto_trigger.q0 <= '1';
-                s_mb_jtag_auto_read_sm_q0          <= st_read_boundary;
+                -- both auto-triggers held low for c_jtag_gap_cycles (see declaration
+                -- above) so the driver's st_done state definitely samples them low
+                -- and returns to st_idle before the boundary-scan start pulse arrives
+                if s_mb_jtag_gap_cnt_q0 = c_jtag_gap_cycles-1 then
+                    s_mb_jtag_gap_cnt_q0 <= 0;
+                    s_mb_boundary_scan_auto_trigger.q0 <= '1';
+                    s_mb_jtag_auto_read_sm_q0          <= st_read_boundary;
+                else
+                    s_mb_jtag_gap_cnt_q0 <= s_mb_jtag_gap_cnt_q0 + 1;
+                end if;
             when st_read_boundary =>
                 if s_mb_boundary_scan_done.q0 = '1' then
                     s_mb_boundary_scan_auto_trigger.q0  <= '0';
@@ -707,8 +720,13 @@ begin
                     s_mb_jtag_auto_read_sm_q1  <= st_gap;
                 end if;
             when st_gap =>
-                s_mb_boundary_scan_auto_trigger.q1 <= '1';
-                s_mb_jtag_auto_read_sm_q1          <= st_read_boundary;
+                if s_mb_jtag_gap_cnt_q1 = c_jtag_gap_cycles-1 then
+                    s_mb_jtag_gap_cnt_q1 <= 0;
+                    s_mb_boundary_scan_auto_trigger.q1 <= '1';
+                    s_mb_jtag_auto_read_sm_q1          <= st_read_boundary;
+                else
+                    s_mb_jtag_gap_cnt_q1 <= s_mb_jtag_gap_cnt_q1 + 1;
+                end if;
             when st_read_boundary =>
                 if s_mb_boundary_scan_done.q1 = '1' then
                     s_mb_boundary_scan_auto_trigger.q1  <= '0';

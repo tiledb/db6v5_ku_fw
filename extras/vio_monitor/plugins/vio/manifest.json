@@ -1,0 +1,17 @@
+{
+  "id": "vio",
+  "name": "VIO Probes",
+  "description": "Live VIO probe values, direction, and input activity",
+  "version": "1.0.0",
+  "default_enabled": true,
+  "order": 10,
+  "requires_target": true,
+  "requires_device": false,
+  "tree_node_types": ["vio"],
+  "assets": {
+    "panel": "panel.html",
+    "script": "plugin.js",
+    "styles": ["styles.css"],
+    "external_scripts": []
+  }
+}

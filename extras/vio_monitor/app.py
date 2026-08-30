@@ -39,8 +39,14 @@ from collections import deque
 from datetime import datetime
 
 import pexpect
-from flask import Flask, jsonify, request, render_template_string
+from flask import Flask, jsonify, request, render_template_string, send_file
 from werkzeug.utils import secure_filename
+
+_APP_DIR = os.path.dirname(os.path.abspath(__file__))
+if _APP_DIR not in sys.path:
+    sys.path.insert(0, _APP_DIR)
+
+from plugins import registry as plugin_registry  # noqa: E402
 
 # vivado-mcp ships its session manager as a top-level module inside its
 # package directory (not importable as `vivado_mcp.vivado_session`).
@@ -162,12 +168,14 @@ _config_lock = threading.Lock()
 
 def _load_config():
     if not os.path.exists(CONFIG_PATH):
-        return {"hw_servers": []}
-    try:
-        with open(CONFIG_PATH) as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return {"hw_servers": []}
+        cfg = {"hw_servers": []}
+    else:
+        try:
+            with open(CONFIG_PATH) as f:
+                cfg = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            cfg = {"hw_servers": []}
+    return plugin_registry.ensure_plugins_config(cfg)
 
 
 def _save_config(cfg):
@@ -607,17 +615,6 @@ def _open_hw_target(target):
     return open_result, devices, list_result
 
 
-def _tcl_device_properties(device):
-    return (
-        f'set __dev [get_hw_devices {{{device}}}] ; '
-        'foreach __prop [lsort [list_property $__dev]] { '
-        'if {[catch {set __val [get_property $__prop $__dev]} __err]} '
-        '{ set __val "<error: $__err>" } ; '
-        'puts "DEVPROP|$__prop|$__val" '
-        '}'
-    )
-
-
 def _tcl_select_device(device):
     return f'current_hw_device [get_hw_devices {{{device}}}]'
 
@@ -679,107 +676,6 @@ def _tcl_list_vio_tree(device=None):
     )
 
 
-def _tcl_dump_sysmon(device=None):
-    dev_filter = (
-        f'set __devs [list [get_hw_devices {{{device}}}]] ; '
-        if device else
-        'set __devs [get_hw_devices] ; '
-    )
-    # Dump every readable hw_sysmon property (all XADC / System Monitor measurements).
-    return (
-        dev_filter +
-        'foreach __dev $__devs { '
-        'current_hw_device $__dev ; '
-        'set __sms [get_hw_sysmons -of_objects $__dev] ; '
-        'if {[llength $__sms] > 0} { catch { refresh_hw_sysmon $__sms } } ; '
-        'foreach __sm $__sms { '
-        'set __sname [get_property NAME $__sm] ; '
-        'foreach __prop [lsort [list_property $__sm]] { '
-        'if {![catch {set __val [get_property $__prop $__sm]}]} { '
-        'puts "SYSMONROW|$__dev|$__sname|$__prop|$__val" '
-        '} } } }'
-    )
-
-
-# Inner loop: refresh each probe then read INPUT_VALUE (monitor) or OUTPUT_VALUE (drive),
-# plus ACTIVITY_VALUE (input probe transitions since last refresh).
-_VIO_PROBE_READ_LOOP = (
-    'foreach __p [get_hw_probes -of_objects $__vio] { '
-    'catch { refresh_hw_probe $__p } ; '
-    'set __pname [get_property NAME $__p] ; '
-    'set __dir "IN" ; '
-    'set __val "" ; '
-    'set __act "" ; '
-    'if {![catch {set __ptype [get_property PROBE_TYPE $__p]}] && $__ptype eq "OUTPUT"} { '
-    'set __dir "OUT" ; catch {set __val [get_property OUTPUT_VALUE $__p]} '
-    '} else { catch {set __val [get_property INPUT_VALUE $__p]} ; '
-    'catch {set __act [get_property ACTIVITY_VALUE $__p]} ; '
-    'if {$__val eq ""} { set __dir "OUT" ; catch {set __val [get_property OUTPUT_VALUE $__p]} } } ; '
-    'if {$__val eq ""} { set __val "N/A" ; set __dir "UNKNOWN" } ; '
-    'if {$__act eq ""} { set __act "-" } ; '
-    'puts "VIOROW|$__dev|$__vname|$__pname|$__dir|$__val|$__act" '
-    '} '
-)
-
-# Walks every hw_device on the currently open hw_target, refreshes every
-# hw_vio on it, and dumps one pipe-delimited line per probe. Must stay on
-# one line so vivado_session captures puts output (see _tcl_list_targets).
-_DUMP_VIOS_TCL = (
-    'foreach __dev [get_hw_devices] { '
-    'current_hw_device $__dev ; '
-    'refresh_hw_device -update_hw_probes true $__dev ; '
-    'set __vios [get_hw_vios -of_objects $__dev] ; '
-    'if {[llength $__vios] > 0} { refresh_hw_vio $__vios } ; '
-    'foreach __vio $__vios { '
-    'set __vname [get_property NAME $__vio] ; '
-    + _VIO_PROBE_READ_LOOP +
-    '} }'
-)
-
-
-def _tcl_dump_vios(device=None):
-    if not device:
-        return _DUMP_VIOS_TCL
-    return (
-        f'set __dev [get_hw_devices {{{device}}}] ; '
-        'current_hw_device $__dev ; '
-        'refresh_hw_device -update_hw_probes true $__dev ; '
-        'set __vios [get_hw_vios -of_objects $__dev] ; '
-        'if {[llength $__vios] > 0} { refresh_hw_vio $__vios } ; '
-        'foreach __vio $__vios { '
-        'set __vname [get_property NAME $__vio] ; '
-        + _VIO_PROBE_READ_LOOP +
-        '}'
-    )
-
-
-def _parse_vios(output):
-    vios = {}
-    for row in _parse_rows(output, "VIOROW", 7):
-        device, vio, probe, direction, value, activity = row
-        key = f"{device} / {vio}"
-        vios.setdefault(key, []).append(
-            {
-                "probe": probe,
-                "direction": direction,
-                "value": value,
-                "activity": activity,
-            }
-        )
-    return vios
-
-
-def _parse_sysmon(output):
-    rows = []
-    for row in _parse_rows(output, "SYSMONROW", 5):
-        device, sysmon, prop, value = row
-        rows.append({
-            "device": device, "sysmon": sysmon,
-            "property": prop, "value": value,
-        })
-    return rows
-
-
 def _vivado_tree_label():
     for v in VIVADO_VERSIONS:
         if v["path"] == VIVADO_PATH:
@@ -788,13 +684,9 @@ def _vivado_tree_label():
 
 
 def _build_hw_tree(vivado_label, server_url, targets, devices, vio_nodes, open_target=None):
-    """Build hierarchical tree: Vivado -> server -> targets -> devices -> VIO/XADC."""
+    """Build hierarchical tree: Vivado -> server -> targets -> devices -> plugin nodes."""
     if open_target is None:
         open_target = _load_config().get("last_target")
-    vios_by_device = {}
-    for row in vio_nodes:
-        dev, vio_name = row
-        vios_by_device.setdefault(dev, []).append(vio_name)
 
     server_node = {
         "type": "server",
@@ -822,13 +714,8 @@ def _build_hw_tree(vivado_label, server_url, targets, devices, vio_nodes, open_t
                 "part": d.get("part", ""),
                 "children": [],
             }
-            for vio in vios_by_device.get(d["name"], []):
-                dnode["children"].append({
-                    "type": "vio", "name": vio, "full": f"{d['name']}/{vio}",
-                })
-            dnode["children"].append({
-                "type": "sysmon", "name": "System Monitor (XADC)", "full": d["name"],
-            })
+            for hook in plugin_registry.tree_hooks():
+                hook(dnode, d["name"], vio_nodes)
             tnode["children"].append(dnode)
         server_node["children"].append(tnode)
 
@@ -1010,22 +897,6 @@ def api_devices_list():
     return jsonify({"success": result.success, "devices": devices, "output": result.output})
 
 
-@app.route("/api/devices/<path:device>/properties")
-def api_device_properties(device):
-    with _lock:
-        result = _run(_tcl_device_properties(device), timeout_override=60)
-    properties = [
-        {"name": row[0], "value": row[1]}
-        for row in _parse_rows(result.output, "DEVPROP", 3)
-    ]
-    return jsonify({
-        "success": result.success,
-        "device": device,
-        "properties": properties,
-        "output": result.output,
-    })
-
-
 @app.route("/api/devices/<path:device>/select", methods=["POST"])
 def api_device_select(device):
     blocked = _require_open_target()
@@ -1039,46 +910,63 @@ def api_device_select(device):
 
 
 # =============================================================================
-# VIOs / XADC / tree / LTX
+# Plugins
 # =============================================================================
 
-@app.route("/api/vios")
-def api_vios():
-    device = request.args.get("device", "").strip() or None
-    with _lock:
-        result = _run(_tcl_dump_vios(device), timeout_override=60)
+@app.route("/api/plugins")
+def api_plugins_list():
+    cfg = _load_config()
     return jsonify({
-        "success": result.success,
-        "output": result.output,
-        "vios": _parse_vios(result.output),
+        "plugins": [
+            plugin_registry.public_manifest(m, cfg)
+            for m in plugin_registry.discover_plugins()
+        ],
     })
 
 
-@app.route("/api/xadc")
-def api_xadc():
-    device = request.args.get("device", "").strip() or None
-    with _lock:
-        result = _run(_tcl_dump_sysmon(device), timeout_override=120)
-    return jsonify({
-        "success": result.success,
-        "output": result.output,
-        "readings": _parse_sysmon(result.output),
-    })
+@app.route("/api/plugins/config", methods=["POST"])
+def api_plugins_config():
+    data = request.get_json(silent=True) or {}
+    incoming = data.get("plugins") or {}
+    with _config_lock:
+        cfg = _load_config()
+        plugins_cfg = cfg.setdefault("plugins", {})
+        for plugin_id, entry in incoming.items():
+            if not plugin_registry.plugin_manifest(plugin_id):
+                continue
+            plugins_cfg.setdefault(plugin_id, {})
+            if "enabled" in entry:
+                plugins_cfg[plugin_id]["enabled"] = bool(entry["enabled"])
+        _save_config(cfg)
+    return jsonify({"success": True, "plugins": cfg.get("plugins", {})})
 
 
-@app.route("/api/monitor")
-def api_monitor():
-    """Combined VIO + XADC poll for auto-refresh."""
-    device = request.args.get("device", "").strip() or None
-    with _lock:
-        vio_result = _run(_tcl_dump_vios(device), timeout_override=60)
-        xadc_result = _run(_tcl_dump_sysmon(device), timeout_override=120)
-    return jsonify({
-        "success": vio_result.success and xadc_result.success,
-        "vios": _parse_vios(vio_result.output),
-        "xadc": _parse_sysmon(xadc_result.output),
-    })
+@app.route("/plugins/<plugin_id>/assets/<path:filename>")
+def plugin_assets(plugin_id, filename):
+    if ".." in filename or filename.startswith("/"):
+        return jsonify({"error": "invalid path"}), 400
+    path = plugin_registry.plugin_asset_path(plugin_id, filename)
+    if not path:
+        return jsonify({"error": "not found"}), 404
+    return send_file(path)
 
+
+STATIC_DIR = os.path.join(_APP_DIR, "static")
+
+
+@app.route("/static/<path:filename>")
+def static_files(filename):
+    if ".." in filename:
+        return jsonify({"error": "invalid path"}), 400
+    path = os.path.join(STATIC_DIR, filename)
+    if not os.path.isfile(path):
+        return jsonify({"error": "not found"}), 404
+    return send_file(path)
+
+
+# =============================================================================
+# Tree / LTX / programming
+# =============================================================================
 
 @app.route("/api/tree")
 def api_tree():
@@ -1432,6 +1320,19 @@ def index():
         default_url=cfg.get("last_connected") or DEFAULT_HW_SERVER_URL,
         initial_config=json.dumps(cfg),
     )
+
+
+def _plugin_context():
+    return {
+        "run": _run,
+        "lock": _lock,
+        "parse_rows": _parse_rows,
+        "require_open_target": _require_open_target,
+        "load_config": _load_config,
+    }
+
+
+plugin_registry.init_plugins(app, _plugin_context(), _load_config())
 
 
 if __name__ == "__main__":

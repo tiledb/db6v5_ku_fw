@@ -1,0 +1,31 @@
+<div class="monitor-bar">
+  <label>Sample
+    <select id="pollRate-xadc" data-poll-rate="xadc">
+      <option value="off" selected>Off</option>
+      <option value="0">0s (continuous)</option>
+      <option value="1">1s</option>
+      <option value="2">2s</option>
+      <option value="3">3s</option>
+      <option value="4">4s</option>
+      <option value="5">5s</option>
+      <option value="10">10s</option>
+    </select>
+  </label>
+  <button type="button" data-refresh="xadc">Refresh</button>
+  <span id="time-xadc"></span>
+</div>
+<div id="xadcBody" class="xadc-split">
+  <div id="wrap-xadc" class="xadc-table-panel">
+    <p class="empty">XADC readings appear after a device is selected.</p>
+  </div>
+  <div id="xadcPlotsWrap" class="xadc-plots-panel">
+    <div class="xadc-plot-box temp">
+      <h3>Temperature</h3>
+      <div class="xadc-canvas-wrap"><canvas id="xadcTempChart"></canvas></div>
+    </div>
+    <div class="xadc-plot-box volt">
+      <h3>Voltage</h3>
+      <div class="xadc-canvas-wrap"><canvas id="xadcVoltChart"></canvas></div>
+    </div>
+  </div>
+</div>
