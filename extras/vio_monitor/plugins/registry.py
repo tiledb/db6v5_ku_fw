@@ -8,15 +8,16 @@ from typing import Any, Callable
 
 PLUGINS_ROOT = os.path.dirname(os.path.abspath(__file__))
 MANIFEST_NAME = "manifest.json"
-_tree_hooks: list[Callable[..., None]] = []
+_tree_hooks: dict[str, Callable[..., None]] = {}
+_registered_ids: set[str] = set()
 
 
-def register_tree_hook(fn: Callable[..., None]) -> None:
-    _tree_hooks.append(fn)
+def register_tree_hook(plugin_id: str, fn: Callable[..., None]) -> None:
+    _tree_hooks[plugin_id] = fn
 
 
 def tree_hooks() -> list[Callable[..., None]]:
-    return list(_tree_hooks)
+    return list(_tree_hooks.values())
 
 
 def discover_plugins() -> list[dict[str, Any]]:
@@ -119,12 +120,24 @@ def load_plugin_backend(manifest: dict[str, Any]):
     return module
 
 
-def init_plugins(app, ctx: dict[str, Any], cfg: dict[str, Any]) -> None:
-    """Register Flask blueprints and tree hooks for enabled plugins."""
-    for manifest in enabled_plugins(cfg):
+def init_plugins(app, ctx: dict[str, Any], cfg: dict[str, Any] | None = None) -> None:
+    """Register Flask blueprints and tree hooks for enabled plugins only."""
+    cfg = ensure_plugins_config(cfg or {"plugins": {}})
+    for manifest in discover_plugins():
+        pid = manifest["id"]
+        if pid in _registered_ids:
+            continue
+        if not is_plugin_enabled(cfg, pid):
+            continue
         module = load_plugin_backend(manifest)
         if module is None:
             continue
         register = getattr(module, "register", None)
         if callable(register):
             register(app, ctx, manifest)
+            _registered_ids.add(pid)
+
+
+def ensure_plugins(app, ctx: dict[str, Any], cfg: dict[str, Any] | None = None) -> None:
+    """Register newly enabled plugins (no-op for already registered ones)."""
+    init_plugins(app, ctx, cfg)

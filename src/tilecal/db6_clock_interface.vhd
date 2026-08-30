@@ -63,6 +63,11 @@ entity db6_clock_interface is
     -- the debug knobs it used to drive as internal signals when it lived in this module.
     p_clknet_debug_status_out  : out t_clknet_debug_status;
     p_clknet_debug_control_in  : in  t_clknet_debug_control;
+    -- manual vio-driven force of the altera companion fpga reset -- moved out of
+    -- t_clknet_debug_control into its own dedicated port for consistency with
+    -- t_mb_interface.mb_reset (see db6_mainboard_interface.vhd), which mirrors the
+    -- same top-level signal for status/observability
+    p_mb_reset_vio_in          : in  t_mb_std_logic;
 
     -- plain-logic side of the raw pads/wizards now in db7_io_box (IBUFDS_GTE3 for
     -- GT refclk, IBUFDS + pll_osc_clk for the oscillator, IBUFDS for cfgbus local)
@@ -852,7 +857,7 @@ s_clkin_in <= p_clkin_in;
 -- vio_clknet_status was moved to db6v5_top; these are exactly the debug knobs it used to
 -- drive as internal signals when it was instantiated here (see db6_design_package.vhd's
 -- t_clknet_debug_control), now sourced from the top-level instance instead.
-s_reset_mb <= p_clknet_debug_control_in.reset_mb;
+s_reset_mb <= p_mb_reset_vio_in;
 
 s_clknet_out.skip_main_sm                         <= p_clknet_debug_control_in.skip_main_sm;
 s_clknet_out.force_gtx_i2c_config                 <= p_clknet_debug_control_in.force_gtx_i2c_config;

@@ -1,0 +1,17 @@
+{
+  "id": "tilecal_xadc",
+  "name": "TileCal DB xADC",
+  "description": "TileCal analogue XADC conversion to voltages and monitor currents",
+  "version": "1.0.0",
+  "default_enabled": true,
+  "order": 25,
+  "requires_target": true,
+  "requires_device": false,
+  "tree_node_types": ["tilecal_xadc"],
+  "assets": {
+    "panel": "panel.html",
+    "script": "plugin.js",
+    "styles": ["styles.css"],
+    "external_scripts": []
+  }
+}

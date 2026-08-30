@@ -1636,7 +1636,7 @@ end record;
 type t_mb_boundary_scan_array is array (0 to 1) of t_mb_boundary_scan;
 
 type t_mb_interface is record
-    mb_reset : t_mb_std_logic;
+    mb_reset : t_mb_std_logic; -- manual vio-driven force of the altera companion fpga reset (mb_fpga_reset_low); see p_mb_reset_vio_in on db6_mainboard_interface.vhd/db6_clock_interface.vhd
     mb_driver : t_mb_driver;
     adc_readout : t_adc_readout;
     adc_readout_control : t_adc_readout_control;
@@ -1958,7 +1958,8 @@ type t_mmcm_clk_control_array is array (0 to 1) of t_mmcm_clk_control;
     end record;
 
     type t_clknet_debug_control is record
-        reset_mb                             : t_mb_std_logic;
+        -- reset_mb moved to t_mb_interface.mb_reset for consistency (see
+        -- db6_mainboard_interface.vhd / db6_clock_interface.vhd)
         reset_clknet                         : std_logic;
         skip_main_sm                         : std_logic;
         force_gtx_i2c_config                 : std_logic;

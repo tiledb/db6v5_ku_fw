@@ -129,9 +129,12 @@ function stopAllPollers() {
 }
 
 async function refreshAllPlugins() {
-  for (const plugin of HWMonitor.plugins.values()) {
-    if (plugin.refresh) await plugin.refresh();
-  }
+  const tasks = [...HWMonitor.plugins.values()]
+    .filter(p => p.refresh)
+    .map(p => p.refresh().catch(err => {
+      console.error('Plugin refresh failed:', p.id, err);
+    }));
+  await Promise.allSettled(tasks);
 }
 
 async function onPluginDeviceChange() {
@@ -158,12 +161,10 @@ function loadStylesheet(href) {
 
 function loadScript(src) {
   return new Promise((resolve, reject) => {
-    if (document.querySelector('script[data-src="' + src + '"]')) {
-      resolve();
-      return;
-    }
+    const existing = document.querySelector('script[data-src="' + src + '"]');
+    if (existing) existing.remove();
     const s = document.createElement('script');
-    s.src = src;
+    s.src = src + (src.includes('?') ? '&' : '?') + 'v=' + Date.now();
     s.dataset.src = src;
     s.onload = () => resolve();
     s.onerror = () => reject(new Error('Failed to load ' + src));
@@ -172,6 +173,7 @@ function loadScript(src) {
 }
 
 async function loadPlugins(pluginList) {
+  HWMonitor.plugins.clear();
   HWMonitor.pluginMeta = pluginList.filter(p => p.enabled);
   const tabsEl = document.getElementById('pluginTabs');
   const panelsEl = document.getElementById('pluginPanels');
@@ -698,7 +700,7 @@ function renderTree(tree) {
   function nodeEl(n) {
     const div = document.createElement('div');
     div.className = 'tree-node ' + n.type + (isActive(n) ? ' active' : '');
-    const icons = { vivado: '⚙', server: '🖧', target: '🎯', device: '🔲', vio: '📊', sysmon: '🌡' };
+    const icons = { vivado: '⚙', server: '🖧', target: '🎯', device: '🔲', vio: '📊', sysmon: '🌡', tilecal_xadc: '⚡' };
     let label = n.name;
     if (n.type === 'device' && n.part) label += ' (' + n.part + ')';
     div.innerHTML = '<span class="icon">' + (icons[n.type] || '·') + '</span><span>' + esc(label) + '</span>';

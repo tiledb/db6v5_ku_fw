@@ -21,22 +21,20 @@ _VIO_PROBE_READ_LOOP = (
     '} '
 )
 
-_DUMP_VIOS_TCL = (
-    'foreach __dev [get_hw_devices] { '
-    'current_hw_device $__dev ; '
-    'refresh_hw_device -update_hw_probes true $__dev ; '
-    'set __vios [get_hw_vios -of_objects $__dev] ; '
-    'if {[llength $__vios] > 0} { refresh_hw_vio $__vios } ; '
-    'foreach __vio $__vios { '
-    'set __vname [get_property NAME $__vio] ; '
-    + _VIO_PROBE_READ_LOOP +
-    '} }'
-)
-
 
 def _tcl_dump_vios(device=None):
     if not device:
-        return _DUMP_VIOS_TCL
+        return (
+            'foreach __dev [get_hw_devices] { '
+            'current_hw_device $__dev ; '
+            'refresh_hw_device -update_hw_probes true $__dev ; '
+            'set __vios [get_hw_vios -of_objects $__dev] ; '
+            'if {[llength $__vios] > 0} { refresh_hw_vio $__vios } ; '
+            'foreach __vio $__vios { '
+            'set __vname [get_property NAME $__vio] ; '
+            + _VIO_PROBE_READ_LOOP +
+            '} }'
+        )
     return (
         f'set __dev [get_hw_devices {{{device}}}] ; '
         'current_hw_device $__dev ; '
@@ -98,4 +96,4 @@ def register(app, ctx, manifest):
                 "plugin": "vio",
             })
 
-    register_tree_hook(_tree_vio_nodes)
+    register_tree_hook("vio", _tree_vio_nodes)

@@ -57,7 +57,116 @@ _VIVADO_MCP_PKG_DIR = os.environ.get(
 if _VIVADO_MCP_PKG_DIR not in sys.path:
     sys.path.insert(0, _VIVADO_MCP_PKG_DIR)
 
-from vivado_session import get_session, CommandResult  # noqa: E402
+from vivado_session import get_session, CommandResult, classify_output_errors  # noqa: E402
+
+
+def _clean_vivado_tcl_output(raw_output: str, command: str) -> str:
+    """Extract Tcl stdout, tolerating terminal-wrapped command echoes.
+
+    vivado_session.run_tcl only recognizes the echoed command when it fits
+    on one line. Vivado wraps long one-liners across multiple echo lines,
+    which leaves found_command False and discards all puts output.
+    """
+    lines = raw_output.replace("\r", "").split("\n")
+    cmd_norm = " ".join(command.strip().split())
+    clean_lines = []
+    echo_acc = ""
+    past_echo = False
+
+    for line in lines:
+        stripped = line.strip()
+        if not past_echo:
+            if not stripped:
+                continue
+            echo_acc = f"{echo_acc} {stripped}".strip()
+            echo_norm = " ".join(echo_acc.split())
+            if echo_norm == cmd_norm or len(echo_norm) >= len(cmd_norm):
+                past_echo = True
+            elif not cmd_norm.startswith(echo_norm):
+                past_echo = True
+                clean_lines.append(stripped)
+            continue
+
+        if stripped == "Vivado%" or stripped.startswith("Vivado%"):
+            continue
+        if stripped:
+            clean_lines.append(stripped)
+
+    return "\n".join(clean_lines).strip()
+
+
+def _run_tcl_with_echo_fix(sess, command: str, timeout_override=None) -> CommandResult:
+    """Run Tcl with output parsing that handles wrapped command echoes."""
+    if not sess.is_running:
+        return CommandResult(
+            command=command,
+            output="Vivado session not running. Call start() first.",
+            return_value="1",
+            success=False,
+            elapsed_ms=0,
+        )
+
+    with sess._lock:
+        start_time = time.time()
+        try:
+            try:
+                sess.child.read_nonblocking(size=100000, timeout=0.1)
+            except (pexpect.TIMEOUT, pexpect.EOF):
+                pass
+
+            sess.child.sendline(command)
+            effective_timeout = (
+                timeout_override if timeout_override is not None else sess.timeout
+            )
+            sess.child.expect("Vivado%", timeout=effective_timeout)
+            output = _clean_vivado_tcl_output(sess.child.before, command)
+
+            elapsed = (time.time() - start_time) * 1000
+            classification = classify_output_errors(output, command)
+            success = not classification.is_actual_failure
+
+            sess.stats["commands_run"] += 1
+            sess.stats["total_command_time_ms"] += elapsed
+            if not success:
+                sess.stats["errors"] += 1
+
+            result = CommandResult(
+                command=command,
+                output=output,
+                return_value="0" if success else "1",
+                success=success,
+                elapsed_ms=elapsed,
+            )
+            sess.stats["command_history"].append({
+                "command": command,
+                "success": success,
+                "elapsed_ms": elapsed,
+                "timestamp": result.timestamp,
+            })
+            if len(sess.stats["command_history"]) > 100:
+                sess.stats["command_history"] = sess.stats["command_history"][-100:]
+            return result
+
+        except pexpect.TIMEOUT:
+            elapsed = (time.time() - start_time) * 1000
+            sess.stats["errors"] += 1
+            return CommandResult(
+                command=command,
+                output=f"Command timed out after {sess.timeout}s",
+                return_value="1",
+                success=False,
+                elapsed_ms=elapsed,
+            )
+        except Exception as e:
+            elapsed = (time.time() - start_time) * 1000
+            sess.stats["errors"] += 1
+            return CommandResult(
+                command=command,
+                output=f"Error executing command: {e}",
+                return_value="1",
+                success=False,
+                elapsed_ms=elapsed,
+            )
 
 
 def _robust_start(sess):
@@ -188,6 +297,23 @@ def _save_config(cfg):
 app = Flask(__name__)
 session = get_session()
 VIVADO_VERSIONS = _find_all_vivado()
+
+
+def _plugin_context():
+    return {
+        "run": _run,
+        "lock": _lock,
+        "parse_rows": _parse_rows,
+        "require_open_target": _require_open_target,
+        "load_config": _load_config,
+    }
+
+
+@app.before_request
+def _ensure_plugin_routes():
+    """Register plugin blueprints for newly enabled plugins."""
+    if request.path.startswith("/api/plugins/") or request.path == "/api/plugins":
+        plugin_registry.ensure_plugins(app, _plugin_context(), _load_config())
 
 _startup_cfg = _load_config()
 _saved_vivado = _startup_cfg.get("vivado_path")
@@ -471,10 +597,7 @@ def _run(cmd, timeout_override=None):
     """Run Tcl and log the literal command text -- not a paraphrase of it --
     so the terminal panel reflects exactly what was sent to Vivado."""
     _ensure_started()
-    if timeout_override is not None:
-        result = session.run_tcl(cmd, timeout_override=timeout_override)
-    else:
-        result = session.run_tcl(cmd)
+    result = _run_tcl_with_echo_fix(session, cmd, timeout_override=timeout_override)
     _log_console(cmd, result)
     return result
 
@@ -1320,16 +1443,6 @@ def index():
         default_url=cfg.get("last_connected") or DEFAULT_HW_SERVER_URL,
         initial_config=json.dumps(cfg),
     )
-
-
-def _plugin_context():
-    return {
-        "run": _run,
-        "lock": _lock,
-        "parse_rows": _parse_rows,
-        "require_open_target": _require_open_target,
-        "load_config": _load_config,
-    }
 
 
 plugin_registry.init_plugins(app, _plugin_context(), _load_config())

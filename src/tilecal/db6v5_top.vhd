@@ -251,6 +251,10 @@ signal s_skip_main_sm : std_logic;
 
 signal s_mb_fpga_reset_low : t_mb_std_logic;
 signal s_mb_fpga_reset_low_out : t_mb_std_logic;
+-- manual vio-driven force of the altera companion fpga reset; moved out of
+-- t_clknet_debug_control into its own dedicated signal (mirrored into
+-- t_mb_interface.mb_reset by db6_mainboard_interface.vhd) for consistency
+signal s_mb_reset_vio : t_mb_std_logic := (q0 => '0', q1 => '0');
 -- fires a one-shot boundary-scan trigger ~1s (100 ticks of clk_100hz) after each
 -- side's s_mb_fpga_reset_low_out releases -- see proc_mb_boundary_scan_timed_trigger
 signal s_mb_boundary_scan_timed_trigger : t_mb_std_logic := (q0 => '0', q1 => '0');
@@ -742,6 +746,7 @@ i_db6_clock_interface : entity tilecal.db6_clock_interface
         -- vio_clknet_status lives here now; see i_vio_clknet_status below
         p_clknet_debug_status_out => s_clknet_debug_status,
         p_clknet_debug_control_in => s_clknet_debug_control,
+        p_mb_reset_vio_in => s_mb_reset_vio,
 
         -- plain-logic side of the raw pads/wizards now in db7_io_box
         p_gth_refclk_local_in   => s_gth_refclk_local,
@@ -794,6 +799,7 @@ i_db6_mainboard_interface : entity tilecal.db6_mainboard_interface
         p_mb_jtag_tdo_in  => p_mb_tdo_in,
         p_mb_boundary_scan_reg_address_vio_in => s_mb_boundary_scan_reg_address_vio,
         p_boundary_scan_timed_trigger_in => s_mb_boundary_scan_timed_trigger,
+        p_mb_reset_vio_in => s_mb_reset_vio,
         --integrator
         p_integrator_sda_drive_out => s_integrator_sda_drive,
         p_integrator_sda_tri_out   => s_integrator_sda_tri,
@@ -1633,8 +1639,8 @@ i_vio_clknet_status : vio_clknet_status
     probe_in107(0) => s_boot_sfp_read_done(0),
     probe_in108(0) => s_boot_sfp_read_done(1),
 
-    probe_out0(0) => s_clknet_debug_control.reset_mb.q0,
-    probe_out0(1) => s_clknet_debug_control.reset_mb.q1,
+    probe_out0(0) => s_mb_reset_vio.q0,
+    probe_out0(1) => s_mb_reset_vio.q1,
     probe_out0(2) => s_dna_reset,
     probe_out0(3) => open,
     probe_out0(4) => s_clknet_debug_control.reset_clknet,

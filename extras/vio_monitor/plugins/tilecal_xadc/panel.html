@@ -1,0 +1,20 @@
+<div class="monitor-bar">
+  <label>Sample
+    <select id="pollRate-tilecal_xadc" data-poll-rate="tilecal_xadc">
+      <option value="off" selected>Off</option>
+      <option value="0">0s (continuous)</option>
+      <option value="1">1s</option>
+      <option value="2">2s</option>
+      <option value="3">3s</option>
+      <option value="4">4s</option>
+      <option value="5">5s</option>
+      <option value="10">10s</option>
+    </select>
+  </label>
+  <button type="button" data-refresh="tilecal_xadc">Refresh</button>
+  <span id="time-tilecal_xadc"></span>
+  <span id="live-tilecal_xadc" class="live-scan-hint"></span>
+</div>
+<div id="wrap-tilecal_xadc" class="panel-scroll">
+  <p class="empty">Connect and open a target to view TileCal xADC conversions.</p>
+</div>

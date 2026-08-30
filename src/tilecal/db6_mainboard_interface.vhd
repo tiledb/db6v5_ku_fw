@@ -87,6 +87,12 @@ entity db6_mainboard_interface is
         -- releases (see proc_mb_boundary_scan_timed_trigger in db6v5_top.vhd)
         p_boundary_scan_timed_trigger_in : in t_mb_std_logic;
 
+        -- manual vio-driven force of the altera companion fpga reset, mirrored
+        -- into p_mb_interface_out.mb_reset (moved here from t_clknet_debug_control
+        -- for consistency; still consumed directly by db6_clock_interface.vhd,
+        -- which sits upstream of this module and can't take t_mb_interface as input)
+        p_mb_reset_vio_in : in t_mb_std_logic;
+
         p_mb_interface_out          : out t_mb_interface;
         
         --integrator
@@ -403,8 +409,7 @@ begin
 p_mb_interface_out.adc_readout <= s_adc_readout;
 p_mb_interface_out.adc_readout_control <= s_adc_readout_control;
 
-p_mb_interface_out.mb_reset.q0 <= '1'; --p_clknet_in.mb_fpga_reset_low.q0;
-p_mb_interface_out.mb_reset.q1 <= '1'; --p_clknet_in.mb_fpga_reset_low.q1;
+p_mb_interface_out.mb_reset <= p_mb_reset_vio_in;
 
 s_reset_adc_interface <= p_master_reset_in(c_adc_readout_reset_bit) or s_reset_adc_interface_from_vio;
 
@@ -643,11 +648,15 @@ i_db6_mainboard_driver : entity tilecal.db6_mainboard_driver
 s_mb_jtag_enable.q0 <= s_mb_jtag_auto_trigger.q0 or p_db_reg_rx_in(cfb_db_debug)(c_db_debug_mb_jtag_read_enable_q0);
 s_mb_jtag_enable.q1 <= s_mb_jtag_auto_trigger.q1 or p_db_reg_rx_in(cfb_db_debug)(c_db_debug_mb_jtag_read_enable_q1);
 
--- boundary-scan (sample) reader: auto-read trigger below (chained after the idcode
--- scan, same reset-release event) ORed with the manual configbus debug bit, plus a
--- shared reg-block-ram port b address command (per side)
-s_mb_boundary_scan_enable.q0 <= s_mb_boundary_scan_auto_trigger.q0 or s_boundary_scan_timed_trigger_sync_ff2.q0 or p_db_reg_rx_in(cfb_db_debug)(c_db_debug_mb_boundary_scan_enable_q0);
-s_mb_boundary_scan_enable.q1 <= s_mb_boundary_scan_auto_trigger.q1 or s_boundary_scan_timed_trigger_sync_ff2.q1 or p_db_reg_rx_in(cfb_db_debug)(c_db_debug_mb_boundary_scan_enable_q1);
+-- boundary-scan (sample) reader: manual configbus debug bit only for now -- the
+-- auto-chain (after idcode) and the 1s-post-reset timed trigger are disabled below
+-- (proc_mb_jtag_auto_read no longer visits st_gap/st_read_boundary, and their
+-- contribution here is commented out) because triggering a boundary scan was found
+-- to freeze the altera companion fpga's own firmware on real hardware -- root cause
+-- not yet identified (sample opcode/bit-order checked against the bsdl and are
+-- correct, so it isn't that). re-enable only once that's understood.
+s_mb_boundary_scan_enable.q0 <= p_db_reg_rx_in(cfb_db_debug)(c_db_debug_mb_boundary_scan_enable_q0); -- was: s_mb_boundary_scan_auto_trigger.q0 or s_boundary_scan_timed_trigger_sync_ff2.q0 or ...
+s_mb_boundary_scan_enable.q1 <= p_db_reg_rx_in(cfb_db_debug)(c_db_debug_mb_boundary_scan_enable_q1); -- was: s_mb_boundary_scan_auto_trigger.q1 or s_boundary_scan_timed_trigger_sync_ff2.q1 or ...
 s_mb_boundary_scan_rx_register(0) <= p_db_reg_rx_in(cfb_mb_boundary_scan_reg_address)(6 downto 0) or p_mb_boundary_scan_reg_address_vio_in(0);
 s_mb_boundary_scan_rx_register(1) <= p_db_reg_rx_in(cfb_mb_boundary_scan_reg_address)(14 downto 8) or p_mb_boundary_scan_reg_address_vio_in(1);
 
@@ -684,9 +693,14 @@ begin
                     s_mb_jtag_auto_read_sm_q0  <= st_read_id;
                 end if;
             when st_read_id =>
+                -- goes straight back to st_idle instead of chaining into
+                -- st_gap/st_read_boundary -- boundary-scan auto-chaining is
+                -- disabled for now (see s_mb_boundary_scan_enable above); st_gap/
+                -- st_read_boundary are kept below, unreachable, so the fix is a
+                -- one-line revert once the altera-freeze root cause is found
                 if s_mb_jtag_done.q0 = '1' then
                     s_mb_jtag_auto_trigger.q0  <= '0';
-                    s_mb_jtag_auto_read_sm_q0  <= st_gap;
+                    s_mb_jtag_auto_read_sm_q0  <= st_idle;
                 end if;
             when st_gap =>
                 -- both auto-triggers held low for c_jtag_gap_cycles (see declaration
@@ -715,9 +729,11 @@ begin
                     s_mb_jtag_auto_read_sm_q1  <= st_read_id;
                 end if;
             when st_read_id =>
+                -- see q0's st_read_id above: goes straight to st_idle, boundary-scan
+                -- auto-chaining disabled for now
                 if s_mb_jtag_done.q1 = '1' then
                     s_mb_jtag_auto_trigger.q1  <= '0';
-                    s_mb_jtag_auto_read_sm_q1  <= st_gap;
+                    s_mb_jtag_auto_read_sm_q1  <= st_idle;
                 end if;
             when st_gap =>
                 if s_mb_jtag_gap_cnt_q1 = c_jtag_gap_cycles-1 then
