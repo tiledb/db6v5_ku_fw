@@ -15,6 +15,20 @@
   <span id="time-tilecal_xadc"></span>
   <span id="live-tilecal_xadc" class="live-scan-hint"></span>
 </div>
-<div id="wrap-tilecal_xadc" class="panel-scroll">
-  <p class="empty">Connect and open a target to view TileCal xADC conversions.</p>
+<div id="tilecalBody" class="tilecal-split">
+  <div id="wrap-tilecal_xadc" class="tilecal-table-panel">
+    <div id="tilecal-table-wrap">
+      <p class="empty">Connect and open a target to view TileCal xADC conversions.</p>
+    </div>
+  </div>
+  <div id="tilecalPlotsWrap" class="tilecal-plots-panel">
+    <div class="tilecal-plot-box corr">
+      <h3>Temperature vs 0.95V current</h3>
+      <div class="tilecal-canvas-wrap"><canvas id="tilecalCorrChart"></canvas></div>
+    </div>
+    <div class="tilecal-plot-box current">
+      <h3>Monitor currents</h3>
+      <div class="tilecal-canvas-wrap"><canvas id="tilecalCurrentChart"></canvas></div>
+    </div>
+  </div>
 </div>

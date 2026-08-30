@@ -39,3 +39,60 @@ table.data tr.section td {
   margin-bottom: .45rem;
   line-height: 1.4;
 }
+
+.tilecal-split {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: .55rem;
+  overflow: hidden;
+}
+
+.tilecal-table-panel {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.tilecal-plots-panel {
+  width: 44%;
+  min-width: 300px;
+  max-width: 520px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: .45rem;
+  min-height: 0;
+}
+
+.tilecal-plot-box {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: .4rem .5rem .35rem;
+}
+
+.tilecal-plot-box h3 {
+  font-size: .72rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  margin-bottom: .2rem;
+  flex-shrink: 0;
+}
+
+.tilecal-plot-box.corr h3 { color: var(--warn); }
+.tilecal-plot-box.current h3 { color: var(--accent2); }
+
+.tilecal-canvas-wrap {
+  flex: 1;
+  min-height: 100px;
+  position: relative;
+}
+
+.tilecal-table-panel table.data { margin-bottom: .25rem; }
