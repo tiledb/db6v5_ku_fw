@@ -40,6 +40,7 @@ from datetime import datetime
 
 import pexpect
 from flask import Flask, jsonify, request, render_template_string
+from werkzeug.utils import secure_filename
 
 # vivado-mcp ships its session manager as a top-level module inside its
 # package directory (not importable as `vivado_mcp.vivado_session`).
@@ -228,9 +229,177 @@ def _remove_hw_server(url):
         return cfg
 
 
-# =============================================================================
-# Console log ("terminal" backing store)
-# =============================================================================
+def _set_last_target(target):
+    with _config_lock:
+        cfg = _load_config()
+        cfg["last_target"] = target
+        _save_config(cfg)
+        return cfg
+
+
+def _set_last_device(device):
+    with _config_lock:
+        cfg = _load_config()
+        cfg["last_device"] = device
+        _save_config(cfg)
+        return cfg
+
+
+def _set_ltx_path(path):
+    path = _abs_ltx_path(path)
+    with _config_lock:
+        cfg = _load_config()
+        cfg["last_ltx"] = path
+        files = cfg.setdefault("ltx_files", [])
+        if path and path not in files:
+            files.insert(0, path)
+            cfg["ltx_files"] = files[:20]
+        _save_config(cfg)
+        return cfg
+
+
+def _repo_root():
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def _uploads_root():
+    return os.path.join(_repo_root(), "bin", "uploads")
+
+
+def _abs_hw_file_path(path):
+    """Resolve hardware-related file paths to an absolute filesystem path."""
+    if not path:
+        return path
+    path = path.strip()
+    if os.path.isabs(path):
+        return os.path.abspath(path)
+    for base in (os.getcwd(), _repo_root(), os.path.dirname(os.path.abspath(__file__))):
+        candidate = os.path.normpath(os.path.join(base, path))
+        if os.path.isfile(candidate):
+            return candidate
+    return os.path.normpath(os.path.join(_repo_root(), path))
+
+
+def _abs_ltx_path(path):
+    return _abs_hw_file_path(path)
+
+
+def _find_ltx_candidates():
+    """Return absolute *.ltx paths under common project/build locations."""
+    roots = set()
+    here = os.path.dirname(os.path.abspath(__file__))
+    roots.add(here)
+    roots.add(os.path.dirname(here))
+    roots.add(_repo_root())
+    env_root = os.environ.get("VIO_MONITOR_LTX_ROOT")
+    if env_root:
+        roots.add(os.path.abspath(env_root))
+    cfg = _load_config()
+    found = set()
+    for p in cfg.get("ltx_files", []):
+        if p:
+            abs_p = _abs_ltx_path(p)
+            if os.path.isfile(abs_p):
+                found.add(abs_p)
+    for root in roots:
+        if not os.path.isdir(root):
+            continue
+        for pattern in ("**/*.ltx",):
+            for path in glob.glob(os.path.join(root, pattern), recursive=True):
+                if os.path.isfile(path):
+                    found.add(os.path.abspath(path))
+    return sorted(found, reverse=True)
+
+
+def _find_program_candidates(ext):
+    """Return absolute *.{bit,bin} paths under common project/build locations."""
+    if ext not in ("bit", "bin"):
+        return []
+    roots = set()
+    here = os.path.dirname(os.path.abspath(__file__))
+    roots.add(here)
+    roots.add(os.path.dirname(here))
+    roots.add(_repo_root())
+    env_root = os.environ.get("VIO_MONITOR_BITSTREAM_ROOT")
+    if env_root:
+        roots.add(os.path.abspath(env_root))
+    cfg = _load_config()
+    cfg_key = f"{ext}_files"
+    found = set()
+    for p in cfg.get(cfg_key, []):
+        if p:
+            abs_p = _abs_hw_file_path(p)
+            if os.path.isfile(abs_p):
+                found.add(abs_p)
+    for root in roots:
+        if not os.path.isdir(root):
+            continue
+        pattern = os.path.join(root, f"**/*.{ext}")
+        for path in glob.glob(pattern, recursive=True):
+            if os.path.isfile(path):
+                found.add(os.path.abspath(path))
+    return sorted(found, reverse=True)
+
+
+def _set_program_path(path, ext):
+    path = _abs_hw_file_path(path)
+    if ext not in ("bit", "bin"):
+        return _load_config()
+    with _config_lock:
+        cfg = _load_config()
+        cfg[f"last_{ext}"] = path
+        files = cfg.setdefault(f"{ext}_files", [])
+        if path and path not in files:
+            files.insert(0, path)
+            cfg[f"{ext}_files"] = files[:20]
+        _save_config(cfg)
+        return cfg
+
+
+TCL_HISTORY_PATH = os.environ.get(
+    "VIO_MONITOR_TCL_HISTORY",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "tcl_history.json"),
+)
+TCL_HISTORY_MAX_ENTRIES = 10000
+TCL_HISTORY_MAX_LINE_LEN = 10000
+_history_lock = threading.Lock()
+
+
+def _load_tcl_history():
+    if not os.path.exists(TCL_HISTORY_PATH):
+        return []
+    try:
+        with open(TCL_HISTORY_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            return [str(line) for line in data[-TCL_HISTORY_MAX_ENTRIES:]]
+    except (json.JSONDecodeError, OSError, TypeError):
+        pass
+    return []
+
+
+def _append_tcl_history(cmd):
+    cmd = cmd.strip()[:TCL_HISTORY_MAX_LINE_LEN]
+    if not cmd:
+        return _load_tcl_history()
+    with _history_lock:
+        history = _load_tcl_history()
+        if history and history[-1] == cmd:
+            return history
+        history.append(cmd)
+        history = history[-TCL_HISTORY_MAX_ENTRIES:]
+        tmp_path = TCL_HISTORY_PATH + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(history, f)
+        os.replace(tmp_path, TCL_HISTORY_PATH)
+        return history
+
+
+def _require_open_target():
+    """Return an error response tuple if no hw_target is open, else None."""
+    if not _load_config().get("last_target"):
+        return jsonify({"success": False, "error": "open a target first"}), 400
+    return None
 
 _console_lock = threading.Lock()
 _console = deque(maxlen=2000)
@@ -320,6 +489,39 @@ def _parse_rows(output, prefix, nfields):
 # Tcl command builders -- all list output as PREFIX|field|field... lines so
 # the Python side can parse it without needing a JSON encoder in Tcl.
 
+def _filter_tcl_lines(output):
+    """Return useful Tcl stdout lines, skipping Vivado INFO/WARNING banners."""
+    return [
+        ln.strip() for ln in output.splitlines()
+        if ln.strip()
+        and not ln.startswith("INFO:")
+        and not ln.startswith("WARNING:")
+    ]
+
+
+def _looks_like_hw_target(name):
+    """True for real hw_target paths, not error-message tokens."""
+    if not name or " " in name:
+        return False
+    if "/" not in name:
+        return False
+    low = name.lower()
+    return "xilinx_tcf" in low or ":312" in name or name.count("/") >= 2
+
+
+def _parse_hw_servers(output):
+    """Extract hw_server URLs from get_hw_servers output."""
+    servers = []
+    for line in _filter_tcl_lines(output):
+        if " " in line:
+            continue
+        if line.startswith("Resolution:"):
+            continue
+        if ":" in line:
+            servers.append(line)
+    return servers
+
+
 def _tcl_list_targets():
     # Only one hw_server can be open in Vivado at a time, so there's no
     # server to filter by -- connect_hw_server already made it current.
@@ -332,74 +534,310 @@ def _tcl_list_targets():
 def _parse_targets(output):
     """Extract hw_target names from Tcl list-targets output."""
     targets = [row[0] for row in _parse_rows(output, "TARGETROW", 2)]
+    targets = [t for t in targets if _looks_like_hw_target(t)]
     if targets:
         return targets
-    # Fallback: bare `get_hw_targets` prints space-separated names on one line.
-    for line in output.splitlines():
-        line = line.strip()
-        if not line or line.startswith("INFO:") or line.startswith("WARNING:"):
-            continue
+    # Fallback: bare `get_hw_targets` prints space-separated paths on one line.
+    for line in _filter_tcl_lines(output):
         if "|" in line:
             continue
-        parts = line.split()
+        parts = [p for p in line.split() if _looks_like_hw_target(p)]
         if parts:
             return parts
     return []
 
 
-def _tcl_open_target_and_list_devices(target):
+def _tcl_open_target(target):
     return (
+        f"catch {{ close_hw_target }} ; "
         f"current_hw_target [get_hw_targets {{{target}}}] ; "
-        "open_hw_target ; "
-        'foreach __d [get_hw_devices] { puts "DEVICEROW|[get_property NAME $__d]|[get_property PART $__d]" }'
+        "open_hw_target"
     )
 
 
 _LIST_DEVICES_TCL = (
-    'foreach __d [get_hw_devices] { puts "DEVICEROW|[get_property NAME $__d]|[get_property PART $__d]" }'
+    'foreach __d [get_hw_devices] { puts "DEVICEROW|$__d|" }'
 )
+
+
+def _parse_devices(output):
+    """Parse DEVICEROW lines; fall back to bare get_hw_devices output."""
+    devices = []
+    for row in _parse_rows(output, "DEVICEROW", 3):
+        name = row[0].strip()
+        if name:
+            part = row[1].strip() if len(row) > 1 else ""
+            devices.append({"name": name, "part": part})
+    if devices:
+        return devices
+    for line in output.splitlines():
+        line = line.strip()
+        if not line or line.startswith(("INFO:", "WARNING:", "ERROR:")):
+            continue
+        if "|" in line:
+            continue
+        for name in line.split():
+            devices.append({"name": name, "part": ""})
+    return devices
+
+
+def _enrich_device_parts(devices):
+    """Fetch PART separately — nested get_property inside puts breaks output capture."""
+    enriched = []
+    for d in devices:
+        part_result = _run(f'get_property PART [get_hw_devices {{{d["name"]}}}]')
+        part = ""
+        if part_result.success and part_result.output.strip():
+            part = part_result.output.strip().splitlines()[-1].strip()
+        enriched.append({"name": d["name"], "part": part})
+    return enriched
+
+
+def _list_devices():
+    result = _run(_LIST_DEVICES_TCL)
+    devices = _parse_devices(result.output)
+    if devices and not any(d.get("part") for d in devices):
+        devices = _enrich_device_parts(devices)
+    return devices, result
+
+
+def _open_hw_target(target):
+    open_result = _run(_tcl_open_target(target))
+    devices, list_result = _list_devices()
+    return open_result, devices, list_result
 
 
 def _tcl_device_properties(device):
     return (
-        f"set __dev [get_hw_devices {{{device}}}]\n"
-        "foreach __prop [lsort [list_property $__dev]] {\n"
-        "    if {[catch {set __val [get_property $__prop $__dev]} __err]} {\n"
-        '        set __val "<error: $__err>"\n'
-        "    }\n"
-        '    puts "DEVPROP|$__prop|$__val"\n'
-        "}\n"
+        f'set __dev [get_hw_devices {{{device}}}] ; '
+        'foreach __prop [lsort [list_property $__dev]] { '
+        'if {[catch {set __val [get_property $__prop $__dev]} __err]} '
+        '{ set __val "<error: $__err>" } ; '
+        'puts "DEVPROP|$__prop|$__val" '
+        '}'
     )
 
 
+def _tcl_select_device(device):
+    return f'current_hw_device [get_hw_devices {{{device}}}]'
+
+
+def _tcl_apply_ltx(device, ltx_path):
+    return (
+        f'set __dev [get_hw_devices {{{device}}}] ; '
+        f'set_property PROBES.FILE {{{ltx_path}}} $__dev ; '
+        'refresh_hw_device -update_hw_probes true $__dev ; '
+        'puts "LTXROW|$__dev|[get_property PROBES.FILE $__dev]"'
+    )
+
+
+def _tcl_program_bit(device, bit_path):
+    return (
+        f'set __dev [get_hw_devices {{{device}}}] ; '
+        f'set_property PROGRAM.FILE {{{bit_path}}} $__dev ; '
+        'program_hw_devices $__dev ; '
+        f'puts "PROGROW|bit|ok|$__dev|{bit_path}"'
+    )
+
+
+def _tcl_program_bin(device, bin_path):
+    return (
+        f'set __dev [get_hw_devices {{{device}}}] ; '
+        'current_hw_device $__dev ; '
+        'set __part [get_property PART $__dev] ; '
+        'set __cp [lindex [get_cfgmem_parts $__part] 0] ; '
+        'if {$__cp eq ""} { puts "PROGROW|bin|error|no_cfgmem_part|" } '
+        'else { '
+        'set __cm [get_property PROGRAM.HW_CFGMEM $__dev] ; '
+        'if {$__cm eq ""} { set __cm [create_hw_cfgmem -hw_device $__dev $__cp] } ; '
+        f'set_property PROGRAM.FILES {{{bin_path}}} $__cm ; '
+        'set_property PROGRAM.BLANK_CHECK 0 $__cm ; '
+        'set_property PROGRAM.ERASE 1 $__cm ; '
+        'set_property PROGRAM.CFG_PROGRAM 1 $__cm ; '
+        'set_property PROGRAM.VERIFY 1 $__cm ; '
+        'set_property PROGRAM.CHECKSUM 0 $__cm ; '
+        'program_hw_cfgmem -hw_cfgmem $__cm ; '
+        f'puts "PROGROW|bin|ok|$__dev|{bin_path}" '
+        '}'
+    )
+
+
+def _tcl_list_vio_tree(device=None):
+    dev_filter = (
+        f'set __devs [list [get_hw_devices {{{device}}}]] ; '
+        if device else
+        'set __devs [get_hw_devices] ; '
+    )
+    return (
+        dev_filter +
+        'foreach __dev $__devs { '
+        'current_hw_device $__dev ; '
+        'set __vios [get_hw_vios -of_objects $__dev] ; '
+        'foreach __vio $__vios { '
+        'puts "VIONODE|$__dev|[get_property NAME $__vio]" '
+        '} }'
+    )
+
+
+def _tcl_dump_sysmon(device=None):
+    dev_filter = (
+        f'set __devs [list [get_hw_devices {{{device}}}]] ; '
+        if device else
+        'set __devs [get_hw_devices] ; '
+    )
+    # Dump every readable hw_sysmon property (all XADC / System Monitor measurements).
+    return (
+        dev_filter +
+        'foreach __dev $__devs { '
+        'current_hw_device $__dev ; '
+        'set __sms [get_hw_sysmons -of_objects $__dev] ; '
+        'if {[llength $__sms] > 0} { catch { refresh_hw_sysmon $__sms } } ; '
+        'foreach __sm $__sms { '
+        'set __sname [get_property NAME $__sm] ; '
+        'foreach __prop [lsort [list_property $__sm]] { '
+        'if {![catch {set __val [get_property $__prop $__sm]}]} { '
+        'puts "SYSMONROW|$__dev|$__sname|$__prop|$__val" '
+        '} } } }'
+    )
+
+
+# Inner loop: refresh each probe then read INPUT_VALUE (monitor) or OUTPUT_VALUE (drive),
+# plus ACTIVITY_VALUE (input probe transitions since last refresh).
+_VIO_PROBE_READ_LOOP = (
+    'foreach __p [get_hw_probes -of_objects $__vio] { '
+    'catch { refresh_hw_probe $__p } ; '
+    'set __pname [get_property NAME $__p] ; '
+    'set __dir "IN" ; '
+    'set __val "" ; '
+    'set __act "" ; '
+    'if {![catch {set __ptype [get_property PROBE_TYPE $__p]}] && $__ptype eq "OUTPUT"} { '
+    'set __dir "OUT" ; catch {set __val [get_property OUTPUT_VALUE $__p]} '
+    '} else { catch {set __val [get_property INPUT_VALUE $__p]} ; '
+    'catch {set __act [get_property ACTIVITY_VALUE $__p]} ; '
+    'if {$__val eq ""} { set __dir "OUT" ; catch {set __val [get_property OUTPUT_VALUE $__p]} } } ; '
+    'if {$__val eq ""} { set __val "N/A" ; set __dir "UNKNOWN" } ; '
+    'if {$__act eq ""} { set __act "-" } ; '
+    'puts "VIOROW|$__dev|$__vname|$__pname|$__dir|$__val|$__act" '
+    '} '
+)
+
 # Walks every hw_device on the currently open hw_target, refreshes every
-# hw_vio on it, and dumps one pipe-delimited line per probe. Direction is
-# discovered by trying INPUT_VALUE first (VIO capture probes, i.e.
-# probe_in*) and falling back to OUTPUT_VALUE (VIO drive probes, i.e.
-# probe_out*), instead of relying on an assumed property name.
-_DUMP_VIOS_TCL = r"""
-foreach __dev [get_hw_devices] {
-    current_hw_device $__dev
-    refresh_hw_device -update_hw_probes false $__dev
-    set __vios [get_hw_vios -of_objects $__dev]
-    if {[llength $__vios] > 0} { refresh_hw_vio $__vios }
-    foreach __vio $__vios {
-        set __vname [get_property NAME $__vio]
-        foreach __p [get_hw_probes -of_objects $__vio] {
-            set __pname [get_property NAME $__p]
-            set __dir "IN"
-            if {[catch {set __val [get_property INPUT_VALUE $__p]}]} {
-                set __dir "OUT"
-                if {[catch {set __val [get_property OUTPUT_VALUE $__p]}]} {
-                    set __val "N/A"
-                    set __dir "UNKNOWN"
-                }
+# hw_vio on it, and dumps one pipe-delimited line per probe. Must stay on
+# one line so vivado_session captures puts output (see _tcl_list_targets).
+_DUMP_VIOS_TCL = (
+    'foreach __dev [get_hw_devices] { '
+    'current_hw_device $__dev ; '
+    'refresh_hw_device -update_hw_probes true $__dev ; '
+    'set __vios [get_hw_vios -of_objects $__dev] ; '
+    'if {[llength $__vios] > 0} { refresh_hw_vio $__vios } ; '
+    'foreach __vio $__vios { '
+    'set __vname [get_property NAME $__vio] ; '
+    + _VIO_PROBE_READ_LOOP +
+    '} }'
+)
+
+
+def _tcl_dump_vios(device=None):
+    if not device:
+        return _DUMP_VIOS_TCL
+    return (
+        f'set __dev [get_hw_devices {{{device}}}] ; '
+        'current_hw_device $__dev ; '
+        'refresh_hw_device -update_hw_probes true $__dev ; '
+        'set __vios [get_hw_vios -of_objects $__dev] ; '
+        'if {[llength $__vios] > 0} { refresh_hw_vio $__vios } ; '
+        'foreach __vio $__vios { '
+        'set __vname [get_property NAME $__vio] ; '
+        + _VIO_PROBE_READ_LOOP +
+        '}'
+    )
+
+
+def _parse_vios(output):
+    vios = {}
+    for row in _parse_rows(output, "VIOROW", 7):
+        device, vio, probe, direction, value, activity = row
+        key = f"{device} / {vio}"
+        vios.setdefault(key, []).append(
+            {
+                "probe": probe,
+                "direction": direction,
+                "value": value,
+                "activity": activity,
             }
-            puts "VIOROW|[get_property NAME $__dev]|$__vname|$__pname|$__dir|$__val"
-        }
+        )
+    return vios
+
+
+def _parse_sysmon(output):
+    rows = []
+    for row in _parse_rows(output, "SYSMONROW", 5):
+        device, sysmon, prop, value = row
+        rows.append({
+            "device": device, "sysmon": sysmon,
+            "property": prop, "value": value,
+        })
+    return rows
+
+
+def _vivado_tree_label():
+    for v in VIVADO_VERSIONS:
+        if v["path"] == VIVADO_PATH:
+            return f"Vivado {v['version']}"
+    return "Vivado"
+
+
+def _build_hw_tree(vivado_label, server_url, targets, devices, vio_nodes, open_target=None):
+    """Build hierarchical tree: Vivado -> server -> targets -> devices -> VIO/XADC."""
+    if open_target is None:
+        open_target = _load_config().get("last_target")
+    vios_by_device = {}
+    for row in vio_nodes:
+        dev, vio_name = row
+        vios_by_device.setdefault(dev, []).append(vio_name)
+
+    server_node = {
+        "type": "server",
+        "name": server_url or "(not connected)",
+        "full": server_url or "",
+        "children": [],
     }
-}
-"""
+    for target in targets:
+        short = target.split("/")[-1] if "/" in target else target
+        is_open = target == open_target
+        tnode = {
+            "type": "target",
+            "name": short,
+            "full": target,
+            "open": is_open,
+            "children": [],
+        }
+        target_devices = devices if is_open else []
+        for d in target_devices:
+            short_d = d["name"].split("/")[-1] if "/" in d["name"] else d["name"]
+            dnode = {
+                "type": "device",
+                "name": short_d,
+                "full": d["name"],
+                "part": d.get("part", ""),
+                "children": [],
+            }
+            for vio in vios_by_device.get(d["name"], []):
+                dnode["children"].append({
+                    "type": "vio", "name": vio, "full": f"{d['name']}/{vio}",
+                })
+            dnode["children"].append({
+                "type": "sysmon", "name": "System Monitor (XADC)", "full": d["name"],
+            })
+            tnode["children"].append(dnode)
+        server_node["children"].append(tnode)
+
+    return {
+        "type": "vivado",
+        "name": vivado_label,
+        "full": VIVADO_PATH,
+        "children": [server_node],
+    }
 
 
 @app.errorhandler(RuntimeError)
@@ -520,19 +958,12 @@ def api_session_hw_state():
     with _lock:
         servers_result = _run("get_hw_servers")
         targets_result = _run(_tcl_list_targets())
-        devices_result = _run(_LIST_DEVICES_TCL)
+        devices, devices_result = _list_devices()
 
-    server_lines = [
-        ln.strip() for ln in servers_result.output.splitlines()
-        if ln.strip() and not ln.startswith("INFO:")
-    ]
+    server_lines = _parse_hw_servers(servers_result.output)
     connected = servers_result.success and bool(server_lines)
     server_url = server_lines[0] if server_lines else cfg.get("last_connected")
     targets = _parse_targets(targets_result.output)
-    devices = [
-        {"name": row[0], "part": row[1]}
-        for row in _parse_rows(devices_result.output, "DEVICEROW", 3)
-    ]
 
     return jsonify({
         "vivado_running": True,
@@ -540,8 +971,11 @@ def api_session_hw_state():
         "server_url": server_url,
         "targets": targets,
         "devices": devices,
-        "target_open": bool(devices),
+        "target_open": bool(cfg.get("last_target") and cfg.get("last_target") in targets),
         "saved_hw_servers": cfg.get("hw_servers", []),
+        "last_target": cfg.get("last_target"),
+        "last_device": cfg.get("last_device"),
+        "last_ltx": cfg.get("last_ltx"),
     })
 
 
@@ -552,16 +986,16 @@ def api_target_open():
     if not target:
         return jsonify({"success": False, "error": "target required"}), 400
     with _lock:
-        result = _run(_tcl_open_target_and_list_devices(target))
-    devices = [
-        {"name": row[0], "part": row[1]}
-        for row in _parse_rows(result.output, "DEVICEROW", 3)
-    ]
+        open_result, devices, list_result = _open_hw_target(target)
+    if open_result.success:
+        _set_last_target(target)
+        if devices:
+            _set_last_device(devices[0]["name"])
     return jsonify({
-        "success": result.success,
+        "success": open_result.success,
         "target": target,
         "devices": devices,
-        "output": result.output,
+        "output": open_result.output + "\n" + list_result.output,
     })
 
 
@@ -572,15 +1006,11 @@ def api_target_open():
 @app.route("/api/devices", methods=["GET"])
 def api_devices_list():
     with _lock:
-        result = _run(_LIST_DEVICES_TCL)
-    devices = [
-        {"name": row[0], "part": row[1]}
-        for row in _parse_rows(result.output, "DEVICEROW", 3)
-    ]
+        devices, result = _list_devices()
     return jsonify({"success": result.success, "devices": devices, "output": result.output})
 
 
-@app.route("/api/devices/<device>/properties")
+@app.route("/api/devices/<path:device>/properties")
 def api_device_properties(device):
     with _lock:
         result = _run(_tcl_device_properties(device), timeout_override=60)
@@ -596,24 +1026,336 @@ def api_device_properties(device):
     })
 
 
+@app.route("/api/devices/<path:device>/select", methods=["POST"])
+def api_device_select(device):
+    blocked = _require_open_target()
+    if blocked:
+        return blocked
+    with _lock:
+        result = _run(_tcl_select_device(device))
+    if result.success:
+        _set_last_device(device)
+    return jsonify({"success": result.success, "device": device, "output": result.output})
+
+
 # =============================================================================
-# VIOs
+# VIOs / XADC / tree / LTX
 # =============================================================================
 
 @app.route("/api/vios")
 def api_vios():
+    device = request.args.get("device", "").strip() or None
     with _lock:
-        result = _run(_DUMP_VIOS_TCL, timeout_override=60)
+        result = _run(_tcl_dump_vios(device), timeout_override=60)
+    return jsonify({
+        "success": result.success,
+        "output": result.output,
+        "vios": _parse_vios(result.output),
+    })
 
-    vios = {}
-    for row in _parse_rows(result.output, "VIOROW", 6):
-        device, vio, probe, direction, value = row
-        key = f"{device} / {vio}"
-        vios.setdefault(key, []).append(
-            {"probe": probe, "direction": direction, "value": value}
-        )
 
-    return jsonify({"success": result.success, "output": result.output, "vios": vios})
+@app.route("/api/xadc")
+def api_xadc():
+    device = request.args.get("device", "").strip() or None
+    with _lock:
+        result = _run(_tcl_dump_sysmon(device), timeout_override=120)
+    return jsonify({
+        "success": result.success,
+        "output": result.output,
+        "readings": _parse_sysmon(result.output),
+    })
+
+
+@app.route("/api/monitor")
+def api_monitor():
+    """Combined VIO + XADC poll for auto-refresh."""
+    device = request.args.get("device", "").strip() or None
+    with _lock:
+        vio_result = _run(_tcl_dump_vios(device), timeout_override=60)
+        xadc_result = _run(_tcl_dump_sysmon(device), timeout_override=120)
+    return jsonify({
+        "success": vio_result.success and xadc_result.success,
+        "vios": _parse_vios(vio_result.output),
+        "xadc": _parse_sysmon(xadc_result.output),
+    })
+
+
+@app.route("/api/tree")
+def api_tree():
+    cfg = _load_config()
+    vivado_label = _vivado_tree_label()
+    server_hint = cfg.get("last_connected", "") or "(not connected)"
+
+    def _tree_response(**extra):
+        base = {
+            "success": True,
+            "connected": False,
+            "targets": [],
+            "devices": [],
+            "tree": _build_hw_tree(
+                vivado_label, server_hint, [], [], [], open_target=None,
+            ),
+            "last_target": cfg.get("last_target"),
+            "last_device": cfg.get("last_device"),
+            "last_ltx": cfg.get("last_ltx"),
+            "vivado_path": VIVADO_PATH,
+            "vivado_label": vivado_label,
+            "server_url": "",
+        }
+        base.update(extra)
+        return jsonify(base)
+
+    if not session.is_running:
+        return _tree_response()
+
+    try:
+        with _lock:
+            servers_result = _run("get_hw_servers")
+            if not servers_result.success:
+                return _tree_response(error=servers_result.output.strip() or "hw_server not connected")
+
+            server_lines = _parse_hw_servers(servers_result.output)
+            if not server_lines:
+                return _tree_response(
+                    error="hw_server not connected",
+                )
+
+            server_url = server_lines[0]
+            targets_result = _run(_tcl_list_targets())
+            targets = _parse_targets(targets_result.output) if targets_result.success else []
+            if not targets_result.success:
+                return jsonify({
+                    "success": True,
+                    "connected": True,
+                    "server_url": server_url,
+                    "targets": [],
+                    "devices": [],
+                    "target_open": False,
+                    "tree": _build_hw_tree(
+                        vivado_label, server_url, [], [], [], open_target=None,
+                    ),
+                    "last_target": cfg.get("last_target"),
+                    "last_device": cfg.get("last_device"),
+                    "last_ltx": cfg.get("last_ltx"),
+                    "vivado_path": VIVADO_PATH,
+                    "vivado_label": vivado_label,
+                    "error": targets_result.output.strip() or "failed to list targets",
+                })
+
+            open_target = cfg.get("last_target")
+            target_open = bool(open_target and open_target in targets)
+            devices = []
+            vio_nodes = []
+            if target_open:
+                devices, _devices_result = _list_devices()
+                vio_tree_result = _run(_tcl_list_vio_tree())
+                if vio_tree_result.success:
+                    vio_nodes = _parse_rows(vio_tree_result.output, "VIONODE", 3)
+
+            tree = _build_hw_tree(
+                vivado_label, server_url, targets, devices, vio_nodes,
+                open_target=open_target if target_open else None,
+            )
+            return jsonify({
+                "success": True,
+                "connected": True,
+                "server_url": server_url,
+                "targets": targets,
+                "devices": devices,
+                "target_open": target_open,
+                "tree": tree,
+                "last_target": cfg.get("last_target"),
+                "last_device": cfg.get("last_device"),
+                "last_ltx": cfg.get("last_ltx"),
+                "vivado_path": VIVADO_PATH,
+                "vivado_label": vivado_label,
+            })
+    except Exception as exc:
+        return _tree_response(error=str(exc))
+
+
+@app.route("/api/ltx", methods=["GET"])
+def api_ltx_list():
+    cfg = _load_config()
+    candidates = _find_ltx_candidates()
+    saved = [_abs_ltx_path(p) for p in cfg.get("ltx_files", []) if p]
+    saved = [p for p in saved if os.path.isfile(p)]
+    last = _abs_ltx_path(cfg.get("last_ltx", "")) if cfg.get("last_ltx") else ""
+    return jsonify({
+        "candidates": candidates,
+        "saved": saved,
+        "last_ltx": last if last and os.path.isfile(last) else "",
+    })
+
+
+@app.route("/api/ltx", methods=["POST"])
+def api_ltx_apply():
+    data = request.get_json(silent=True) or {}
+    ltx_path = _abs_ltx_path((data.get("path") or "").strip())
+    device = (data.get("device") or _load_config().get("last_device") or "").strip()
+    if not ltx_path:
+        return jsonify({"success": False, "error": "path required"}), 400
+    blocked = _require_open_target()
+    if blocked:
+        return blocked
+    if not os.path.isfile(ltx_path):
+        return jsonify({"success": False, "error": f"file not found: {ltx_path}"}), 400
+    if not device:
+        return jsonify({"success": False, "error": "no device selected"}), 400
+
+    with _lock:
+        result = _run(_tcl_apply_ltx(device, ltx_path), timeout_override=120)
+
+    rows = _parse_rows(result.output, "LTXROW", 3)
+    applied = rows[0][1] if rows else ltx_path
+    if result.success:
+        _set_ltx_path(ltx_path)
+
+    return jsonify({
+        "success": result.success,
+        "path": ltx_path,
+        "applied": applied,
+        "device": device,
+        "output": result.output,
+    })
+
+
+@app.route("/api/file_last", methods=["POST"])
+def api_file_last():
+    """Remember the most recently selected file path (without programming/loading)."""
+    data = request.get_json(silent=True) or {}
+    kind = (data.get("type") or "").strip().lower()
+    path = _abs_hw_file_path((data.get("path") or "").strip())
+    if not path:
+        return jsonify({"success": False, "error": "path required"}), 400
+    if kind == "ltx":
+        _set_ltx_path(path)
+    elif kind in ("bit", "bin"):
+        _set_program_path(path, kind)
+    else:
+        return jsonify({"success": False, "error": "type must be ltx, bit, or bin"}), 400
+    return jsonify({"success": True, "path": path, "type": kind})
+
+
+@app.route("/api/upload", methods=["POST"])
+def api_upload():
+    """Upload .ltx / .bit / .bin into bin/uploads/<timestamp>/."""
+    kind = (request.form.get("type") or "").strip().lower()
+    if kind not in ("ltx", "bit", "bin"):
+        return jsonify({"success": False, "error": "type must be ltx, bit, or bin"}), 400
+    upload = request.files.get("file")
+    if upload is None or not upload.filename:
+        return jsonify({"success": False, "error": "file required"}), 400
+    orig_name = os.path.basename(upload.filename)
+    if not orig_name.lower().endswith(f".{kind}"):
+        return jsonify({"success": False, "error": f"expected .{kind} file"}), 400
+
+    safe_name = secure_filename(orig_name)
+    if not safe_name.lower().endswith(f".{kind}"):
+        safe_name = f"{safe_name}.{kind}" if safe_name else f"upload.{kind}"
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    dest_dir = os.path.join(_uploads_root(), ts)
+    os.makedirs(dest_dir, exist_ok=True)
+    dest_path = os.path.abspath(os.path.join(dest_dir, safe_name))
+    upload.save(dest_path)
+
+    if kind == "ltx":
+        _set_ltx_path(dest_path)
+    else:
+        _set_program_path(dest_path, kind)
+
+    return jsonify({
+        "success": True,
+        "path": dest_path,
+        "type": kind,
+        "folder": dest_dir,
+    })
+
+
+@app.route("/api/program_files")
+def api_program_files_list():
+    ext = (request.args.get("ext") or "bit").strip().lower()
+    if ext not in ("bit", "bin"):
+        return jsonify({"error": "ext must be bit or bin"}), 400
+    return jsonify(_program_files_payload(ext))
+
+
+def _program_files_payload(ext):
+    cfg = _load_config()
+    candidates = _find_program_candidates(ext)
+    saved = [_abs_hw_file_path(p) for p in cfg.get(f"{ext}_files", []) if p]
+    saved = [p for p in saved if os.path.isfile(p)]
+    last_raw = cfg.get(f"last_{ext}", "")
+    last = _abs_hw_file_path(last_raw) if last_raw else ""
+    return {
+        "ext": ext,
+        "candidates": candidates,
+        "saved": saved,
+        f"last_{ext}": last if last and os.path.isfile(last) else "",
+    }
+
+
+@app.route("/api/bit")
+def api_bit_list():
+    payload = _program_files_payload("bit")
+    return jsonify({
+        "candidates": payload["candidates"],
+        "saved": payload["saved"],
+        "last_bit": payload["last_bit"],
+    })
+
+
+@app.route("/api/bin")
+def api_bin_list():
+    payload = _program_files_payload("bin")
+    return jsonify({
+        "candidates": payload["candidates"],
+        "saved": payload["saved"],
+        "last_bin": payload["last_bin"],
+    })
+
+
+@app.route("/api/program", methods=["POST"])
+def api_program():
+    data = request.get_json(silent=True) or {}
+    kind = (data.get("type") or "").strip().lower()
+    file_path = _abs_hw_file_path((data.get("path") or "").strip())
+    device = (data.get("device") or _load_config().get("last_device") or "").strip()
+    if kind not in ("bit", "bin"):
+        return jsonify({"success": False, "error": "type must be bit or bin"}), 400
+    if not file_path:
+        return jsonify({"success": False, "error": "path required"}), 400
+    blocked = _require_open_target()
+    if blocked:
+        return blocked
+    if not os.path.isfile(file_path):
+        return jsonify({"success": False, "error": f"file not found: {file_path}"}), 400
+    if not device:
+        return jsonify({"success": False, "error": "no device selected"}), 400
+    if not file_path.lower().endswith(f".{kind}"):
+        return jsonify({"success": False, "error": f"expected .{kind} file"}), 400
+
+    timeout = 300 if kind == "bit" else 900
+    tcl = _tcl_program_bit(device, file_path) if kind == "bit" else _tcl_program_bin(device, file_path)
+    with _lock:
+        result = _run(tcl, timeout_override=timeout)
+
+    rows = _parse_rows(result.output, "PROGROW", 5)
+    status = rows[0][1] if rows else ""
+    detail = rows[0][2] if rows else ""
+    ok = result.success and status == "ok"
+    if ok:
+        _set_program_path(file_path, kind)
+
+    return jsonify({
+        "success": ok,
+        "type": kind,
+        "path": file_path,
+        "device": device,
+        "detail": detail,
+        "output": result.output,
+    })
 
 
 # =============================================================================
@@ -644,466 +1386,49 @@ def api_console():
     return jsonify({"entries": entries, "last_id": last_id})
 
 
+@app.route("/api/tcl/history", methods=["GET"])
+def api_tcl_history():
+    return jsonify({"history": _load_tcl_history()})
+
+
 @app.route("/api/tcl", methods=["POST"])
 def api_tcl():
     data = request.get_json(silent=True) or {}
     cmd = (data.get("cmd") or "").strip()
     if not cmd:
         return jsonify({"success": False, "error": "cmd required"}), 400
+    if len(cmd) > TCL_HISTORY_MAX_LINE_LEN:
+        return jsonify({
+            "success": False,
+            "error": f"command too long (max {TCL_HISTORY_MAX_LINE_LEN} chars)",
+        }), 400
     with _lock:
         result = _run(cmd)
-    return jsonify({"success": result.success, "output": result.output})
+    history = _append_tcl_history(cmd)
+    return jsonify({
+        "success": result.success,
+        "output": result.output,
+        "history": history,
+    })
 
 
 # =============================================================================
 # Web UI
 # =============================================================================
 
-INDEX_HTML = """<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>VIO Monitor</title>
-<style>
-  * { box-sizing: border-box; }
-  body { font-family: system-ui, sans-serif; margin: 2rem; background: #111; color: #eee; }
-  h1 { font-size: 1.3rem; }
-  h2 { font-size: 1rem; margin: 1.5rem 0 .5rem; border-bottom: 1px solid #333; padding-bottom: .25rem; }
-  h3 { font-size: .95rem; margin: .5rem 0; }
-  .row { display: flex; gap: .5rem; align-items: center; margin-bottom: .75rem; flex-wrap: wrap; }
-  input[type=text], select { padding: .4rem; background: #222; color: #eee; border: 1px solid #444; border-radius: 4px; }
-  button { padding: .35rem .7rem; border: 1px solid #444; border-radius: 4px; background: #2a2a2a; color: #eee; cursor: pointer; }
-  button:hover { background: #333; }
-  #status { font-size: .85rem; color: #999; white-space: pre-wrap; margin-bottom: 1rem; }
-  table { border-collapse: collapse; width: 100%; margin-bottom: .5rem; }
-  th, td { border: 1px solid #333; padding: .3rem .6rem; text-align: left; font-size: .85rem; }
-  th { background: #1a1a1a; }
-  .vio-group { background: #1a1a1a; font-weight: bold; }
-  .dir-IN { color: #7fd; }
-  .dir-OUT { color: #fc7; }
-  .dir-UNKNOWN { color: #888; }
-  .err { color: #f77; white-space: pre-wrap; }
-  .muted { color: #777; font-size: .85rem; }
-  .props-scroll { max-height: 320px; overflow-y: auto; }
-  #terminal { background: #000; color: #9f9; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-              font-size: .8rem; height: 260px; overflow-y: auto; padding: .5rem; border-radius: 4px; border: 1px solid #333; }
-  #terminal .term-cmd { color: #6cf; }
-  #terminal .term-out { color: #ccc; white-space: pre-wrap; }
-  #terminal .term-err { color: #f77; white-space: pre-wrap; }
-  #termInputRow { display: flex; gap: .5rem; margin-top: .4rem; }
-  #termInput { flex: 1; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-</style>
-</head>
-<body>
-<h1>VIO Monitor</h1>
-<div id="status">idle</div>
+UI_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui.html")
 
-<h2>Vivado Version</h2>
-<div class="row">
-  <select id="vivadoVersionSelect" onchange="selectVivadoVersion()"></select>
-</div>
 
-<h2>Hardware Servers</h2>
-<div class="row">
-  <input type="text" id="newServerUrl" placeholder="host:port, e.g. localhost:3121" value="{{ default_url }}" size="24">
-  <input type="text" id="newServerName" placeholder="name (optional)" size="16">
-  <button onclick="addAndConnect()">Connect</button>
-</div>
-<div id="savedServersWrap"><p class="muted">Loading saved hw_servers...</p></div>
-
-<h2>Targets</h2>
-<div id="targetsWrap"><p class="muted">Connect to a hw_server to list its targets.</p></div>
-
-<h2>Devices</h2>
-<div id="devicesWrap"><p class="muted">Open a target to list its devices.</p></div>
-
-<div id="propertiesWrap"></div>
-
-<h2>VIOs</h2>
-<div class="row">
-  <label><input type="checkbox" id="autoRefresh" checked> auto-refresh</label>
-  <button onclick="refreshVios()">Refresh now</button>
-  <button onclick="disconnect()">Disconnect</button>
-</div>
-<div id="tableWrap"></div>
-
-<h2>Terminal</h2>
-<div id="terminal"></div>
-<div id="termInputRow">
-  <span>vivado%</span>
-  <input type="text" id="termInput" placeholder="type a Tcl command and press Enter">
-</div>
-
-<script>
-let vioTimer = null;
-const INITIAL_CONFIG = {{ initial_config | safe }};
-
-function setStatus(text, isErr) {
-  const el = document.getElementById('status');
-  el.textContent = text;
-  el.className = isErr ? 'err' : '';
-}
-
-// --------------------------------------------------------- vivado version
-async function loadVivadoVersions() {
-  const r = await fetch('/api/vivado/versions');
-  const j = await r.json();
-  const sel = document.getElementById('vivadoVersionSelect');
-  sel.innerHTML = '';
-  if (!j.versions || j.versions.length === 0) {
-    const opt = document.createElement('option');
-    opt.textContent = 'no Vivado installs found (using "vivado" from PATH)';
-    opt.disabled = true;
-    opt.selected = true;
-    sel.appendChild(opt);
-    return;
-  }
-  for (const v of j.versions) {
-    const opt = document.createElement('option');
-    opt.value = v.path;
-    opt.textContent = v.version + '   (' + v.path + ')';
-    if (v.path === j.current) opt.selected = true;
-    sel.appendChild(opt);
-  }
-}
-
-async function selectVivadoVersion() {
-  const sel = document.getElementById('vivadoVersionSelect');
-  const path = sel.value;
-  setStatus('switching to Vivado at ' + path + ' ...');
-  try {
-    const r = await fetch('/api/vivado/select', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({path})
-    });
-    const j = await r.json();
-    if (!j.success) {
-      setStatus('version switch failed: ' + (j.error || ''), true);
-      return;
-    }
-    if (j.restarted) {
-      setStatus(
-        (j.restart_success ? 'session restarted' : 'session restart FAILED') +
-        ' with ' + j.path + ' -- any hw_server connection was reset, reconnect below.',
-        !j.restart_success
-      );
-      stopAutoRefresh();
-      document.getElementById('targetsWrap').innerHTML = '<p class="muted">Connect to a hw_server to list its targets.</p>';
-      document.getElementById('devicesWrap').innerHTML = '<p class="muted">Open a target to list its devices.</p>';
-      document.getElementById('propertiesWrap').innerHTML = '';
-      document.getElementById('tableWrap').innerHTML = '';
-    } else {
-      setStatus('will use ' + j.path + ' next time a session is started');
-    }
-  } catch (e) {
-    setStatus('version switch error: ' + e, true);
-  }
-}
-
-// ---------------------------------------------------------------- servers
-function renderSavedServers(servers) {
-  const wrap = document.getElementById('savedServersWrap');
-  if (!servers || servers.length === 0) {
-    wrap.innerHTML = '<p class="muted">No saved hw_servers yet.</p>';
-    return;
-  }
-  let html = '<table><tr><th>URL</th><th>Name</th><th></th></tr>';
-  for (const s of servers) {
-    const u = s.url.replace(/'/g, "\\'");
-    html += `<tr><td>${s.url}</td><td>${s.name || ''}</td>` +
-            `<td><button onclick="connectServer('${u}')">Connect</button> ` +
-            `<button onclick="removeServer('${u}')">Remove</button></td></tr>`;
-  }
-  html += '</table>';
-  wrap.innerHTML = html;
-}
-
-async function loadSavedServers() {
-  try {
-    const r = await fetch('/api/hw_servers');
-    const j = await r.json();
-    renderSavedServers(j.hw_servers || []);
-    if (j.last_connected) {
-      document.getElementById('newServerUrl').value = j.last_connected;
-    }
-  } catch (e) {
-    renderSavedServers(INITIAL_CONFIG.hw_servers || []);
-    if (INITIAL_CONFIG.last_connected) {
-      document.getElementById('newServerUrl').value = INITIAL_CONFIG.last_connected;
-    }
-  }
-}
-
-async function restoreSessionState() {
-  try {
-    const r = await fetch('/api/session/hw_state');
-    const j = await r.json();
-    if (j.saved_hw_servers && j.saved_hw_servers.length) {
-      renderSavedServers(j.saved_hw_servers);
-    }
-    if (j.server_url) {
-      document.getElementById('newServerUrl').value = j.server_url;
-    }
-    if (!j.connected) return;
-    setStatus('restored connection to ' + (j.server_url || 'hw_server'));
-    renderTargets(j.targets);
-    if (j.target_open && j.devices && j.devices.length) {
-      renderDevices(j.devices);
-      startAutoRefresh();
-      refreshVios();
-    }
-  } catch (e) {
-    // non-fatal; saved servers still shown from loadSavedServers()
-  }
-}
-
-async function removeServer(url) {
-  await fetch('/api/hw_servers', {
-    method: 'DELETE', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({url})
-  });
-  loadSavedServers();
-}
-
-async function addAndConnect() {
-  const url = document.getElementById('newServerUrl').value.trim();
-  const name = document.getElementById('newServerName').value.trim();
-  if (!url) return;
-  await connectServer(url, name);
-}
-
-async function connectServer(url, name) {
-  setStatus('connecting to ' + url + ' ...');
-  try {
-    const r = await fetch('/api/hw_servers/connect', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({url, name: name || ''})
-    });
-    const j = await r.json();
-    if (!j.success) {
-      setStatus('connect failed -- see terminal for details', true);
-      return;
-    }
-    setStatus('connected to ' + url);
-    renderTargets(j.targets);
-    document.getElementById('devicesWrap').innerHTML = '<p class="muted">Open a target to list its devices.</p>';
-    document.getElementById('propertiesWrap').innerHTML = '';
-    loadSavedServers();
-  } catch (e) {
-    setStatus('connect error: ' + e, true);
-  }
-}
-
-// ---------------------------------------------------------------- targets
-function renderTargets(targets) {
-  const wrap = document.getElementById('targetsWrap');
-  if (!targets || targets.length === 0) {
-    wrap.innerHTML = '<p class="muted">No targets found on this hw_server.</p>';
-    return;
-  }
-  let html = '<table><tr><th>Target</th><th></th></tr>';
-  for (const t of targets) {
-    const tEsc = t.replace(/'/g, "\\'");
-    html += `<tr><td>${t}</td><td><button onclick="openTarget('${tEsc}')">Open</button></td></tr>`;
-  }
-  html += '</table>';
-  wrap.innerHTML = html;
-}
-
-async function openTarget(target) {
-  setStatus('opening target ' + target + ' ...');
-  try {
-    const r = await fetch('/api/targets/open', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({target})
-    });
-    const j = await r.json();
-    if (!j.success) {
-      setStatus('open target failed -- see terminal for details', true);
-      return;
-    }
-    setStatus('opened target ' + target);
-    renderDevices(j.devices);
-    document.getElementById('propertiesWrap').innerHTML = '';
-    startAutoRefresh();
-    refreshVios();
-  } catch (e) {
-    setStatus('open target error: ' + e, true);
-  }
-}
-
-// ---------------------------------------------------------------- devices
-function renderDevices(devices) {
-  const wrap = document.getElementById('devicesWrap');
-  if (!devices || devices.length === 0) {
-    wrap.innerHTML = '<p class="muted">No devices found on this target.</p>';
-    return;
-  }
-  let html = '<table><tr><th>Device</th><th>Part</th><th></th></tr>';
-  for (const d of devices) {
-    const nEsc = d.name.replace(/'/g, "\\'");
-    html += `<tr><td>${d.name}</td><td>${d.part}</td>` +
-            `<td><button onclick="showDeviceProperties('${nEsc}')">Properties</button></td></tr>`;
-  }
-  html += '</table>';
-  wrap.innerHTML = html;
-}
-
-async function showDeviceProperties(device) {
-  setStatus('reading properties of ' + device + ' ...');
-  const wrap = document.getElementById('propertiesWrap');
-  try {
-    const r = await fetch('/api/devices/' + encodeURIComponent(device) + '/properties');
-    const j = await r.json();
-    if (!j.success) {
-      wrap.innerHTML = '';
-      setStatus('properties failed -- see terminal for details', true);
-      return;
-    }
-    setStatus('properties of ' + device + ' (' + j.properties.length + ')');
-    let html = `<h3>Properties: ${device}</h3><div class="props-scroll"><table><tr><th>Property</th><th>Value</th></tr>`;
-    for (const p of j.properties) {
-      html += `<tr><td>${p.name}</td><td>${p.value}</td></tr>`;
-    }
-    html += '</table></div>';
-    wrap.innerHTML = html;
-  } catch (e) {
-    setStatus('properties error: ' + e, true);
-  }
-}
-
-// ---------------------------------------------------------------- VIOs
-function renderVios(vios) {
-  const wrap = document.getElementById('tableWrap');
-  if (!vios || Object.keys(vios).length === 0) {
-    wrap.innerHTML = '<p class="muted">No VIOs found.</p>';
-    return;
-  }
-  let html = '<table><tr><th>VIO</th><th>Probe</th><th>Direction</th><th>Value</th></tr>';
-  for (const [vio, probes] of Object.entries(vios)) {
-    html += `<tr class="vio-group"><td colspan="4">${vio}</td></tr>`;
-    for (const p of probes) {
-      html += `<tr><td></td><td>${p.probe}</td><td class="dir-${p.direction}">${p.direction}</td><td>${p.value}</td></tr>`;
-    }
-  }
-  html += '</table>';
-  wrap.innerHTML = html;
-}
-
-async function refreshVios() {
-  try {
-    const r = await fetch('/api/vios');
-    const j = await r.json();
-    if (!j.success) {
-      setStatus('VIO refresh failed -- see terminal for details', true);
-      return;
-    }
-    setStatus('last VIO refresh: ' + new Date().toLocaleTimeString());
-    renderVios(j.vios);
-  } catch (e) {
-    setStatus('VIO refresh error: ' + e, true);
-  }
-}
-
-function startAutoRefresh() {
-  stopAutoRefresh();
-  if (document.getElementById('autoRefresh').checked) {
-    vioTimer = setInterval(refreshVios, 2000);
-  }
-}
-function stopAutoRefresh() {
-  if (vioTimer) { clearInterval(vioTimer); vioTimer = null; }
-}
-document.getElementById('autoRefresh').addEventListener('change', () => {
-  if (document.getElementById('autoRefresh').checked) startAutoRefresh();
-  else stopAutoRefresh();
-});
-
-async function disconnect() {
-  stopAutoRefresh();
-  try {
-    const r = await fetch('/api/disconnect', {method: 'POST'});
-    const j = await r.json();
-    setStatus(j.success ? 'disconnected' : 'disconnect failed -- see terminal for details', !j.success);
-  } catch (e) {
-    setStatus('disconnect error: ' + e, true);
-  }
-  document.getElementById('targetsWrap').innerHTML = '<p class="muted">Connect to a hw_server to list its targets.</p>';
-  document.getElementById('devicesWrap').innerHTML = '<p class="muted">Open a target to list its devices.</p>';
-  document.getElementById('propertiesWrap').innerHTML = '';
-  document.getElementById('tableWrap').innerHTML = '';
-}
-
-// ---------------------------------------------------------------- terminal
-let consoleCursor = 0;
-
-async function pollConsole() {
-  try {
-    const r = await fetch('/api/console?after=' + consoleCursor);
-    const j = await r.json();
-    if (j.entries && j.entries.length) {
-      const term = document.getElementById('terminal');
-      for (const e of j.entries) {
-        const cmdLine = document.createElement('div');
-        cmdLine.className = 'term-cmd';
-        cmdLine.textContent = '[' + e.ts + '] vivado% ' + e.cmd;
-        term.appendChild(cmdLine);
-        if (e.output) {
-          const outLine = document.createElement('div');
-          outLine.className = e.success ? 'term-out' : 'term-err';
-          outLine.textContent = e.output;
-          term.appendChild(outLine);
-        }
-      }
-      consoleCursor = j.last_id;
-      term.scrollTop = term.scrollHeight;
-    }
-  } catch (e) {
-    // transient network hiccup while polling; ignore and retry next tick
-  }
-}
-setInterval(pollConsole, 800);
-
-document.getElementById('termInput').addEventListener('keydown', async (ev) => {
-  if (ev.key !== 'Enter') return;
-  const input = ev.target;
-  const cmd = input.value;
-  if (!cmd.trim()) return;
-  input.value = '';
-  input.disabled = true;
-  try {
-    await fetch('/api/tcl', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({cmd})
-    });
-  } catch (e) {
-    // errors are surfaced through the terminal log itself
-  }
-  input.disabled = false;
-  input.focus();
-  pollConsole();
-});
-
-// ---------------------------------------------------------------- init
-renderSavedServers(INITIAL_CONFIG.hw_servers || []);
-if (INITIAL_CONFIG.last_connected) {
-  document.getElementById('newServerUrl').value = INITIAL_CONFIG.last_connected;
-}
-loadVivadoVersions();
-loadSavedServers();
-restoreSessionState();
-pollConsole();
-</script>
-</body>
-</html>
-"""
+def _load_ui_template():
+    with open(UI_PATH, encoding="utf-8") as f:
+        return f.read()
 
 
 @app.route("/")
 def index():
     cfg = _load_config()
     return render_template_string(
-        INDEX_HTML,
+        _load_ui_template(),
         default_url=cfg.get("last_connected") or DEFAULT_HW_SERVER_URL,
         initial_config=json.dumps(cfg),
     )

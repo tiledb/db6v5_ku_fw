@@ -54,7 +54,11 @@ entity db6_sfp_i2c_interface is
 
     -- sff-8472 A2h ddm fields, decoded from bytes 96-109 as they stream in below
     -- (see c_sfp_* constants in db6_design_package.vhd)
-    p_sfp_ddm_out : out t_sfp_regs
+    p_sfp_ddm_out : out t_sfp_regs;
+
+    -- pulses for one p_clk_in cycle each time a full 128-byte a2h snapshot completes
+    -- (state 129 below); used upstream to latch a "first read done" boot flag
+    p_sfp_ddm_read_done_out : out std_logic
 
     );
 end db6_sfp_i2c_interface;
@@ -244,6 +248,7 @@ i_db7_simple_i2c_master : entity tilecal.db7_simple_i2c_master
       s_sm_counter<=0;
     elsif rising_edge(p_clk_in) then   --rising edge of system clock
       s_reset<='0';
+      p_sfp_ddm_read_done_out <= '0'; -- default; pulsed for one cycle in st_read_data/129 below
       case s_state is                         --state machine
 
         when st_pause =>
@@ -287,6 +292,7 @@ i_db7_simple_i2c_master : entity tilecal.db7_simple_i2c_master
                 s_blk_mem_sfp.addra <= std_logic_vector(to_unsigned(s_busy_cnt-2,7));
                 s_blk_mem_sfp.dina  <= s_i2c_data_rd;
                 s_state <= st_pause;                         --snapshot done, wait for the next 2s cycle
+                p_sfp_ddm_read_done_out <= '1';               --one-cycle pulse: full a2h snapshot completed
               end if;
             when others => null;
           end case;

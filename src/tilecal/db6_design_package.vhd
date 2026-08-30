@@ -149,6 +149,7 @@ package db6_design_package is
         --busy : std_logic;
         i2c_interface : t_blk_mem_sfp_array;
         ddm : t_sfp_regs_array; -- decoded a2h ddm fields, per side (see c_sfp_* above)
+        ddm_read_done : std_logic_vector(1 downto 0); -- pulses once per completed A2h snapshot (see db6_sfp_i2c_interface st_read_data/129)
         --tmr_error : std_logic;
     end record;
 
@@ -1097,7 +1098,7 @@ end record;
 	type t_gbt_reg_addr_type is array (natural range <>) of integer;
 
 --gbttx registers
-    constant c_number_of_gbttx_regs : integer := 42+1;--14+1;-- 21 + 1;
+    constant c_number_of_gbttx_regs : integer := 46+1;--14+1;-- 21 + 1;
     type t_db_reg_tx is array (integer range 0 to c_number_of_gbttx_regs-1) of std_logic_vector(31 downto 0);
     type t_db_reg_tx_lut is array (integer range 0 to c_number_of_gbttx_regs-1) of std_logic_vector(15 downto 0);
     
@@ -1161,6 +1162,21 @@ end record;
     constant stb_sfp_ddm_laser_temperature : integer := 40+1;
     constant stb_sfp_ddm_tec_current       : integer := 41+1;
 
+    -- mainboard companion fpga boundary-scan (sample) status, both sides packed:
+    -- bits 2:0/5:3=msel q0/q1, 12:6/19:13=clk_present q0/q1, 20/21=done q0/q1
+    constant stb_mb_boundary_scan_status : integer := 42+1;
+    -- boundary-scan ram port b readback: mirrors stb_sfp_reg_readback exactly
+    -- (bits 6:0/14:8 echo the commanded per-side address, 23:16/31:24 carry the byte)
+    constant stb_mb_boundary_scan_reg_readback : integer := 43+1;
+    -- gbtx register readback ram port b readback: bits 8:0 echo the commanded
+    -- address, bits 16:9 carry the resulting read byte (single gbtx, no per-side split)
+    constant stb_gbtx_reg_readback : integer := 44+1;
+    -- gbtx write/config ram shadow readback: same address (bits 8:0) as
+    -- stb_gbtx_reg_readback above, bits 16:9 carry the originally-intended write
+    -- value at that address instead of the actual i2c readback value -- lets one
+    -- address compare "intended" vs "actual" gbtx register content
+    constant stb_gbtx_config_readback : integer := 45+1;
+
 constant c_db_reg_tx_lut : t_db_reg_tx_lut := (
     x"0" & x"001", --stb_mb,
     x"0" & x"F0F", --stb_db_fwversion,
@@ -1215,14 +1231,18 @@ constant c_db_reg_tx_lut : t_db_reg_tx_lut := (
     x"0" & x"345", --stb_sfp_ddm_tx_power
     x"0" & x"346", --stb_sfp_ddm_rx_power
     x"0" & x"347", --stb_sfp_ddm_laser_temperature
-    x"0" & x"348"  --stb_sfp_ddm_tec_current
+    x"0" & x"348", --stb_sfp_ddm_tec_current
+    x"0" & x"349", --stb_mb_boundary_scan_status
+    x"0" & x"34a", --stb_mb_boundary_scan_reg_readback
+    x"0" & x"34b", --stb_gbtx_reg_readback
+    x"0" & x"34c"  --stb_gbtx_config_readback
     );
 
 
 
 
 -- new code for configbus register arrays
-    constant c_number_of_cfgbus_regs : integer := 15+1; --75 + 1;
+    constant c_number_of_cfgbus_regs : integer := 17+1; --75 + 1;
     type t_db_reg_rx is array (integer range 0 to c_number_of_cfgbus_regs-1) of std_logic_vector(31 downto 0);
     type t_db_reg_rx_tmr is array (integer range 0 to 2) of t_db_reg_rx;
     type t_db_reg_rx_lut is array (integer range 0 to c_number_of_cfgbus_regs-1) of std_logic_vector(11 downto 0);
@@ -1247,6 +1267,8 @@ constant c_db_reg_tx_lut : t_db_reg_tx_lut := (
         constant cfb_db_debug               : integer := 13;
         constant cfb_db_reg_mask       : integer := 14;
         constant cfb_strobe_reg             : integer := 15;
+        constant cfb_mb_boundary_scan_reg_address : integer := 16; -- mainboard companion fpga boundary-scan ram port b address, per side: bits 6:0 = side 0, bits 14:8 = side 1
+        constant cfb_gbtx_reg_readback_address : integer := 17; -- gbtx register readback ram port b address (bits 8:0)
         constant bc_number                  : integer := 4;--16; -- bunch crossing number counter
 --        constant cfb_adc_readout       : integer := 16;
 --        constant cfb_wr_strobe              : integer := 17; -- strobe indicating write to a cfb register 
@@ -1373,6 +1395,8 @@ constant c_db_reg_tx_lut : t_db_reg_tx_lut := (
         constant c_db_debug_skip_main_sm : integer :=24;
         constant c_db_debug_mb_jtag_read_enable_q0 : integer := 25;
         constant c_db_debug_mb_jtag_read_enable_q1 : integer := 26;
+        constant c_db_debug_mb_boundary_scan_enable_q0 : integer := 27;
+        constant c_db_debug_mb_boundary_scan_enable_q1 : integer := 28;
         
         --cfb_tx_control
         constant c_gbt_encoder_tx_fc_lg_bit : integer := 0;
@@ -1449,7 +1473,9 @@ constant c_db_reg_tx_lut : t_db_reg_tx_lut := (
         x"00c", --cfb_db_cfg_fw_version,
         x"00d", --cfb_db_debug,
         x"00e", --cfb_db_reg_mask,
-        x"00f" --cfb_strobe_reg,
+        x"00f", --cfb_strobe_reg,
+        x"010", --cfb_mb_boundary_scan_reg_address,
+        x"011" --cfb_gbtx_reg_readback_address,
 --        x"010" --cfb_adc_readout,
 --        x"011", --cfb_wr_strobe,
 --     --advanced configbus registers
@@ -1598,6 +1624,17 @@ type t_cis_interface is record
    tmr_error_tph : t_mb_std_logic;
 end record;
 
+-- mainboard companion fpga (altera ep4ce10f17) boundary-scan readout: msel/clk_present
+-- are the only boundary_register cells in that device's bsdl file with a self-evident
+-- meaning without a schematic (configuration-mode strap pins, external clock presence);
+-- mem is the full 603-bit raw SAMPLE capture, byte-packed (see db6_altera_jtag_driver.vhd).
+type t_mb_boundary_scan is record
+    msel        : std_logic_vector(2 downto 0); -- (2)=msel2 (1)=msel1 (0)=msel0
+    clk_present : std_logic_vector(6 downto 0); -- (6)=clk7 downto (0)=clk1
+    mem         : t_blk_mem_sfp;
+end record;
+type t_mb_boundary_scan_array is array (0 to 1) of t_mb_boundary_scan;
+
 type t_mb_interface is record
     mb_reset : t_mb_std_logic;
     mb_driver : t_mb_driver;
@@ -1607,6 +1644,9 @@ type t_mb_interface is record
     cis_interface : t_cis_interface;
     mb_jtag_id : t_mb_std_logic_vector_32;
     mb_jtag_done : t_mb_std_logic;
+    mb_boundary_scan : t_mb_boundary_scan_array;
+    mb_boundary_scan_done : t_mb_std_logic;
+    mb_boundary_scan_boot_done : t_mb_std_logic; -- latched high the first time mb_boundary_scan_done pulses (the bootup scan); sticky until master reset
 end record;
 
 
@@ -2032,6 +2072,8 @@ type t_mmcm_clk_control_array is array (0 to 1) of t_mmcm_clk_control;
         i2c : t_i2c;
         gbtx_control : t_gbtx_control;
         blk_mem_gbtx_regs : t_blk_mem_gbtx_regs;
+        gbtx_reg_readback : t_blk_mem_gbtx_regs; -- independent readback ram, see db6_gbtx_i2c_interface_testbeam.vhd
+        gbtx_config_readback : t_blk_mem_gbtx_regs; -- shadow of the write/config ram's port a, port b addressed the same as gbtx_reg_readback (see db6_gbtx_i2c_interface_testbeam.vhd)
         busy : std_logic;
         tmr_error : std_logic;
     end record;

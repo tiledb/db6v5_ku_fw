@@ -19,6 +19,16 @@ entity db6_jtag_readers_controller is
 
         p_enable_in    : in  t_mb_std_logic;
 
+        -- sample + full boundary-register capture (see db6_altera_jtag_driver.vhd);
+        -- independent of p_enable_in/idcode, but shares the same physical jtag pins,
+        -- so never hold both a q0/q1 pair of p_enable_in and p_enable_boundary_scan_in
+        -- high at the same time.
+        p_enable_boundary_scan_in : in  t_mb_std_logic;
+        p_boundary_scan_out       : out t_mb_boundary_scan_array;
+        p_boundary_scan_done_out  : out t_mb_std_logic;
+        p_bs_rx_register_in       : in  t_sfp_reg_addr_array;
+        p_bs_tx_register_out      : out t_sfp_reg_data_array;
+
         p_jtag_tck_out : out t_mb_std_logic;
         p_jtag_tms_out : out t_mb_std_logic;
         p_jtag_tdi_out : out t_mb_std_logic;
@@ -35,6 +45,9 @@ architecture rtl of db6_jtag_readers_controller is
     signal s_done_raw : t_mb_std_logic;
     signal s_id_reg   : t_mb_std_logic_vector_32 := (q0 => (others => '0'), q1 => (others => '0'));
 
+    signal s_boundary_scan : t_mb_boundary_scan_array;
+    signal s_boundary_scan_done_raw : t_mb_std_logic;
+
 begin
 
     i_db6_altera_jtag_driver_q0 : entity tilecal.db6_altera_jtag_driver
@@ -44,12 +57,19 @@ begin
         port map (
             p_clk_in       => p_clk_in,
             p_start_in     => p_enable_in.q0,
+            p_start_boundary_scan_in => p_enable_boundary_scan_in.q0,
             p_jtag_tck_out => p_jtag_tck_out.q0,
             p_jtag_tms_out => p_jtag_tms_out.q0,
             p_jtag_tdi_out => p_jtag_tdi_out.q0,
             p_jtag_tdo_in  => p_jtag_tdo_in.q0,
             p_id_out       => s_id_raw.q0,
-            p_done_out     => s_done_raw.q0
+            p_done_out     => s_done_raw.q0,
+            p_msel_out               => s_boundary_scan(0).msel,
+            p_clk_present_out        => s_boundary_scan(0).clk_present,
+            p_boundary_scan_mem_out  => s_boundary_scan(0).mem,
+            p_bs_rx_register_in      => p_bs_rx_register_in(0),
+            p_bs_tx_register_out     => p_bs_tx_register_out(0),
+            p_boundary_scan_done_out => s_boundary_scan_done_raw.q0
         );
 
     i_db6_altera_jtag_driver_q1 : entity tilecal.db6_altera_jtag_driver
@@ -59,12 +79,19 @@ begin
         port map (
             p_clk_in       => p_clk_in,
             p_start_in     => p_enable_in.q1,
+            p_start_boundary_scan_in => p_enable_boundary_scan_in.q1,
             p_jtag_tck_out => p_jtag_tck_out.q1,
             p_jtag_tms_out => p_jtag_tms_out.q1,
             p_jtag_tdi_out => p_jtag_tdi_out.q1,
             p_jtag_tdo_in  => p_jtag_tdo_in.q1,
             p_id_out       => s_id_raw.q1,
-            p_done_out     => s_done_raw.q1
+            p_done_out     => s_done_raw.q1,
+            p_msel_out               => s_boundary_scan(1).msel,
+            p_clk_present_out        => s_boundary_scan(1).clk_present,
+            p_boundary_scan_mem_out  => s_boundary_scan(1).mem,
+            p_bs_rx_register_in      => p_bs_rx_register_in(1),
+            p_bs_tx_register_out     => p_bs_tx_register_out(1),
+            p_boundary_scan_done_out => s_boundary_scan_done_raw.q1
         );
 
     process(p_clk_in)
@@ -81,5 +108,8 @@ begin
 
     p_id_out   <= s_id_reg;
     p_done_out <= s_done_raw;
+
+    p_boundary_scan_out      <= s_boundary_scan;
+    p_boundary_scan_done_out <= s_boundary_scan_done_raw;
 
 end architecture;

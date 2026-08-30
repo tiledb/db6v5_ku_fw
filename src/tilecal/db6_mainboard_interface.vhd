@@ -78,6 +78,15 @@ entity db6_mainboard_interface is
         p_mb_jtag_tdi_out : out t_mb_std_logic;
         p_mb_jtag_tdo_in  : in  t_mb_std_logic;
 
+        -- boundary-scan reg block ram port b address, direct from a vio debug
+        -- probe_out (ORed with cfb_mb_boundary_scan_reg_address below -- don't
+        -- drive both non-zero at once)
+        p_mb_boundary_scan_reg_address_vio_in : in t_sfp_reg_addr_array;
+
+        -- one-shot boundary-scan trigger, fired ~1s after p_mb_fpga_reset_low
+        -- releases (see proc_mb_boundary_scan_timed_trigger in db6v5_top.vhd)
+        p_boundary_scan_timed_trigger_in : in t_mb_std_logic;
+
         p_mb_interface_out          : out t_mb_interface;
         
         --integrator
@@ -173,9 +182,29 @@ signal s_mb_jtag_done   : t_mb_std_logic;
 -- edge compare (ff3='1' and ff2='0') is done entirely on settled, synchronized values.
 signal s_mb0_reset_sync_ff1, s_mb0_reset_sync_ff2, s_mb0_reset_sync_ff3 : std_logic := '1';
 signal s_mb1_reset_sync_ff1, s_mb1_reset_sync_ff2, s_mb1_reset_sync_ff3 : std_logic := '1';
-type t_mb_jtag_auto_read_sm is (st_idle, st_read);
+-- auto-read: one idcode scan then one boundary scan per side, fired on the falling
+-- edge (release) of that side's p_master_reset_in bit -- see proc_mb_jtag_auto_read.
+type t_mb_jtag_auto_read_sm is (st_idle, st_read_id, st_gap, st_read_boundary);
 signal s_mb_jtag_auto_read_sm_q0, s_mb_jtag_auto_read_sm_q1 : t_mb_jtag_auto_read_sm := st_idle;
 signal s_mb_jtag_auto_trigger : t_mb_std_logic := (q0 => '0', q1 => '0');
+signal s_mb_boundary_scan_auto_trigger : t_mb_std_logic := (q0 => '0', q1 => '0');
+
+-- mainboard boundary-scan (sample) reader -- see db6_altera_jtag_driver.vhd /
+-- db6_jtag_readers_controller.vhd
+signal s_mb_boundary_scan_enable : t_mb_std_logic;
+signal s_mb_boundary_scan        : t_mb_boundary_scan_array;
+signal s_mb_boundary_scan_done   : t_mb_std_logic;
+-- sticky "first boundary scan since this side's fpga reset completed" flag, latched
+-- in proc_mb_jtag_auto_read below; cleared on that side's master reset assertion
+signal s_boot_boundary_scan_done : t_mb_std_logic := (q0 => '0', q1 => '0');
+signal s_mb_boundary_scan_rx_register : t_sfp_reg_addr_array;
+-- readback byte is not re-exposed separately: it's already available at
+-- t_mb_interface.mb_boundary_scan(N).mem.doutb below
+
+-- 2-ff synchronizer bringing the clk_100hz-domain timed trigger pulse (see
+-- proc_mb_boundary_scan_timed_trigger in db6v5_top.vhd) into osc_clk200, mirroring
+-- the s_mb0/1_reset_sync_ff pattern above
+signal s_boundary_scan_timed_trigger_sync_ff1, s_boundary_scan_timed_trigger_sync_ff2 : t_mb_std_logic := (q0 => '0', q1 => '0');
 
 COMPONENT vio_adc_config_driver
   PORT (
@@ -603,6 +632,14 @@ i_db6_mainboard_driver : entity tilecal.db6_mainboard_driver
 s_mb_jtag_enable.q0 <= s_mb_jtag_auto_trigger.q0 or p_db_reg_rx_in(cfb_db_debug)(c_db_debug_mb_jtag_read_enable_q0);
 s_mb_jtag_enable.q1 <= s_mb_jtag_auto_trigger.q1 or p_db_reg_rx_in(cfb_db_debug)(c_db_debug_mb_jtag_read_enable_q1);
 
+-- boundary-scan (sample) reader: auto-read trigger below (chained after the idcode
+-- scan, same reset-release event) ORed with the manual configbus debug bit, plus a
+-- shared reg-block-ram port b address command (per side)
+s_mb_boundary_scan_enable.q0 <= s_mb_boundary_scan_auto_trigger.q0 or s_boundary_scan_timed_trigger_sync_ff2.q0 or p_db_reg_rx_in(cfb_db_debug)(c_db_debug_mb_boundary_scan_enable_q0);
+s_mb_boundary_scan_enable.q1 <= s_mb_boundary_scan_auto_trigger.q1 or s_boundary_scan_timed_trigger_sync_ff2.q1 or p_db_reg_rx_in(cfb_db_debug)(c_db_debug_mb_boundary_scan_enable_q1);
+s_mb_boundary_scan_rx_register(0) <= p_db_reg_rx_in(cfb_mb_boundary_scan_reg_address)(6 downto 0) or p_mb_boundary_scan_reg_address_vio_in(0);
+s_mb_boundary_scan_rx_register(1) <= p_db_reg_rx_in(cfb_mb_boundary_scan_reg_address)(14 downto 8) or p_mb_boundary_scan_reg_address_vio_in(1);
+
 proc_mb_jtag_auto_read : process(p_clknet_in.osc_clk200)
 begin
     if rising_edge(p_clknet_in.osc_clk200) then
@@ -615,16 +652,44 @@ begin
         s_mb1_reset_sync_ff2 <= s_mb1_reset_sync_ff1;
         s_mb1_reset_sync_ff3 <= s_mb1_reset_sync_ff2;
 
+        s_boundary_scan_timed_trigger_sync_ff1 <= p_boundary_scan_timed_trigger_in;
+        s_boundary_scan_timed_trigger_sync_ff2 <= s_boundary_scan_timed_trigger_sync_ff1;
+
+        if s_mb0_reset_sync_ff1 = '1' then
+            s_boot_boundary_scan_done.q0 <= '0';
+        elsif s_mb_boundary_scan_done.q0 = '1' then
+            s_boot_boundary_scan_done.q0 <= '1';
+        end if;
+        if s_mb1_reset_sync_ff1 = '1' then
+            s_boot_boundary_scan_done.q1 <= '0';
+        elsif s_mb_boundary_scan_done.q1 = '1' then
+            s_boot_boundary_scan_done.q1 <= '1';
+        end if;
+
         case s_mb_jtag_auto_read_sm_q0 is
             when st_idle =>
                 if s_mb0_reset_sync_ff3 = '1' and s_mb0_reset_sync_ff2 = '0' then -- falling edge: mb0 reset released
                     s_mb_jtag_auto_trigger.q0  <= '1';
-                    s_mb_jtag_auto_read_sm_q0  <= st_read;
+                    s_mb_jtag_auto_read_sm_q0  <= st_read_id;
                 end if;
-            when st_read =>
+            when st_read_id =>
                 if s_mb_jtag_done.q0 = '1' then
                     s_mb_jtag_auto_trigger.q0  <= '0';
-                    s_mb_jtag_auto_read_sm_q0  <= st_idle;
+                    s_mb_jtag_auto_read_sm_q0  <= st_gap;
+                end if;
+            when st_gap =>
+                -- both auto-triggers are guaranteed low for exactly this one cycle,
+                -- giving the driver fsm's st_done state (which requires BOTH
+                -- p_start_in and p_start_boundary_scan_in low before it will return
+                -- to st_idle -- see db6_altera_jtag_driver.vhd) a chance to actually
+                -- get there before the boundary-scan start pulse arrives; asserting
+                -- both triggers on the same transition would deadlock it in st_done.
+                s_mb_boundary_scan_auto_trigger.q0 <= '1';
+                s_mb_jtag_auto_read_sm_q0          <= st_read_boundary;
+            when st_read_boundary =>
+                if s_mb_boundary_scan_done.q0 = '1' then
+                    s_mb_boundary_scan_auto_trigger.q0  <= '0';
+                    s_mb_jtag_auto_read_sm_q0           <= st_idle;
                 end if;
             when others =>
                 s_mb_jtag_auto_read_sm_q0 <= st_idle;
@@ -634,12 +699,20 @@ begin
             when st_idle =>
                 if s_mb1_reset_sync_ff3 = '1' and s_mb1_reset_sync_ff2 = '0' then -- falling edge: mb1 reset released
                     s_mb_jtag_auto_trigger.q1  <= '1';
-                    s_mb_jtag_auto_read_sm_q1  <= st_read;
+                    s_mb_jtag_auto_read_sm_q1  <= st_read_id;
                 end if;
-            when st_read =>
+            when st_read_id =>
                 if s_mb_jtag_done.q1 = '1' then
                     s_mb_jtag_auto_trigger.q1  <= '0';
-                    s_mb_jtag_auto_read_sm_q1  <= st_idle;
+                    s_mb_jtag_auto_read_sm_q1  <= st_gap;
+                end if;
+            when st_gap =>
+                s_mb_boundary_scan_auto_trigger.q1 <= '1';
+                s_mb_jtag_auto_read_sm_q1          <= st_read_boundary;
+            when st_read_boundary =>
+                if s_mb_boundary_scan_done.q1 = '1' then
+                    s_mb_boundary_scan_auto_trigger.q1  <= '0';
+                    s_mb_jtag_auto_read_sm_q1           <= st_idle;
                 end if;
             when others =>
                 s_mb_jtag_auto_read_sm_q1 <= st_idle;
@@ -650,6 +723,9 @@ end process;
 
 p_mb_interface_out.mb_jtag_id   <= s_mb_jtag_id;
 p_mb_interface_out.mb_jtag_done <= s_mb_jtag_done;
+p_mb_interface_out.mb_boundary_scan      <= s_mb_boundary_scan;
+p_mb_interface_out.mb_boundary_scan_done <= s_mb_boundary_scan_done;
+p_mb_interface_out.mb_boundary_scan_boot_done <= s_boot_boundary_scan_done;
 
 i_db6_jtag_readers_controller : entity tilecal.db6_jtag_readers_controller
     generic map (
@@ -658,6 +734,11 @@ i_db6_jtag_readers_controller : entity tilecal.db6_jtag_readers_controller
     port map (
         p_clk_in       => p_clknet_in.osc_clk200,
         p_enable_in    => s_mb_jtag_enable,
+        p_enable_boundary_scan_in => s_mb_boundary_scan_enable,
+        p_boundary_scan_out       => s_mb_boundary_scan,
+        p_boundary_scan_done_out  => s_mb_boundary_scan_done,
+        p_bs_rx_register_in       => s_mb_boundary_scan_rx_register,
+        p_bs_tx_register_out      => open,
         p_jtag_tck_out => p_mb_jtag_tck_out,
         p_jtag_tms_out => p_mb_jtag_tms_out,
         p_jtag_tdi_out => p_mb_jtag_tdi_out,

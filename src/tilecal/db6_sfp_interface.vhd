@@ -97,6 +97,10 @@ entity db6_sfp_interface is
         p_sfp_control_in                       : in t_sfp_control;
         p_sfp_interface_out             : out t_sfp_interface;
 
+        -- sfp+ reg block ram port b address, direct from a vio debug probe_out
+        -- (ORed with cfb_sfp_reg_address below -- don't drive both non-zero at once)
+        p_sfp_reg_address_vio_in : in t_sfp_reg_addr_array;
+
         --tdo from other fpga
         p_tdo_remote_in	            : in	std_logic;
         
@@ -129,8 +133,8 @@ signal s_sfp_tx_register : t_sfp_reg_data_array;
 
 begin
 
-s_sfp_rx_register(0) <= p_db_reg_rx_in(cfb_sfp_reg_address)(6 downto 0);
-s_sfp_rx_register(1) <= p_db_reg_rx_in(cfb_sfp_reg_address)(14 downto 8);
+s_sfp_rx_register(0) <= p_db_reg_rx_in(cfb_sfp_reg_address)(6 downto 0) or p_sfp_reg_address_vio_in(0);
+s_sfp_rx_register(1) <= p_db_reg_rx_in(cfb_sfp_reg_address)(14 downto 8) or p_sfp_reg_address_vio_in(1);
 
 
 i_db6_gbt_gth_interface : entity tilecal.db6_gbt_gth_interface
@@ -224,7 +228,8 @@ i_db6_sfp_i2c_control : entity tilecal.db6_sfp_i2c_control
     p_rx_register_in  => s_sfp_rx_register,
     p_tx_register_out => s_sfp_tx_register,
 
-    p_sfp_ddm_out => s_sfp_interface.ddm
+    p_sfp_ddm_out => s_sfp_interface.ddm,
+    p_sfp_ddm_read_done_out => s_sfp_interface.ddm_read_done
 
     );
 

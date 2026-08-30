@@ -57,7 +57,10 @@ entity db6_gbtx_interface is
     p_scl_tri_out   : out std_logic_vector(0 downto 0);
     p_scl_read_in   : in  std_logic_vector(0 downto 0);
     p_gbtx_configsel_out : out std_logic_vector(0 downto 0);
-        
+
+    -- gbtx register readback ram port b debug address (see db6_gbtx_i2c_interface_testbeam.vhd)
+    p_gbtx_reg_readback_address_in : in std_logic_vector(8 downto 0);
+
     p_leds_out : out std_logic_vector(3 downto 0)
             );
 end db6_gbtx_interface;
@@ -97,7 +100,8 @@ i_db6_gbtx_i2c_interface : entity tilecal.db6_gbtx_i2c_interface_testbeam
         p_scl_drive_out => p_scl_drive_out(0),
         p_scl_tri_out   => p_scl_tri_out(0),
         p_scl_read_in   => p_scl_read_in(0),
-            
+        p_gbtx_reg_readback_address_in => p_gbtx_reg_readback_address_in,
+
         p_leds_out => open
 );
 

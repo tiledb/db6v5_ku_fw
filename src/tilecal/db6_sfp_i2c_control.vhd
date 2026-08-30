@@ -61,7 +61,8 @@ entity db6_sfp_i2c_control is
     p_tx_register_out : out t_sfp_reg_data_array;
 
     -- sff-8472 A2h ddm fields, per side
-    p_sfp_ddm_out : out t_sfp_regs_array
+    p_sfp_ddm_out : out t_sfp_regs_array;
+    p_sfp_ddm_read_done_out : out std_logic_vector(1 downto 0)
 
     );
 end db6_sfp_i2c_control;
@@ -96,7 +97,8 @@ i_db6_sfp_i2c_interface : entity tilecal.db6_sfp_i2c_interface
     p_rx_register_in  => p_rx_register_in(i),
     p_tx_register_out => p_tx_register_out(i),
 
-    p_sfp_ddm_out => p_sfp_ddm_out(i)
+    p_sfp_ddm_out => p_sfp_ddm_out(i),
+    p_sfp_ddm_read_done_out => p_sfp_ddm_read_done_out(i)
 
     );
 

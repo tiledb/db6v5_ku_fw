@@ -235,6 +235,11 @@ signal s_sfp_control : t_sfp_control;
 signal s_db6_gbt_bank : t_db6_gbt_bank;
 signal s_sfp_interface : t_sfp_interface;
 signal s_sfp_ku_mgt : t_ku_mgt;
+-- reg block ram port b addresses, settable directly from vio_clknet_status debug probes
+signal s_sfp_reg_address_vio : t_sfp_reg_addr_array;
+signal s_mb_boundary_scan_reg_address_vio : t_sfp_reg_addr_array;
+signal s_gbtx_reg_readback_address_vio : std_logic_vector(8 downto 0);
+signal s_gbtx_reg_readback_address : std_logic_vector(8 downto 0);
 signal s_db6_sem_interface : t_db6_sem_interface;
 
 signal s_gbtx_control : t_gbtx_control;
@@ -245,6 +250,23 @@ signal s_skip_main_sm : std_logic;
 
 
 signal s_mb_fpga_reset_low : t_mb_std_logic;
+signal s_mb_fpga_reset_low_out : t_mb_std_logic;
+-- fires a one-shot boundary-scan trigger ~1s (100 ticks of clk_100hz) after each
+-- side's s_mb_fpga_reset_low_out releases -- see proc_mb_boundary_scan_timed_trigger
+signal s_mb_boundary_scan_timed_trigger : t_mb_std_logic := (q0 => '0', q1 => '0');
+
+-- sticky "performed at least once since master reset" flags for the bootup gbtx
+-- register write/read (proc_startup_sm states 1-2 / 11) and sfp+ a2h read
+-- (free-running in db6_sfp_i2c_interface); mb boundary scan's own equivalent flag
+-- lives in t_mb_interface.mb_boundary_scan_boot_done (see db6_mainboard_interface.vhd)
+signal s_boot_gbtx_write_done : std_logic := '0';
+signal s_boot_gbtx_read_done  : std_logic := '0';
+signal s_boot_sfp_read_done   : std_logic_vector(1 downto 0) := (others => '0');
+
+-- GLOBAL_DATE/GLOBAL_TIME generics, mirrored into named signals so vio_clknet_status's
+-- ltx keeps a real probe label (see the concurrent assignment right after "begin" below)
+signal c_global_date : std_logic_vector(31 downto 0);
+signal c_global_time : std_logic_vector(31 downto 0);
 
 -- vio_clknet_status now lives here instead of inside db6_clock_interface; these carry
 -- exactly what it needs across that module boundary (see db6_design_package.vhd).
@@ -264,9 +286,10 @@ signal s_adc_frameclk, s_adc_lg_data, s_adc_hg_data : t_bitslice_sr; -- iddr onl
 signal s_adc_frameclk_iserdese, s_adc_lg_data_iserdese, s_adc_hg_data_iserdese : t_byteslice_sr;
 signal s_adc_frame_missalignment_iserdese, s_adc_ctrl_reset_from_sm_iserdese : std_logic_vector(5 downto 0);
 
--- hss_adc per-channel internal status (PLL lock / reset-sequence-done / fifo valid),
--- for vio_clknet_status hardware debug (see db6_adc_interface_io_hss.vhd)
-signal s_adc_pll0_locked, s_adc_rst_seq_done, s_adc_fifo_data_valid : std_logic_vector(5 downto 0);
+-- hss_adc per-channel internal status (reset-sequence-done / fifo valid; pll0_locked
+-- removed -- redundant with channel_clk280_locked/pll_adc_channel in iddr mode), for
+-- vio_clknet_status hardware debug (see db6_adc_interface_io_hss.vhd)
+signal s_adc_rst_seq_done, s_adc_fifo_data_valid : std_logic_vector(5 downto 0);
 
 -- deserialized gbtx_clk40/80 data, per channel (see db6_adc_interface_io_hss.vhd
 -- header) -- not consumed anywhere yet
@@ -453,20 +476,66 @@ COMPONENT vio_clknet_status
     probe_in68 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
     probe_in69 : IN STD_LOGIC_VECTOR(6 DOWNTO 0);
     probe_in70 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
-    -- hss_adc per-channel status: PLL0 lock / internal reset-sequence-done / fifo
-    -- read-data-valid, one bit per ADC channel (see db6_adc_interface_io_hss.vhd)
-    probe_in71 : IN STD_LOGIC_VECTOR(5 DOWNTO 0);
+    -- gbtx write/config ram shadow readback: same address as the gbtx_reg_readback
+    -- ram (probe_in96/probe_out16), carries the originally-intended write value
+    -- instead of the actual i2c readback value -- reuses the slot vacated by
+    -- removing the hss_adc pll0_locked debug bits (see stb_gbtx_config_readback)
+    probe_in71 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
+    -- hss_adc per-channel status: internal reset-sequence-done / fifo read-data-valid,
+    -- one bit per ADC channel (see db6_adc_interface_io_hss.vhd)
     probe_in72 : IN STD_LOGIC_VECTOR(5 DOWNTO 0);
     probe_in73 : IN STD_LOGIC_VECTOR(5 DOWNTO 0);
-    -- sff-8472 A2h ddm fields, both sfp sides packed per probe (side 0 = 15:0, side 1 =
-    -- 31:16, matching stb_sfp_ddm_* in db6_gbt_encoder_sc.vhd -- see t_sfp_regs/c_sfp_*)
-    probe_in74 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
-    probe_in75 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
-    probe_in76 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
-    probe_in77 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
-    probe_in78 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
-    probe_in79 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
-    probe_in80 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
+    -- sff-8472 A2h ddm fields -- one dedicated probe per side per field (matching
+    -- stb_sfp_ddm_* in db6_gbt_encoder_sc.vhd -- see t_sfp_regs/c_sfp_*)
+    probe_in74 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm temperature q0
+    probe_in75 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm temperature q1
+    probe_in76 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm vcc q0
+    probe_in77 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm vcc q1
+    probe_in78 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm tx_bias_current q0
+    probe_in79 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm tx_bias_current q1
+    probe_in80 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm tx_power q0
+    probe_in81 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm tx_power q1
+    probe_in82 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm rx_power q0
+    probe_in83 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm rx_power q1
+    probe_in84 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm laser_temperature q0
+    probe_in85 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm laser_temperature q1
+    probe_in86 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm tec_current q0
+    probe_in87 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm tec_current q1
+    -- mainboard companion fpga (ep4ce10f17) boundary-scan (sample) readout -- one
+    -- dedicated probe per side per field (address commanded via
+    -- cfb_mb_boundary_scan_reg_address or probe_out14/15, scan triggered via
+    -- cfb_db_debug or the timed post-reset trigger -- see db6_altera_jtag_driver.vhd)
+    probe_in88 : IN STD_LOGIC_VECTOR(2 DOWNTO 0); -- boundary-scan msel q0
+    probe_in89 : IN STD_LOGIC_VECTOR(2 DOWNTO 0); -- boundary-scan msel q1
+    probe_in90 : IN STD_LOGIC_VECTOR(6 DOWNTO 0); -- boundary-scan clk_present q0
+    probe_in91 : IN STD_LOGIC_VECTOR(6 DOWNTO 0); -- boundary-scan clk_present q1
+    probe_in92 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); -- boundary-scan done q0
+    probe_in93 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); -- boundary-scan done q1
+    probe_in94 : IN STD_LOGIC_VECTOR(7 DOWNTO 0); -- boundary-scan ram port b data q0
+    probe_in95 : IN STD_LOGIC_VECTOR(7 DOWNTO 0); -- boundary-scan ram port b data q1
+    -- gbtx register readback ram port b raw byte (address commanded via
+    -- cfb_gbtx_reg_readback_address or probe_out16)
+    probe_in96 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
+    -- xadc: currently-scanned channel index, its voltage reading, and a new-
+    -- conversion strobe (see t_system_management_interface -- read-only, this
+    -- module free-runs its own channel scan, nothing to address from the vio)
+    probe_in97 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
+    probe_in98 : IN STD_LOGIC_VECTOR(15 DOWNTO 0);
+    probe_in99 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
+    -- current led output value (s_leds_out, see proc_startup_sm)
+    probe_in100 : IN STD_LOGIC_VECTOR(3 DOWNTO 0);
+    -- fires ~1s after each side's altera companion fpga reset releases (see
+    -- proc_mb_boundary_scan_timed_trigger above)
+    probe_in101 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); -- boundary-scan timed trigger q0
+    probe_in102 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); -- boundary-scan timed trigger q1
+    -- sticky "performed at least once since master reset" flags for the bootup
+    -- boundary scan, gbtx register write/read, and sfp+ a2h read
+    probe_in103 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); -- mb boundary-scan boot-done q0
+    probe_in104 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); -- mb boundary-scan boot-done q1
+    probe_in105 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); -- gbtx register write first-done
+    probe_in106 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); -- gbtx register read first-done
+    probe_in107 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); -- sfp+ a2h read first-done q0
+    probe_in108 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); -- sfp+ a2h read first-done q1
     probe_out0 : OUT STD_LOGIC_VECTOR(5 DOWNTO 0);
     probe_out1 : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
     probe_out2 : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
@@ -478,7 +547,18 @@ COMPONENT vio_clknet_status
     probe_out8 : out std_logic_vector(11 downto 0);
     probe_out9 : out std_logic_vector(11 downto 0);
     probe_out10 : out std_logic_vector(2 downto 0);
-    probe_out11 : out std_logic_vector(25 downto 0)
+    probe_out11 : out std_logic_vector(25 downto 0);
+    -- reg block ram port b addresses -- one dedicated probe per side
+    probe_out12 : out std_logic_vector(6 downto 0); -- sfp+ reg block ram, q0
+    probe_out13 : out std_logic_vector(6 downto 0); -- sfp+ reg block ram, q1
+    probe_out14 : out std_logic_vector(6 downto 0); -- mb boundary-scan reg block ram, q0
+    probe_out15 : out std_logic_vector(6 downto 0); -- mb boundary-scan reg block ram, q1
+    probe_out16 : out std_logic_vector(8 downto 0); -- gbtx register readback ram
+    -- mainboard companion fpga reset (active low): restores vio_mb_jtag_debug's old
+    -- probe_out3/4 control, now undriven since that vio was disabled -- see
+    -- vio_mb_jtag_debug_commented_out memory note
+    probe_out17 : out std_logic_vector(0 downto 0); -- p_mb_fpga_reset_low q0
+    probe_out18 : out std_logic_vector(0 downto 0)  -- p_mb_fpga_reset_low q1
   );
 END COMPONENT;
 
@@ -507,9 +587,60 @@ END COMPONENT;
 
 begin  -- rtl
 
+-- GLOBAL_DATE/GLOBAL_TIME are entity generics (compile-time literals, populated by
+-- Hog at build time); wiring a generic straight into a vio probe leaves no real net
+-- for synthesis to name, so the ltx probe label comes out generic/meaningless. Route
+-- through a named signal instead so vio_clknet_status's ltx keeps a sensible label.
+c_global_date <= GLOBAL_DATE;
+c_global_time <= GLOBAL_TIME;
 
-p_mb_fpga_reset_low.q0 <= s_clknet.mb_fpga_reset_low.q0 and not s_mb_fpga_reset_low.q0 and (not s_master_reset(c_mb0_reset_bit)); --s_mb_interface.mb_reset.q0 and s_clknet.mb_fpga_reset_low.q0;
-p_mb_fpga_reset_low.q1 <= s_clknet.mb_fpga_reset_low.q1 and not s_mb_fpga_reset_low.q1 and (not s_master_reset(c_mb1_reset_bit)); --s_mb_interface.mb_reset.q1 and s_clknet.mb_fpga_reset_low.q1;
+-- kept as an internal signal (rather than reading the p_mb_fpga_reset_low out port
+-- directly) so proc_mb_boundary_scan_timed_trigger below can watch it release.
+s_mb_fpga_reset_low_out.q0 <= s_clknet.mb_fpga_reset_low.q0 and not s_mb_fpga_reset_low.q0 and (not s_master_reset(c_mb0_reset_bit)); --s_mb_interface.mb_reset.q0 and s_clknet.mb_fpga_reset_low.q0;
+s_mb_fpga_reset_low_out.q1 <= s_clknet.mb_fpga_reset_low.q1 and not s_mb_fpga_reset_low.q1 and (not s_master_reset(c_mb1_reset_bit)); --s_mb_interface.mb_reset.q1 and s_clknet.mb_fpga_reset_low.q1;
+p_mb_fpga_reset_low <= s_mb_fpga_reset_low_out;
+
+-- fires a one-shot boundary-scan trigger ~1s after each side's altera companion
+-- fpga reset (p_mb_fpga_reset_low, active low) releases, so the scan captures the
+-- chip's io state once it's had time to boot/configure, not right at reset release.
+proc_mb_boundary_scan_timed_trigger : process(s_clknet.clk_100hz)
+variable v_reset_low_prev : t_mb_std_logic := (q0 => '0', q1 => '0');
+variable v_delay_cnt_q0, v_delay_cnt_q1 : integer range 0 to 99 := 0;
+variable v_delay_running_q0, v_delay_running_q1 : std_logic := '0';
+begin
+    if rising_edge(s_clknet.clk_100hz) then
+
+        s_mb_boundary_scan_timed_trigger.q0 <= '0';
+        s_mb_boundary_scan_timed_trigger.q1 <= '0';
+
+        if v_reset_low_prev.q0 = '0' and s_mb_fpga_reset_low_out.q0 = '1' then -- rising edge: reset released
+            v_delay_running_q0 := '1';
+            v_delay_cnt_q0 := 0;
+        elsif v_delay_running_q0 = '1' then
+            if v_delay_cnt_q0 < 99 then
+                v_delay_cnt_q0 := v_delay_cnt_q0 + 1;
+            else
+                s_mb_boundary_scan_timed_trigger.q0 <= '1';
+                v_delay_running_q0 := '0';
+            end if;
+        end if;
+
+        if v_reset_low_prev.q1 = '0' and s_mb_fpga_reset_low_out.q1 = '1' then -- rising edge: reset released
+            v_delay_running_q1 := '1';
+            v_delay_cnt_q1 := 0;
+        elsif v_delay_running_q1 = '1' then
+            if v_delay_cnt_q1 < 99 then
+                v_delay_cnt_q1 := v_delay_cnt_q1 + 1;
+            else
+                s_mb_boundary_scan_timed_trigger.q1 <= '1';
+                v_delay_running_q1 := '0';
+            end if;
+        end if;
+
+        v_reset_low_prev := s_mb_fpga_reset_low_out;
+
+    end if;
+end process;
 
 
 -- db6_altera_jtag_driver now lives in db6_mainboard_interface, gated by a
@@ -646,7 +777,6 @@ i_db6_mainboard_interface : entity tilecal.db6_mainboard_interface
         p_adc_frameclk_iserdese_in => s_adc_frameclk_iserdese,
         p_adc_lg_data_iserdese_in  => s_adc_lg_data_iserdese,
         p_adc_hg_data_iserdese_in  => s_adc_hg_data_iserdese,
-        p_adc_pll0_locked_in       => s_adc_pll0_locked,
         p_adc_frame_missalignment_out => s_adc_frame_missalignment_iserdese,
         p_adc_ctrl_reset_from_sm_in   => s_adc_ctrl_reset_from_sm_iserdese,
         -- mb interface (plain logic; pads reached via i_db7_io_box below)
@@ -662,6 +792,8 @@ i_db6_mainboard_interface : entity tilecal.db6_mainboard_interface
         p_mb_jtag_tms_out => p_mb_tms_out,
         p_mb_jtag_tdi_out => p_mb_tdi_out,
         p_mb_jtag_tdo_in  => p_mb_tdo_in,
+        p_mb_boundary_scan_reg_address_vio_in => s_mb_boundary_scan_reg_address_vio,
+        p_boundary_scan_timed_trigger_in => s_mb_boundary_scan_timed_trigger,
         --integrator
         p_integrator_sda_drive_out => s_integrator_sda_drive,
         p_integrator_sda_tri_out   => s_integrator_sda_tri,
@@ -732,7 +864,6 @@ i_db7_io_box : entity tilecal.db7_io_box
         p_adc_frameclk_iserdese_out  => s_adc_frameclk_iserdese,
         p_adc_lg_data_iserdese_out   => s_adc_lg_data_iserdese,
         p_adc_hg_data_iserdese_out   => s_adc_hg_data_iserdese,
-        p_adc_pll0_locked_out     => s_adc_pll0_locked,
         p_adc_rst_seq_done_out    => s_adc_rst_seq_done,
         p_adc_fifo_data_valid_out => s_adc_fifo_data_valid,
 
@@ -868,6 +999,7 @@ i_db6_sfp_interface : entity tilecal.db6_sfp_interface
         p_scl_read_in   => s_sfp_scl_read,
         p_sfp_control_in => s_sfp_control,
         p_sfp_interface_out => s_sfp_interface,
+        p_sfp_reg_address_vio_in => s_sfp_reg_address_vio,
 
         --tdo from remote fpga
         p_tdo_remote_in => p_tdo_remote_in,
@@ -935,10 +1067,14 @@ i_db6_gbtx_interface : entity tilecal.db6_gbtx_interface
         p_scl_tri_out   => s_gbtx_scl_tri,
         p_scl_read_in   => s_gbtx_scl_read,
         p_gbtx_configsel_out(0) => p_gbtx_configsel_out(0),
-        
-            
+        p_gbtx_reg_readback_address_in => s_gbtx_reg_readback_address,
+
         p_leds_out => open
 );
+
+-- gbtx register readback ram port b address: configbus command ORed with the vio
+-- debug probe_out (don't drive both non-zero at once)
+s_gbtx_reg_readback_address <= s_cfgbus_interface.db_reg_rx(cfb_gbtx_reg_readback_address)(8 downto 0) or s_gbtx_reg_readback_address_vio;
 
 gen_include_sem : if g_include_sem = 1 generate
     i_db6_sem_interface : entity tilecal.db6_sem_interface
@@ -1004,10 +1140,15 @@ s_skip_main_sm <= ((s_clknet.skip_main_sm or s_cfgbus_interface.db_reg_rx(cfb_db
 proc_startup_sm : process(s_clknet.clk_100hz,s_cfgbus_interface.db_reg_rx(cfb_strobe_reg)(c_dbmaster_reset_bit))
 variable v_counter : integer range 0 to 65535 :=1;
 variable v_gbtx_retries : integer range 0 to 31:=1;
+-- distinguishes the two visits state 11 needs (trigger pulse, then wait for
+-- busy='0') without adding a 16th state -- see "when 11" below
+variable v_gbtx_read_triggered : std_logic := '0';
 --constant c_max_count : integer range 0 to 15 := 5;
 begin
     if s_cfgbus_interface.db_reg_rx(cfb_strobe_reg)(c_dbmaster_reset_bit) = '1' then
         s_counter <= 0;
+        s_boot_gbtx_write_done <= '0';
+        s_boot_gbtx_read_done  <= '0';
     elsif rising_edge(s_clknet.clk_100hz) then
 
         if s_cfgbus_interface.db_reg_rx(cfb_db_debug)(3 downto 0) <= "0000" then
@@ -1020,6 +1161,7 @@ begin
         case s_counter is
             when 0 =>
                 v_gbtx_retries:=0;
+                v_gbtx_read_triggered:='0';
                 if v_counter < 255 then
                     v_counter:=v_counter+1;
                 else
@@ -1054,8 +1196,9 @@ begin
                 if (s_gbtx_interface.busy = '0') 
                     or (s_skip_main_sm = '1')
 --                    or (p_md_number_in(0) = '0')
-                then --and (s_clknet.gbtx_rxready(0) = '1') then        
+                then --and (s_clknet.gbtx_rxready(0) = '1') then
                         s_counter <=s_counter+1;
+                        s_boot_gbtx_write_done <= '1'; -- first default-config write completed
                 else
                     s_counter <=2;
                 end if;
@@ -1181,8 +1324,27 @@ begin
 --                s_master_reset_async(c_gth_buffbypass_tx_start_use_bit downto c_gth_reset_tx_pll_and_datapath_bit) <= "1111";
 --                s_master_reset_async(c_gth_ch1_reset_bit downto c_gbt_ch0_reset_bit) <= "1111";
             when 11 =>
+                -- gbtx register readback: read the whole gbtx register map back
+                -- over i2c into blk_mem_gbtx_regs_readback (independent of the
+                -- write-side blk_mem_gbtx_regs), now that boot-up is essentially
+                -- complete (gbtx_rxready confirmed at state 4, adc config done at
+                -- state 8). mirrors the write trigger/wait pattern at states 1/2,
+                -- but folded into one state (via v_gbtx_read_triggered) since all
+                -- 15 state slots are otherwise already in use.
                 v_counter:=0;
-                s_counter <=s_counter+1;
+                if v_gbtx_read_triggered = '0' then
+                    s_gbtx_control.gbtx_i2c_read_write_operation <= '1';
+                    s_gbtx_control.gbtx_trigger_i2c_operation <= '1';
+                    v_gbtx_read_triggered := '1';
+                else
+                    s_gbtx_control.gbtx_trigger_i2c_operation <= '0';
+                    if (s_gbtx_interface.busy = '0') or (s_skip_main_sm = '1') then
+                        s_gbtx_control.gbtx_i2c_read_write_operation <= '0';
+                        v_gbtx_read_triggered := '0';
+                        s_counter <=s_counter+1;
+                        s_boot_gbtx_read_done <= '1'; -- first full register readback completed
+                    end if;
+                end if;
             when 12 =>
                 s_clkin_async.qpllclksel <= s_cfgbus_interface.db_reg_rx(cfb_tx_control)(2 downto 0);
                 s_clkin_async.cpllclksel  <= s_cfgbus_interface.db_reg_rx(cfb_tx_control)(2 downto 0);
@@ -1215,10 +1377,24 @@ begin
 --                end if;
             
         end case;
-        
+
     end if;
-    
-end process;           
+
+end process;
+
+-- latches "at least one sfp+ a2h ddm snapshot completed" per side, sticky until
+-- master reset; same osc_clk40 domain as s_sfp_interface.ddm_read_done's source
+-- (db6_sfp_i2c_interface's p_clk_in) and as vio_clknet_status's clk, so no CDC needed
+proc_boot_sfp_read_done : process(s_clknet.osc_clk40)
+begin
+    if rising_edge(s_clknet.osc_clk40) then
+        if s_cfgbus_interface.db_reg_rx(cfb_strobe_reg)(c_dbmaster_reset_bit) = '1' then
+            s_boot_sfp_read_done <= (others => '0');
+        else
+            s_boot_sfp_read_done <= s_boot_sfp_read_done or s_sfp_interface.ddm_read_done;
+        end if;
+    end if;
+end process;
 
 proc_sync_master_reset: process(s_clknet.cfgbus_clk40, s_master_reset_async)
 begin
@@ -1383,8 +1559,8 @@ i_vio_clknet_status : vio_clknet_status
     probe_in56 => s_db6_sem_interface.sem_interpreter.uncorrectable_errors,
     probe_in57 => s_db6_sem_interface.sem_interface.command_code(39 downto 8),
 
-    probe_in58 => GLOBAL_DATE,
-    probe_in59 => GLOBAL_TIME,
+    probe_in58 => c_global_date,
+    probe_in59 => c_global_time,
 
     probe_in60 => s_system_management_interface.ku_dna(7 downto 0),
     probe_in61(0) => s_system_management_interface.ku_dna_done,
@@ -1404,26 +1580,58 @@ i_vio_clknet_status : vio_clknet_status
     probe_in69 => s_cfgbus_interface.db_reg_rx(cfb_sfp_reg_address)(14 downto 8),
     probe_in70 => s_sfp_ku_mgt.sfp_tx_register(1),
 
+    -- gbtx write/config ram shadow readback (see probe_in96/probe_out16)
+    probe_in71 => s_gbtx_interface.gbtx_config_readback.doutb,
     -- hss_adc per-channel status (g_clocking_mode=3 only -- all zero otherwise)
-    probe_in71 => s_adc_pll0_locked,
     probe_in72 => s_adc_rst_seq_done,
     probe_in73 => s_adc_fifo_data_valid,
 
-    -- sff-8472 A2h ddm fields, both sfp sides packed per probe (side 0 = 15:0, side 1 = 31:16)
-    probe_in74(15 downto 0)  => s_sfp_interface.ddm(0)(c_sfp_temperature),
-    probe_in74(31 downto 16) => s_sfp_interface.ddm(1)(c_sfp_temperature),
-    probe_in75(15 downto 0)  => s_sfp_interface.ddm(0)(c_sfp_vcc),
-    probe_in75(31 downto 16) => s_sfp_interface.ddm(1)(c_sfp_vcc),
-    probe_in76(15 downto 0)  => s_sfp_interface.ddm(0)(c_sfp_tx_bias_current),
-    probe_in76(31 downto 16) => s_sfp_interface.ddm(1)(c_sfp_tx_bias_current),
-    probe_in77(15 downto 0)  => s_sfp_interface.ddm(0)(c_sfp_tx_power),
-    probe_in77(31 downto 16) => s_sfp_interface.ddm(1)(c_sfp_tx_power),
-    probe_in78(15 downto 0)  => s_sfp_interface.ddm(0)(c_sfp_rx_power),
-    probe_in78(31 downto 16) => s_sfp_interface.ddm(1)(c_sfp_rx_power),
-    probe_in79(15 downto 0)  => s_sfp_interface.ddm(0)(c_sfp_laser_temperature),
-    probe_in79(31 downto 16) => s_sfp_interface.ddm(1)(c_sfp_laser_temperature),
-    probe_in80(15 downto 0)  => s_sfp_interface.ddm(0)(c_sfp_tec_current),
-    probe_in80(31 downto 16) => s_sfp_interface.ddm(1)(c_sfp_tec_current),
+    -- sff-8472 A2h ddm fields, one dedicated probe per side per field
+    probe_in74 => s_sfp_interface.ddm(0)(c_sfp_temperature),
+    probe_in75 => s_sfp_interface.ddm(1)(c_sfp_temperature),
+    probe_in76 => s_sfp_interface.ddm(0)(c_sfp_vcc),
+    probe_in77 => s_sfp_interface.ddm(1)(c_sfp_vcc),
+    probe_in78 => s_sfp_interface.ddm(0)(c_sfp_tx_bias_current),
+    probe_in79 => s_sfp_interface.ddm(1)(c_sfp_tx_bias_current),
+    probe_in80 => s_sfp_interface.ddm(0)(c_sfp_tx_power),
+    probe_in81 => s_sfp_interface.ddm(1)(c_sfp_tx_power),
+    probe_in82 => s_sfp_interface.ddm(0)(c_sfp_rx_power),
+    probe_in83 => s_sfp_interface.ddm(1)(c_sfp_rx_power),
+    probe_in84 => s_sfp_interface.ddm(0)(c_sfp_laser_temperature),
+    probe_in85 => s_sfp_interface.ddm(1)(c_sfp_laser_temperature),
+    probe_in86 => s_sfp_interface.ddm(0)(c_sfp_tec_current),
+    probe_in87 => s_sfp_interface.ddm(1)(c_sfp_tec_current),
+
+    -- mainboard companion fpga boundary-scan (sample) readout, one dedicated probe per side
+    probe_in88 => s_mb_interface.mb_boundary_scan(0).msel,
+    probe_in89 => s_mb_interface.mb_boundary_scan(1).msel,
+    probe_in90 => s_mb_interface.mb_boundary_scan(0).clk_present,
+    probe_in91 => s_mb_interface.mb_boundary_scan(1).clk_present,
+    probe_in92(0) => s_mb_interface.mb_boundary_scan_done.q0,
+    probe_in93(0) => s_mb_interface.mb_boundary_scan_done.q1,
+    probe_in94 => s_mb_interface.mb_boundary_scan(0).mem.doutb,
+    probe_in95 => s_mb_interface.mb_boundary_scan(1).mem.doutb,
+    probe_in96 => s_gbtx_interface.gbtx_reg_readback.doutb,
+
+    -- xadc: free-running channel scan, read-only
+    probe_in97 => s_system_management_interface.xadc_channel,
+    probe_in98 => s_system_management_interface.xadc_channel_voltage,
+    probe_in99(0) => s_system_management_interface.xadc_new_conversion,
+
+    -- current led output value
+    probe_in100 => s_leds_out,
+
+    -- timed boundary-scan trigger (~1s after each side's altera companion fpga reset)
+    probe_in101(0) => s_mb_boundary_scan_timed_trigger.q0,
+    probe_in102(0) => s_mb_boundary_scan_timed_trigger.q1,
+
+    -- first-bootup-operation-completed status
+    probe_in103(0) => s_mb_interface.mb_boundary_scan_boot_done.q0,
+    probe_in104(0) => s_mb_interface.mb_boundary_scan_boot_done.q1,
+    probe_in105(0) => s_boot_gbtx_write_done,
+    probe_in106(0) => s_boot_gbtx_read_done,
+    probe_in107(0) => s_boot_sfp_read_done(0),
+    probe_in108(0) => s_boot_sfp_read_done(1),
 
     probe_out0(0) => s_clknet_debug_control.reset_mb.q0,
     probe_out0(1) => s_clknet_debug_control.reset_mb.q1,
@@ -1447,7 +1655,15 @@ i_vio_clknet_status : vio_clknet_status
     probe_out11(25) => s_clknet_debug_control.cis_enable,
     probe_out11(24) => s_clknet_debug_control.cis_gain,
     probe_out11(23 downto 12) => s_clknet_debug_control.cis_bcid_charge,
-    probe_out11(11 downto 0) => s_clknet_debug_control.cis_bcid_discharge
+    probe_out11(11 downto 0) => s_clknet_debug_control.cis_bcid_discharge,
+
+    probe_out12 => s_sfp_reg_address_vio(0),
+    probe_out13 => s_sfp_reg_address_vio(1),
+    probe_out14 => s_mb_boundary_scan_reg_address_vio(0),
+    probe_out15 => s_mb_boundary_scan_reg_address_vio(1),
+    probe_out16 => s_gbtx_reg_readback_address_vio,
+    probe_out17(0) => s_mb_fpga_reset_low.q0,
+    probe_out18(0) => s_mb_fpga_reset_low.q1
   );
 
 

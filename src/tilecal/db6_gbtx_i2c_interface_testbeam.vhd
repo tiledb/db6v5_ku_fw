@@ -49,6 +49,11 @@ entity db6_gbtx_i2c_interface_testbeam is
     p_scl_tri_out   : out std_logic;
     p_scl_read_in   : in  std_logic;
 
+    -- gbtx register readback ram (independent of blk_mem_gbtx_regs, which only
+    -- holds the write/config side) -- port b debug readback address; see
+    -- st_trigger_register_operation for where the read data gets captured
+    p_gbtx_reg_readback_address_in : in std_logic_vector(8 downto 0);
+
     p_leds_out : out std_logic_vector(3 downto 0)
 				
 				
@@ -170,6 +175,18 @@ COMPONENT blk_mem_gbtx_regs
   );
 END COMPONENT;
 signal s_blk_mem_gbtx_regs : t_blk_mem_gbtx_regs;
+-- independent readback ram: reuses the same blk_mem_gbtx_regs ip a second time
+-- (same 512x8 shape), holding bytes actually read back over i2c, separate from
+-- s_blk_mem_gbtx_regs above which only ever holds the write/config side.
+signal s_blk_mem_gbtx_regs_readback : t_blk_mem_gbtx_regs;
+-- shadow copy of the write/config ram (port a mirrors s_blk_mem_gbtx_regs's port a
+-- writes exactly): s_blk_mem_gbtx_regs's own port b is already busy internally (the
+-- write state machine uses it as a read-ahead for the next byte to send over i2c --
+-- see st_trigger_register_operation), so this shadow's port b is free to address for
+-- debug, addressed the same as s_blk_mem_gbtx_regs_readback above so one vio/db_reg_rx
+-- address shows both "intended write value" (here) and "actual i2c readback value"
+-- (s_blk_mem_gbtx_regs_readback) side by side.
+signal s_blk_mem_gbtx_regs_config_debug : t_blk_mem_gbtx_regs;
 --    signal s_side_debug : std_logic_vector(0 downto 0);
 --    signal s_address_debug : std_logic_vector(15 downto 0); 
 --    signal s_data_debug : std_logic_vector(7 downto 0); 
@@ -212,6 +229,53 @@ s_blk_mem_gbtx_regs.web <= "0";
 
 s_blk_mem_gbtx_regs.addra <= s_gbtx_reg_address_write(8 downto 0);
 s_blk_mem_gbtx_regs.dina <= s_gbtx_reg_write_data;
+
+i_blk_mem_gbtx_regs_readback : blk_mem_gbtx_regs
+  PORT MAP (
+    clka => s_blk_mem_gbtx_regs_readback.clka,
+    wea => s_blk_mem_gbtx_regs_readback.wea,
+    addra => s_blk_mem_gbtx_regs_readback.addra,
+    dina => s_blk_mem_gbtx_regs_readback.dina,
+    douta => s_blk_mem_gbtx_regs_readback.douta,
+    clkb => s_blk_mem_gbtx_regs_readback.clkb,
+    web => s_blk_mem_gbtx_regs_readback.web,
+    addrb => s_blk_mem_gbtx_regs_readback.addrb,
+    dinb => s_blk_mem_gbtx_regs_readback.dinb,
+    doutb => s_blk_mem_gbtx_regs_readback.doutb
+  );
+
+s_blk_mem_gbtx_regs_readback.clka <= p_clknet_in.osc_clk200;
+s_blk_mem_gbtx_regs_readback.clkb <= p_clknet_in.osc_clk200;
+s_blk_mem_gbtx_regs_readback.web  <= "0";
+s_blk_mem_gbtx_regs_readback.dinb <= (others => '0');
+s_blk_mem_gbtx_regs_readback.addrb <= p_gbtx_reg_readback_address_in;
+p_gbtx_interface_out.gbtx_reg_readback <= s_blk_mem_gbtx_regs_readback;
+
+i_blk_mem_gbtx_regs_config_debug : blk_mem_gbtx_regs
+  PORT MAP (
+    clka => s_blk_mem_gbtx_regs_config_debug.clka,
+    wea => s_blk_mem_gbtx_regs_config_debug.wea,
+    addra => s_blk_mem_gbtx_regs_config_debug.addra,
+    dina => s_blk_mem_gbtx_regs_config_debug.dina,
+    douta => s_blk_mem_gbtx_regs_config_debug.douta,
+    clkb => s_blk_mem_gbtx_regs_config_debug.clkb,
+    web => s_blk_mem_gbtx_regs_config_debug.web,
+    addrb => s_blk_mem_gbtx_regs_config_debug.addrb,
+    dinb => s_blk_mem_gbtx_regs_config_debug.dinb,
+    doutb => s_blk_mem_gbtx_regs_config_debug.doutb
+  );
+
+-- port a: exact shadow of s_blk_mem_gbtx_regs's port a writes
+s_blk_mem_gbtx_regs_config_debug.clka <= s_blk_mem_gbtx_regs.clka;
+s_blk_mem_gbtx_regs_config_debug.wea  <= s_blk_mem_gbtx_regs.wea;
+s_blk_mem_gbtx_regs_config_debug.addra <= s_blk_mem_gbtx_regs.addra;
+s_blk_mem_gbtx_regs_config_debug.dina  <= s_blk_mem_gbtx_regs.dina;
+-- port b: free for debug, addressed the same as the i2c-readback ram above
+s_blk_mem_gbtx_regs_config_debug.clkb <= p_clknet_in.osc_clk200;
+s_blk_mem_gbtx_regs_config_debug.web  <= "0";
+s_blk_mem_gbtx_regs_config_debug.dinb <= (others => '0');
+s_blk_mem_gbtx_regs_config_debug.addrb <= p_gbtx_reg_readback_address_in;
+p_gbtx_interface_out.gbtx_config_readback <= s_blk_mem_gbtx_regs_config_debug;
 
 --proc_ps_mux: process(p_clknet_in.osc_clk40)
 --begin
@@ -281,9 +345,10 @@ proc_i2c_transaction : process(p_clknet_in.osc_clk40)
 begin
 
     if rising_edge (p_clknet_in.osc_clk40) then
-    
+
       s_blk_mem_gbtx_regs.addrb<= std_logic_vector(to_unsigned(s_register_index,9));
-    
+      s_blk_mem_gbtx_regs_readback.wea(0) <= '0'; -- default: overridden below on an actual captured read byte
+
       s_busy_buffer <= s_busy;                       --capture the value of the previous i2c busy signal
       if (s_busy_buffer = '0' and s_busy = '1') then  --i2c busy just went high
         s_i2c_busy_rising_edge <= '1';                       -- ready to execute next operation
@@ -415,7 +480,9 @@ begin
                 end if;
               else
                 if s_i2c_busy_falling_edge = '1' then
---                    s_gbtx_register_readout(s_register_index-1) <=s_data_rd; --read register                
+                    s_blk_mem_gbtx_regs_readback.wea(0) <= '1';
+                    s_blk_mem_gbtx_regs_readback.addra  <= std_logic_vector(to_unsigned(s_register_index-1,9));
+                    s_blk_mem_gbtx_regs_readback.dina   <= s_data_rd; --read register
                 end if;
               end if;
               

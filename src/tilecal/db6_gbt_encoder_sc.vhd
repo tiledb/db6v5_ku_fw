@@ -210,6 +210,36 @@ s_db_reg_tx_in(stb_sfp_reg_readback)(14 downto 8)  <= s_db_reg_rx_in(cfb_sfp_reg
 s_db_reg_tx_in(stb_sfp_reg_readback)(15)           <= '0';
 s_db_reg_tx_in(stb_sfp_reg_readback)(23 downto 16) <= p_sfp_ku_mgt_in.sfp_tx_register(0);
 s_db_reg_tx_in(stb_sfp_reg_readback)(31 downto 24) <= p_sfp_ku_mgt_in.sfp_tx_register(1);
+
+-- mainboard companion fpga boundary-scan (sample) status, both sides packed
+-- (see t_mb_boundary_scan / db6_altera_jtag_driver.vhd)
+s_db_reg_tx_in(stb_mb_boundary_scan_status)(2 downto 0)   <= p_mb_interface_in.mb_boundary_scan(0).msel;
+s_db_reg_tx_in(stb_mb_boundary_scan_status)(5 downto 3)   <= p_mb_interface_in.mb_boundary_scan(1).msel;
+s_db_reg_tx_in(stb_mb_boundary_scan_status)(12 downto 6)  <= p_mb_interface_in.mb_boundary_scan(0).clk_present;
+s_db_reg_tx_in(stb_mb_boundary_scan_status)(19 downto 13) <= p_mb_interface_in.mb_boundary_scan(1).clk_present;
+s_db_reg_tx_in(stb_mb_boundary_scan_status)(20) <= p_mb_interface_in.mb_boundary_scan_done.q0;
+s_db_reg_tx_in(stb_mb_boundary_scan_status)(21) <= p_mb_interface_in.mb_boundary_scan_done.q1;
+
+-- mainboard boundary-scan ram port b readback: mirrors stb_sfp_reg_readback exactly
+-- (see cfb_mb_boundary_scan_reg_address)
+s_db_reg_tx_in(stb_mb_boundary_scan_reg_readback)(6 downto 0)   <= s_db_reg_rx_in(cfb_mb_boundary_scan_reg_address)(6 downto 0);
+s_db_reg_tx_in(stb_mb_boundary_scan_reg_readback)(7)            <= '0';
+s_db_reg_tx_in(stb_mb_boundary_scan_reg_readback)(14 downto 8)  <= s_db_reg_rx_in(cfb_mb_boundary_scan_reg_address)(14 downto 8);
+s_db_reg_tx_in(stb_mb_boundary_scan_reg_readback)(15)           <= '0';
+s_db_reg_tx_in(stb_mb_boundary_scan_reg_readback)(23 downto 16) <= p_mb_interface_in.mb_boundary_scan(0).mem.doutb;
+s_db_reg_tx_in(stb_mb_boundary_scan_reg_readback)(31 downto 24) <= p_mb_interface_in.mb_boundary_scan(1).mem.doutb;
+
+-- gbtx register readback ram port b readback: echo the commanded address alongside
+-- the value (see cfb_gbtx_reg_readback_address / db6_gbtx_i2c_interface_testbeam.vhd)
+s_db_reg_tx_in(stb_gbtx_reg_readback)(8 downto 0)   <= s_db_reg_rx_in(cfb_gbtx_reg_readback_address)(8 downto 0);
+s_db_reg_tx_in(stb_gbtx_reg_readback)(16 downto 9)  <= p_gbtx_interface_in.gbtx_reg_readback.doutb;
+s_db_reg_tx_in(stb_gbtx_reg_readback)(31 downto 17)  <= (others => '0');
+
+-- gbtx write/config ram shadow readback: same address as stb_gbtx_reg_readback,
+-- but carries the originally-intended write value instead of the i2c readback value
+s_db_reg_tx_in(stb_gbtx_config_readback)(8 downto 0)   <= s_db_reg_rx_in(cfb_gbtx_reg_readback_address)(8 downto 0);
+s_db_reg_tx_in(stb_gbtx_config_readback)(16 downto 9)  <= p_gbtx_interface_in.gbtx_config_readback.doutb;
+s_db_reg_tx_in(stb_gbtx_config_readback)(31 downto 17) <= (others => '0');
 --s_db_reg_tx_in(stb_db_cfbstrobe) <= s_db_reg_rx_in(cfb_strobe_reg);
 s_db_reg_tx_in(stb_db_debug) <= s_db_reg_rx_in(cfb_db_debug);
 s_db_reg_tx_in(stb_db_fwversion) <= c_fw_version;-- x"EDEDEDED";
