@@ -231,6 +231,22 @@ s_db_reg_tx_in(stb_sfp1_reg)(c_sfp_status_mod_abs_bit) <= p_sfp_interface_in.mod
 s_db_reg_tx_in(stb_sfp0_reg)(c_sfp_status_tx_fault_bit) <= p_sfp_interface_in.tx_fault(0);
 s_db_reg_tx_in(stb_sfp1_reg)(c_sfp_status_tx_fault_bit) <= p_sfp_interface_in.tx_fault(1);
 
+-- sff-8472 A2h ddm fields: side 0 in bits 15:0, side 1 in bits 31:16 (see t_sfp_regs)
+s_db_reg_tx_in(stb_sfp_ddm_temperature)(15 downto 0)        <= p_sfp_interface_in.ddm(0)(c_sfp_temperature);
+s_db_reg_tx_in(stb_sfp_ddm_temperature)(31 downto 16)       <= p_sfp_interface_in.ddm(1)(c_sfp_temperature);
+s_db_reg_tx_in(stb_sfp_ddm_vcc)(15 downto 0)                <= p_sfp_interface_in.ddm(0)(c_sfp_vcc);
+s_db_reg_tx_in(stb_sfp_ddm_vcc)(31 downto 16)               <= p_sfp_interface_in.ddm(1)(c_sfp_vcc);
+s_db_reg_tx_in(stb_sfp_ddm_tx_bias_current)(15 downto 0)    <= p_sfp_interface_in.ddm(0)(c_sfp_tx_bias_current);
+s_db_reg_tx_in(stb_sfp_ddm_tx_bias_current)(31 downto 16)   <= p_sfp_interface_in.ddm(1)(c_sfp_tx_bias_current);
+s_db_reg_tx_in(stb_sfp_ddm_tx_power)(15 downto 0)           <= p_sfp_interface_in.ddm(0)(c_sfp_tx_power);
+s_db_reg_tx_in(stb_sfp_ddm_tx_power)(31 downto 16)          <= p_sfp_interface_in.ddm(1)(c_sfp_tx_power);
+s_db_reg_tx_in(stb_sfp_ddm_rx_power)(15 downto 0)           <= p_sfp_interface_in.ddm(0)(c_sfp_rx_power);
+s_db_reg_tx_in(stb_sfp_ddm_rx_power)(31 downto 16)          <= p_sfp_interface_in.ddm(1)(c_sfp_rx_power);
+s_db_reg_tx_in(stb_sfp_ddm_laser_temperature)(15 downto 0)  <= p_sfp_interface_in.ddm(0)(c_sfp_laser_temperature);
+s_db_reg_tx_in(stb_sfp_ddm_laser_temperature)(31 downto 16) <= p_sfp_interface_in.ddm(1)(c_sfp_laser_temperature);
+s_db_reg_tx_in(stb_sfp_ddm_tec_current)(15 downto 0)        <= p_sfp_interface_in.ddm(0)(c_sfp_tec_current);
+s_db_reg_tx_in(stb_sfp_ddm_tec_current)(31 downto 16)       <= p_sfp_interface_in.ddm(1)(c_sfp_tec_current);
+
 
 s_db_reg_tx_in(stb_db_status)(c_db_status_bcr_locked_bit) <= p_clknet_in.bcr.bcr_locked;
 

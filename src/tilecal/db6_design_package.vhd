@@ -46,14 +46,19 @@ package db6_design_package is
 --    signal s_cht8305c_regs : t_cht8305c_regs;
 
 
+    -- sff-8472 A2h digital diagnostics monitoring (ddm) fields, decoded from the raw
+    -- byte page db6_sfp_i2c_interface.vhd already reads into its block ram (offsets
+    -- 96-109); tec_current is optional per spec (dwdm-tunable transceivers only).
     constant c_sfp_temperature : integer :=0;
     constant c_sfp_vcc : integer :=1;
     constant c_sfp_tx_bias_current : integer :=2;
     constant c_sfp_tx_power : integer :=3;
     constant c_sfp_rx_power : integer :=4;
     constant c_sfp_laser_temperature : integer :=5;
-    
-    type t_sfp_regs is array (0 to 5) of std_logic_vector(15 downto 0);
+    constant c_sfp_tec_current : integer :=6;
+
+    type t_sfp_regs is array (0 to 6) of std_logic_vector(15 downto 0);
+    type t_sfp_regs_array is array (0 to 1) of t_sfp_regs; -- one per sfp side
 
 
 
@@ -143,6 +148,7 @@ package db6_design_package is
         --i2c : t_i2c;
         --busy : std_logic;
         i2c_interface : t_blk_mem_sfp_array;
+        ddm : t_sfp_regs_array; -- decoded a2h ddm fields, per side (see c_sfp_* above)
         --tmr_error : std_logic;
     end record;
 
@@ -1091,7 +1097,7 @@ end record;
 	type t_gbt_reg_addr_type is array (natural range <>) of integer;
 
 --gbttx registers
-    constant c_number_of_gbttx_regs : integer := 35+1;--14+1;-- 21 + 1;
+    constant c_number_of_gbttx_regs : integer := 42+1;--14+1;-- 21 + 1;
     type t_db_reg_tx is array (integer range 0 to c_number_of_gbttx_regs-1) of std_logic_vector(31 downto 0);
     type t_db_reg_tx_lut is array (integer range 0 to c_number_of_gbttx_regs-1) of std_logic_vector(15 downto 0);
     
@@ -1145,6 +1151,16 @@ end record;
     -- commanded per-side address, bits 23:16/31:24 carry the resulting read value
     constant stb_sfp_reg_readback : integer := 34+1;
 
+    -- sff-8472 A2h ddm fields (see t_sfp_regs / c_sfp_* above): each register packs both
+    -- sfp sides into one 32-bit word, side 0 in bits 15:0, side 1 in bits 31:16.
+    constant stb_sfp_ddm_temperature       : integer := 35+1;
+    constant stb_sfp_ddm_vcc               : integer := 36+1;
+    constant stb_sfp_ddm_tx_bias_current   : integer := 37+1;
+    constant stb_sfp_ddm_tx_power          : integer := 38+1;
+    constant stb_sfp_ddm_rx_power          : integer := 39+1;
+    constant stb_sfp_ddm_laser_temperature : integer := 40+1;
+    constant stb_sfp_ddm_tec_current       : integer := 41+1;
+
 constant c_db_reg_tx_lut : t_db_reg_tx_lut := (
     x"0" & x"001", --stb_mb,
     x"0" & x"F0F", --stb_db_fwversion,
@@ -1192,7 +1208,14 @@ constant c_db_reg_tx_lut : t_db_reg_tx_lut := (
     x"0" & x"00A", --stb_integrator_status
     x"0" & x"018", --stb_mb_jtag_id_q0
     x"0" & x"019", --stb_mb_jtag_id_q1
-    x"0" & x"01A"  --stb_sfp_reg_readback
+    x"0" & x"01A", --stb_sfp_reg_readback
+    x"0" & x"342", --stb_sfp_ddm_temperature
+    x"0" & x"343", --stb_sfp_ddm_vcc
+    x"0" & x"344", --stb_sfp_ddm_tx_bias_current
+    x"0" & x"345", --stb_sfp_ddm_tx_power
+    x"0" & x"346", --stb_sfp_ddm_rx_power
+    x"0" & x"347", --stb_sfp_ddm_laser_temperature
+    x"0" & x"348"  --stb_sfp_ddm_tec_current
     );
 
 

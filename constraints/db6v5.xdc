@@ -103,6 +103,96 @@ set_property DATA_RATE DDR [get_ports {p_adc_bitclk_in[3][p]}]
 set_property DATA_RATE DDR [get_ports {p_adc_lg_data_in[3][p]}]
 set_property DATA_RATE DDR [get_ports {p_adc_hg_data_in[3][p]}]
 
+# g_clocking_mode=3 (hss) only: frameclk/lg/hg feed straight into hss_adc's own
+# internal differential ports (see db6_adc_interface_io_hss.vhd) rather than through
+# an IBUFDS/IBUFGDS instantiated here (unlike p_adc_bitclk_in, which gets LVDS from
+# its own IBUFGDS generic), so IOSTANDARD must be set explicitly on the p AND n legs
+# here or bitgen fails with DRC NSTD-1 (unspecified I/O standard).
+set_property IOSTANDARD LVDS [get_ports {p_adc_frameclk_in[*][*]}]
+set_property IOSTANDARD LVDS [get_ports {p_adc_lg_data_in[*][*]}]
+set_property IOSTANDARD LVDS [get_ports {p_adc_hg_data_in[*][*]}]
+
+# hss_adc PLL/RIU sharing placeholder pins (g_clocking_mode=3 only): one bit per
+# channel, no real data. Locations are whatever the wizard itself natively assigns
+# for that channel's real bank (44/46/47/66/67/68) -- read back from the IP's own
+# CONFIG.BYTE3_PIN0_LOC / BYTE3_PIN12_LOC with CONFIG.BANK pointed at each
+# channel's bank in turn (BYTE2 carries the real bitclk/frameclk/lg/hg pins --
+# see db6_adc_interface_io_hss.vhd header). Not used by any other signal here.
+# ch0 (bank 68): J15 / L17
+set_property PACKAGE_PIN J15  [get_ports {p_adc_hss_aux0_in[0]}]
+set_property PACKAGE_PIN L17  [get_ports {p_adc_hss_aux1_in[0]}]
+# ch1 (bank 67): G24 / H22
+set_property PACKAGE_PIN G24  [get_ports {p_adc_hss_aux0_in[1]}]
+set_property PACKAGE_PIN H22  [get_ports {p_adc_hss_aux1_in[1]}]
+# ch2 (bank 66): E11 / E12
+set_property PACKAGE_PIN E11  [get_ports {p_adc_hss_aux0_in[2]}]
+set_property PACKAGE_PIN E12  [get_ports {p_adc_hss_aux1_in[2]}]
+# ch3 (bank 47): V27 / U29
+set_property PACKAGE_PIN V27  [get_ports {p_adc_hss_aux0_in[3]}]
+set_property PACKAGE_PIN U29  [get_ports {p_adc_hss_aux1_in[3]}]
+# ch4 (bank 46): AL32 / AK33
+set_property PACKAGE_PIN AL32 [get_ports {p_adc_hss_aux0_in[4]}]
+set_property PACKAGE_PIN AK33 [get_ports {p_adc_hss_aux1_in[4]}]
+# ch5 (bank 44): AM21 / AM25
+set_property PACKAGE_PIN AM21 [get_ports {p_adc_hss_aux0_in[5]}]
+set_property PACKAGE_PIN AM25 [get_ports {p_adc_hss_aux1_in[5]}]
+set_property IOSTANDARD LVCMOS18 [get_ports {p_adc_hss_aux0_in[*]}]
+set_property IOSTANDARD LVCMOS18 [get_ports {p_adc_hss_aux1_in[*]}]
+
+# hss_adc third PLL/RIU sharing placeholder (bg1_pin0_nc, needed now that BYTE1 also
+# carries real gbtx_clk40/80 data -- see db6_adc_interface_io_hss.vhd header).
+# ch0 (bank 68): D14   ch1 (bank 67): E26   ch2 (bank 66): L8
+# ch3 (bank 47): AA22  ch4 (bank 46): AN26  ch5 (bank 44): AE25
+set_property PACKAGE_PIN D14  [get_ports {p_adc_hss_aux2_in[0]}]
+set_property PACKAGE_PIN E26  [get_ports {p_adc_hss_aux2_in[1]}]
+set_property PACKAGE_PIN L8   [get_ports {p_adc_hss_aux2_in[2]}]
+set_property PACKAGE_PIN AA22 [get_ports {p_adc_hss_aux2_in[3]}]
+set_property PACKAGE_PIN AN26 [get_ports {p_adc_hss_aux2_in[4]}]
+set_property PACKAGE_PIN AE25 [get_ports {p_adc_hss_aux2_in[5]}]
+set_property IOSTANDARD LVCMOS18 [get_ports {p_adc_hss_aux2_in[*]}]
+
+# GBTx-forwarded 40MHz/80MHz clocks, per bank, deserialized as data on the same
+# per-channel hss_adc instance (see db6_adc_interface_io_hss.vhd header). Same
+# physical pads as the old (dead) p_adc_gbtx_frameclk_in constraints -- confirmed
+# pin-for-pin identical, e.g. bank 68's clk40 P leg here (E18) matches
+# p_adc_gbtx_frameclk_in[0][p] above.
+set_property PACKAGE_PIN E16  [get_ports {p_gbtx_clk80_b68_in[p]}]
+set_property PACKAGE_PIN D16  [get_ports {p_gbtx_clk80_b68_in[n]}]
+set_property PACKAGE_PIN E18  [get_ports {p_gbtx_clk40_b68_in[p]}]
+set_property PACKAGE_PIN E17  [get_ports {p_gbtx_clk40_b68_in[n]}]
+set_property PACKAGE_PIN E25  [get_ports {p_gbtx_clk80_b67_in[p]}]
+set_property PACKAGE_PIN D25  [get_ports {p_gbtx_clk80_b67_in[n]}]
+set_property PACKAGE_PIN D24  [get_ports {p_gbtx_clk40_b67_in[p]}]
+set_property PACKAGE_PIN C24  [get_ports {p_gbtx_clk40_b67_in[n]}]
+set_property PACKAGE_PIN G9   [get_ports {p_gbtx_clk80_b66_in[p]}]
+set_property PACKAGE_PIN F9   [get_ports {p_gbtx_clk80_b66_in[n]}]
+set_property PACKAGE_PIN G10  [get_ports {p_gbtx_clk40_b66_in[p]}]
+set_property PACKAGE_PIN F10  [get_ports {p_gbtx_clk40_b66_in[n]}]
+set_property PACKAGE_PIN Y23  [get_ports {p_gbtx_clk80_b47_in[p]}]
+set_property PACKAGE_PIN AA23 [get_ports {p_gbtx_clk80_b47_in[n]}]
+set_property PACKAGE_PIN AA24 [get_ports {p_gbtx_clk40_b47_in[p]}]
+set_property PACKAGE_PIN AA25 [get_ports {p_gbtx_clk40_b47_in[n]}]
+set_property PACKAGE_PIN AL29 [get_ports {p_gbtx_clk80_b46_in[p]}]
+set_property PACKAGE_PIN AM29 [get_ports {p_gbtx_clk80_b46_in[n]}]
+set_property PACKAGE_PIN AL30 [get_ports {p_gbtx_clk40_b46_in[p]}]
+set_property PACKAGE_PIN AM30 [get_ports {p_gbtx_clk40_b46_in[n]}]
+set_property PACKAGE_PIN AJ23 [get_ports {p_gbtx_clk80_b44_in[p]}]
+set_property PACKAGE_PIN AJ24 [get_ports {p_gbtx_clk80_b44_in[n]}]
+set_property PACKAGE_PIN AH22 [get_ports {p_gbtx_clk40_b44_in[p]}]
+set_property PACKAGE_PIN AH23 [get_ports {p_gbtx_clk40_b44_in[n]}]
+set_property IOSTANDARD LVDS [get_ports {p_gbtx_clk40_b68_in[*]}]
+set_property IOSTANDARD LVDS [get_ports {p_gbtx_clk40_b67_in[*]}]
+set_property IOSTANDARD LVDS [get_ports {p_gbtx_clk40_b66_in[*]}]
+set_property IOSTANDARD LVDS [get_ports {p_gbtx_clk40_b47_in[*]}]
+set_property IOSTANDARD LVDS [get_ports {p_gbtx_clk40_b46_in[*]}]
+set_property IOSTANDARD LVDS [get_ports {p_gbtx_clk40_b44_in[*]}]
+set_property IOSTANDARD LVDS [get_ports {p_gbtx_clk80_b68_in[*]}]
+set_property IOSTANDARD LVDS [get_ports {p_gbtx_clk80_b67_in[*]}]
+set_property IOSTANDARD LVDS [get_ports {p_gbtx_clk80_b66_in[*]}]
+set_property IOSTANDARD LVDS [get_ports {p_gbtx_clk80_b47_in[*]}]
+set_property IOSTANDARD LVDS [get_ports {p_gbtx_clk80_b46_in[*]}]
+set_property IOSTANDARD LVDS [get_ports {p_gbtx_clk80_b44_in[*]}]
+
 set_property PACKAGE_PIN AN14 [get_ports {p_tpl_out[q0][p]}]
 set_property PACKAGE_PIN AP14 [get_ports {p_tpl_out[q0][n]}]
 set_property PACKAGE_PIN AN19 [get_ports {p_tph_out[q0][p]}]

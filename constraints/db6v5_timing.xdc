@@ -78,6 +78,13 @@ set_clock_groups -asynchronous -group [get_clocks {p_gbt_cfgbus_clk40_local_in[p
 set_clock_groups -asynchronous -group [get_clocks {p_gbt_cfgbus_clk40_local_in[p]}] -group [get_clocks {txoutclk_out[0]_1}]
 #set_clock_groups -asynchronous -group [get_clocks {txoutclk_out[0]}] -group [get_clocks {txoutclk_out[0]_1}]
 
+# hss_adc / hss_adc_ch0-4 (g_clocking_mode=3 ADC readout): the SelectIO wizard's own
+# reference XDC ships this exact false-path exception for its internal PLL-lock/reset
+# sequencer 2-flop synchronizer (a real CDC boundary, not a meaningful setup path) --
+# without it, WNS was -7.1ns/TNS -40.6ns from this synchronizer alone across all 5
+# per-channel IPs; with it, both drop out entirely (confirmed via get_timing_paths).
+set_false_path -to [get_pins -hier -filter {NAME =~ *sync_flop_0*/D}]
+
 set_clock_groups -asynchronous -group [get_clocks {p_clk40_out_pll_osc_clk}] -group [get_clocks {p_clk320_out_mmcm_cis_interface}]
 
 #set_false_path -from [get_clocks {p_gbt_cfgbus_clk40_local_in[p]}] -to [get_clocks {txoutclk_out[0]}]

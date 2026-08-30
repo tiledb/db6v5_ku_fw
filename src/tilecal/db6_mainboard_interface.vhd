@@ -37,7 +37,7 @@ use tilecal.db6_design_package.all;
 entity db6_mainboard_interface is
   generic (
             g_vio_adc_readout : natural :=0;
-            g_db6_adc_interface : natural :=0; -- 0 -> iddr, 1 -> iserdese
+            g_clocking_mode : natural :=0; -- 0/1/2 -> iddr, 3 -> selectio wizard (hss_adc)
             g_bitclk        : integer := 280
             );
   Port ( 
@@ -48,10 +48,19 @@ entity db6_mainboard_interface is
         --adc readout (plain logic; IO primitives in db6_adc_interface_io_iddr_bitclk280/240.vhd, instantiated from db7_io_box)
         p_adc_bitclk_in : in std_logic_vector(5 downto 0);
         p_adc_bitclkdiv_in : in std_logic_vector(5 downto 0);
-        p_frame_missalignment_in : in std_logic_vector(5 downto 0);
-        p_adc_frameclk_in : in t_bitslice_sr;
-        p_adc_lg_data_in : in t_bitslice_sr;
-        p_adc_hg_data_in : in t_bitslice_sr;
+        p_frame_missalignment_in : in std_logic_vector(5 downto 0); -- iddr only
+        p_adc_frameclk_in : in t_bitslice_sr; -- iddr only
+        p_adc_lg_data_in : in t_bitslice_sr;  -- iddr only
+        p_adc_hg_data_in : in t_bitslice_sr;  -- iddr only
+
+        -- adc readout, iserdese only (see db6_adc_interface.vhd / db7_io_box.vhd for why
+        -- these are separate, wider ports rather than reusing the iddr ones above)
+        p_adc_frameclk_iserdese_in   : in  t_byteslice_sr;
+        p_adc_lg_data_iserdese_in    : in  t_byteslice_sr;
+        p_adc_hg_data_iserdese_in    : in  t_byteslice_sr;
+        p_adc_pll0_locked_in         : in  std_logic_vector(5 downto 0) := (others => '0'); -- iserdese/hss only
+        p_adc_frame_missalignment_out : out std_logic_vector(5 downto 0);
+        p_adc_ctrl_reset_from_sm_in   : in  std_logic_vector(5 downto 0);
 
         --mb_driver (plain logic; IO primitives live in db6_mainboard_driver_io.vhd, instantiated from db7_io_box)
         p_ssel_out         : out t_mb_std_logic;
@@ -359,12 +368,15 @@ p_mb_interface_out.mb_reset.q1 <= '1'; --p_clknet_in.mb_fpga_reset_low.q1;
 
 s_reset_adc_interface <= p_master_reset_in(c_adc_readout_reset_bit) or s_reset_adc_interface_from_vio;
 
-gen_db6_adc_interface_iddr : if g_db6_adc_interface = 0 generate
+gen_db6_adc_interface_iddr : if g_clocking_mode /= 3 generate
+
+    p_adc_frame_missalignment_out <= (others => '0');
 
     i_db6_adc_interface_iddr : entity tilecal.db6_adc_interface
       generic map(
         g_tmr_enabled      => '0',       -- 0 = no no_tmr, 1 = tmr
-        g_bitclk           => g_bitclk
+        g_bitclk           => g_bitclk,
+        g_clocking_mode    => g_clocking_mode
         )
       Port map (
             p_master_reset_in => s_reset_adc_interface,
@@ -376,6 +388,12 @@ gen_db6_adc_interface_iddr : if g_db6_adc_interface = 0 generate
             p_adc_frameclk_in => p_adc_frameclk_in,
             p_adc_lg_data_in => p_adc_lg_data_in,
             p_adc_hg_data_in => p_adc_hg_data_in,
+            p_adc_frameclk_iserdese_in => (others => (others => '0')),
+            p_adc_lg_data_iserdese_in  => (others => (others => '0')),
+            p_adc_hg_data_iserdese_in  => (others => (others => '0')),
+            p_adc_pll0_locked_in       => (others => '0'),
+            p_adc_frame_missalignment_out => open,
+            p_adc_ctrl_reset_from_sm_in   => (others => '0'),
             p_adc_readout_control_in => s_adc_readout_control,
 --            p_adc_gbtx_frameclk_in =>p_adc_gbtx_frameclk_in,
 --            p_adc_readout_control_out => s_adc_readout_control_out,
@@ -384,13 +402,39 @@ gen_db6_adc_interface_iddr : if g_db6_adc_interface = 0 generate
       );
 end generate;
 
--- gen_db6_adc_interface_iserdese (g_db6_adc_interface = 1) removed: g_db6_adc_interface
--- is never overridden anywhere in this codebase (always defaults to 0/iddr), and
--- db6_adc_interface_iserdese.vhd was never updated for the db7_io_box port-type
--- migration (still expects pad-typed t_adc_clk_in/t_adc_data_in directly), which made
--- this dead branch a hard elaboration error once db6_mainboard_interface's ADC ports
--- became plain logic. Revisit db6_adc_interface_iserdese.vhd (and its companion
--- db6_adc_interface_io_iserdese.vhd) if this readout mode is ever needed again.
+-- SelectIO Interface Wizard front end (hss_adc): registered on the divided clkdiv
+-- instead of IDDRE1's raw undivided-bitclk output, which needed an SRL pipeline stage
+-- tight enough to violate timing at 280 Mbps (see db6_adc_interface_io_hss.vhd /
+-- db6_adc_interface.vhd).
+gen_db6_adc_interface_iserdese : if g_clocking_mode = 3 generate
+
+    i_db6_adc_interface_iserdese : entity tilecal.db6_adc_interface
+      generic map(
+        g_tmr_enabled      => '0',       -- 0 = no no_tmr, 1 = tmr
+        g_bitclk           => g_bitclk,
+        g_clocking_mode    => g_clocking_mode
+        )
+      Port map (
+            p_master_reset_in => s_reset_adc_interface,
+            p_clknet_in => p_clknet_in,
+            p_db_reg_rx_in => p_db_reg_rx_in,
+            p_adc_bitclk_in => p_adc_bitclk_in,
+            p_adc_bitclkdiv_in => p_adc_bitclkdiv_in,
+            p_frame_missalignment_in => (others => '0'),
+            p_adc_frameclk_in => (others => (others => '0')),
+            p_adc_lg_data_in  => (others => (others => '0')),
+            p_adc_hg_data_in  => (others => (others => '0')),
+            p_adc_frameclk_iserdese_in => p_adc_frameclk_iserdese_in,
+            p_adc_lg_data_iserdese_in  => p_adc_lg_data_iserdese_in,
+            p_adc_hg_data_iserdese_in  => p_adc_hg_data_iserdese_in,
+            p_adc_pll0_locked_in       => p_adc_pll0_locked_in,
+            p_adc_frame_missalignment_out => p_adc_frame_missalignment_out,
+            p_adc_ctrl_reset_from_sm_in   => p_adc_ctrl_reset_from_sm_in,
+            p_adc_readout_control_in => s_adc_readout_control,
+            p_adc_readout_out => s_adc_readout,
+            p_leds_out       => s_db6_adc_interface_leds
+      );
+end generate;
 
         s_adc_readout_control.db_side <= p_clknet_in.db_side;
         

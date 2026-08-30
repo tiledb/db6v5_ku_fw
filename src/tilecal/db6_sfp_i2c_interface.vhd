@@ -50,7 +50,11 @@ entity db6_sfp_i2c_interface is
     -- debug readback: port B of the dual-port sfp reg block ram. rx_register picks the
     -- A2h byte address (0-127); tx_register carries that byte's value back out.
     p_rx_register_in  : in  std_logic_vector(6 downto 0);
-    p_tx_register_out : out std_logic_vector(7 downto 0)
+    p_tx_register_out : out std_logic_vector(7 downto 0);
+
+    -- sff-8472 A2h ddm fields, decoded from bytes 96-109 as they stream in below
+    -- (see c_sfp_* constants in db6_design_package.vhd)
+    p_sfp_ddm_out : out t_sfp_regs
 
     );
 end db6_sfp_i2c_interface;
@@ -138,6 +142,13 @@ END COMPONENT;
 
 signal s_blk_mem_sfp : t_blk_mem_sfp;
 
+-- ddm decode: bytes 96-109 of the A2h page (temperature, vcc, tx bias, tx power,
+-- rx power, laser temperature, tec current -- 7 x 16-bit, msb first), latched as
+-- they stream past in proc_main_sm and assembled into s_sfp_ddm below.
+type t_sfp_ddm_bytes is array (0 to 13) of std_logic_vector(7 downto 0);
+signal s_sfp_ddm_bytes : t_sfp_ddm_bytes := (others => (others => '0'));
+signal s_sfp_ddm : t_sfp_regs;
+
 signal s_sm_counter : integer :=0;
 signal s_clk_counter : integer :=0;
 constant c_clk_counter_delay : integer := 4000000;
@@ -178,6 +189,15 @@ s_blk_mem_sfp.dinb  <= (others => '0');
 p_tx_register_out   <= s_blk_mem_sfp.doutb;
 
 p_sfp_i2c_interface_out <= s_blk_mem_sfp;
+
+s_sfp_ddm(c_sfp_temperature)       <= s_sfp_ddm_bytes(0)  & s_sfp_ddm_bytes(1);
+s_sfp_ddm(c_sfp_vcc)               <= s_sfp_ddm_bytes(2)  & s_sfp_ddm_bytes(3);
+s_sfp_ddm(c_sfp_tx_bias_current)   <= s_sfp_ddm_bytes(4)  & s_sfp_ddm_bytes(5);
+s_sfp_ddm(c_sfp_tx_power)          <= s_sfp_ddm_bytes(6)  & s_sfp_ddm_bytes(7);
+s_sfp_ddm(c_sfp_rx_power)          <= s_sfp_ddm_bytes(8)  & s_sfp_ddm_bytes(9);
+s_sfp_ddm(c_sfp_laser_temperature) <= s_sfp_ddm_bytes(10) & s_sfp_ddm_bytes(11);
+s_sfp_ddm(c_sfp_tec_current)       <= s_sfp_ddm_bytes(12) & s_sfp_ddm_bytes(13);
+p_sfp_ddm_out <= s_sfp_ddm;
 
   --instantiate the i2c master
 
@@ -257,6 +277,9 @@ i_db7_simple_i2c_master : entity tilecal.db7_simple_i2c_master
               if(s_i2c_busy = '0') then                         --previous byte's read has completed
                 s_blk_mem_sfp.addra <= std_logic_vector(to_unsigned(s_busy_cnt-2,7));
                 s_blk_mem_sfp.dina  <= s_i2c_data_rd;
+                if (s_busy_cnt-2 >= 96) and (s_busy_cnt-2 <= 109) then --ddm fields (see t_sfp_ddm_bytes above)
+                  s_sfp_ddm_bytes(s_busy_cnt-2-96) <= s_i2c_data_rd;
+                end if;
               end if;
             when 129 =>                                       --last byte (127): nack it and stop after
               s_i2c_ena <= '0';

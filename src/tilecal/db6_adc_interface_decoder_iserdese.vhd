@@ -52,8 +52,12 @@ generic (
         p_ctrl_reset_from_sm_in : in std_logic_vector(5 downto 0);
         p_adc_lg_data_in : in t_byteslice_sr;
         p_adc_hg_data_in : in t_byteslice_sr;
-        
-        
+        -- hss_adc's internal RX PLL0 lock, per channel (see db6_adc_interface_io_hss.vhd);
+        -- mirrors the old iddr scheme's per-channel pll_adc_channel.locked_out (see
+        -- db6_adc_interface_decoder_iddr_bitclk280.vhd) feeding channel_clk280_locked.
+        p_adc_pll0_locked_in : in std_logic_vector(5 downto 0) := (others => '0');
+
+
         --control
         p_adc_readout_control_in : in t_adc_readout_control;
         
@@ -135,7 +139,16 @@ s_ctrl_reset_from_sm <= p_ctrl_reset_from_sm_in;
 gen_adc_channels: for v_adc in 0 to 5 generate
 
     p_frame_missalignment_out(v_adc) <= s_frame_missalignment(v_adc);
-    
+
+    -- status signals (see db6_adc_interface_decoder_iddr_bitclk280.vhd for the iddr-scheme
+    -- equivalent): channel_clk280_locked mirrors the per-channel bit-clock PLL lock (there,
+    -- a dedicated pll_adc_channel; here, hss_adc's own internal PLL0); channel_locked mirrors
+    -- the frame-marker lock (there, a separate fc-pattern-match FSM; here, reusing this
+    -- decoder's own frame alignment FSM below, which already tracks the same "11111110000000"
+    -- pattern via s_frame_missalignment).
+    s_adc_readout.channel_clk280_locked(v_adc) <= p_adc_pll0_locked_in(v_adc);
+    s_adc_readout.channel_locked(v_adc) <= not s_frame_missalignment(v_adc);
+
     proc_align_data : process (p_adc_bitclkdiv_in(v_adc), s_ctrl_reset_from_sm(v_adc), p_master_reset_in)
     variable v_state  : integer range 0 to 6;
     variable v_lg_data  : std_logic_vector(11 downto 0):=(others=>'0');

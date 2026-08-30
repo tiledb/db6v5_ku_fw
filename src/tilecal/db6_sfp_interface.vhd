@@ -222,7 +222,9 @@ i_db6_sfp_i2c_control : entity tilecal.db6_sfp_i2c_control
     p_sfp_i2c_interface_out    => s_sfp_interface.i2c_interface,
 
     p_rx_register_in  => s_sfp_rx_register,
-    p_tx_register_out => s_sfp_tx_register
+    p_tx_register_out => s_sfp_tx_register,
+
+    p_sfp_ddm_out => s_sfp_interface.ddm
 
     );
 

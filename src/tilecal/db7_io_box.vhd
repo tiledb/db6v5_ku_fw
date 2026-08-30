@@ -57,7 +57,8 @@ use tilecal.db6_design_package.all;
 entity db7_io_box is
     generic (
         g_num_gth_links    : integer := 2;
-        g_num_gth_ref_clks : integer := 1
+        g_num_gth_ref_clks : integer := 1;
+        g_clocking_mode : integer := 0 -- 0/1/2 -> iddr (see db6_adc_interface_io_iddr_bitclk280), 3 -> selectio wizard (hss_adc). Must match db6_mainboard_interface's.
     );
     port (
         -- internal (non-pad) signals needed by the wrapped IO files
@@ -80,16 +81,57 @@ entity db7_io_box is
         p_adc_master_reset_in : in std_logic;
         p_adc_bitclk_in   : in t_adc_clk_in;
         p_adc_frameclk_in : in t_adc_clk_in;
+        -- g_clocking_mode=3 (hss) only: hss_adc PLL/RIU sharing placeholder pins,
+        -- one bit per channel (see db6_adc_interface_io_hss.vhd header).
+        p_adc_hss_aux0_in : in std_logic_vector(5 downto 0);
+        p_adc_hss_aux1_in : in std_logic_vector(5 downto 0);
+        p_adc_hss_aux2_in : in std_logic_vector(5 downto 0);
         p_adc_lg_data_in  : in t_adc_data_in;
         p_adc_hg_data_in  : in t_adc_data_in;
+        -- GBTx-forwarded 40MHz/80MHz clocks, per bank, deserialized as data on the
+        -- same per-channel hss_adc instance (see db6_adc_interface_io_hss.vhd header)
+        p_gbtx_clk40_b68_in : in t_diff_pair;
+        p_gbtx_clk40_b67_in : in t_diff_pair;
+        p_gbtx_clk40_b66_in : in t_diff_pair;
+        p_gbtx_clk40_b47_in : in t_diff_pair;
+        p_gbtx_clk40_b46_in : in t_diff_pair;
+        p_gbtx_clk40_b44_in : in t_diff_pair;
+        p_gbtx_clk80_b68_in : in t_diff_pair;
+        p_gbtx_clk80_b67_in : in t_diff_pair;
+        p_gbtx_clk80_b66_in : in t_diff_pair;
+        p_gbtx_clk80_b47_in : in t_diff_pair;
+        p_gbtx_clk80_b46_in : in t_diff_pair;
+        p_gbtx_clk80_b44_in : in t_diff_pair;
+        p_gbtx_clk40_data_out : out t_byteslice_sr;
+        p_gbtx_clk80_data_out : out t_byteslice_sr;
 
-        -- ADC interface -- plain logic side (to db6_adc_interface)
+        -- ADC interface -- plain logic side (to db6_adc_interface). frameclk/lg/hg use
+        -- separate ports per readout mode since iddr (2 bits/channel) and hss
+        -- (8-bit container, 4 meaningful bits/channel) aren't the same width; only one
+        -- set is actually driven, per g_clocking_mode (see db6_adc_interface_io_iddr_bitclk280
+        -- / db6_adc_interface_io_hss).
         p_adc_bitclk_out          : out std_logic_vector(5 downto 0);
         p_adc_bitclkdiv_out       : out std_logic_vector(5 downto 0);
-        p_frame_missalignment_out : out std_logic_vector(5 downto 0);
-        p_adc_frameclk_out        : out t_bitslice_sr;
-        p_adc_lg_data_out         : out t_bitslice_sr;
-        p_adc_hg_data_out         : out t_bitslice_sr;
+        p_frame_missalignment_out : out std_logic_vector(5 downto 0); -- iddr only
+        p_adc_frameclk_out        : out t_bitslice_sr;  -- iddr only
+        p_adc_lg_data_out         : out t_bitslice_sr;  -- iddr only
+        p_adc_hg_data_out         : out t_bitslice_sr;  -- iddr only
+
+        -- g_clocking_mode=3 (hss) only: closed-loop resync between io_hss (here) and
+        -- db6_adc_interface_decoder_iserdese (in db6_mainboard_interface) -- the decoder
+        -- tracks frame alignment from the marker bits and reports it back here.
+        -- ctrl_reset_from_sm is tied '0' by db6_adc_interface_io_hss (hss_adc uses
+        -- RX_DELAY_TYPE=FIXED, so there's no idelay resync state machine driving it).
+        p_adc_frame_missalignment_in : in  std_logic_vector(5 downto 0);
+        p_adc_ctrl_reset_from_sm_out : out std_logic_vector(5 downto 0);
+        p_adc_frameclk_iserdese_out  : out t_byteslice_sr;
+        p_adc_lg_data_iserdese_out   : out t_byteslice_sr;
+        p_adc_hg_data_iserdese_out   : out t_byteslice_sr;
+        -- g_clocking_mode=3 (hss) only: per-channel hss_adc internal status for
+        -- hardware debug (see db6_adc_interface_io_hss.vhd)
+        p_adc_pll0_locked_out     : out std_logic_vector(5 downto 0);
+        p_adc_rst_seq_done_out    : out std_logic_vector(5 downto 0);
+        p_adc_fifo_data_valid_out : out std_logic_vector(5 downto 0);
 
         -- CFGBUS local -- pad
         p_cfgbus_master_reset_in : in std_logic;
@@ -298,30 +340,95 @@ i_db6_mainboard_driver_io : entity tilecal.db6_mainboard_driver_io
         p_sdata_rx_out => p_mb_driver_sdata_rx_out
     );
 
-i_db6_adc_interface_io_iddr : entity tilecal.db6_adc_interface_io_iddr_bitclk280
-    generic map (
-        g_clocking_mode => 0 -- matches db6_mainboard_interface's default (simple)
-        )
-    port map (
-        p_master_reset_in => p_adc_master_reset_in,
-        p_clknet_in        => p_clknet_in,
-        p_db_reg_rx_in      => p_db_reg_rx_in,
-        p_adc_bitclk_in     => p_adc_bitclk_in,
-        p_adc_frameclk_in   => p_adc_frameclk_in,
-        p_adc_lg_data_in    => p_adc_lg_data_in,
-        p_adc_hg_data_in    => p_adc_hg_data_in,
+-- ADC readout front end: iddr (IDDRE1, off the undivided bitclk) or hss (SelectIO
+-- Interface Wizard, hss_adc -- see db6_adc_interface_io_hss.vhd), selected by
+-- g_clocking_mode. Only one is ever elaborated.
+gen_db6_adc_interface_iddr : if g_clocking_mode /= 3 generate
+    i_db6_adc_interface_io_iddr : entity tilecal.db6_adc_interface_io_iddr_bitclk280
+        generic map (
+            g_clocking_mode => g_clocking_mode
+            )
+        port map (
+            p_master_reset_in => p_adc_master_reset_in,
+            p_clknet_in        => p_clknet_in,
+            p_db_reg_rx_in      => p_db_reg_rx_in,
+            p_adc_bitclk_in     => p_adc_bitclk_in,
+            p_adc_frameclk_in   => p_adc_frameclk_in,
+            p_adc_lg_data_in    => p_adc_lg_data_in,
+            p_adc_hg_data_in    => p_adc_hg_data_in,
 
-        p_adc_bitclk_out          => p_adc_bitclk_out,
-        p_adc_bitclkdiv_out       => p_adc_bitclkdiv_out,
-        p_frame_missalignment_out => p_frame_missalignment_out,
-        p_adc_frameclk_out        => p_adc_frameclk_out,
-        p_adc_lg_data_out         => p_adc_lg_data_out,
-        p_adc_hg_data_out         => p_adc_hg_data_out,
+            p_adc_bitclk_out          => p_adc_bitclk_out,
+            p_adc_bitclkdiv_out       => p_adc_bitclkdiv_out,
+            p_frame_missalignment_out => p_frame_missalignment_out,
+            p_adc_frameclk_out        => p_adc_frameclk_out,
+            p_adc_lg_data_out         => p_adc_lg_data_out,
+            p_adc_hg_data_out         => p_adc_hg_data_out,
 
-        p_adc_readout_control_in => s_adc_readout_control_unused,
+            p_adc_readout_control_in => s_adc_readout_control_unused,
 
-        p_leds_out => open
-    );
+            p_leds_out => open
+        );
+
+    p_adc_ctrl_reset_from_sm_out <= (others => '0');
+    p_adc_frameclk_iserdese_out  <= (others => (others => '0'));
+    p_adc_lg_data_iserdese_out   <= (others => (others => '0'));
+    p_adc_hg_data_iserdese_out   <= (others => (others => '0'));
+    p_adc_pll0_locked_out        <= (others => '0');
+    p_adc_rst_seq_done_out       <= (others => '0');
+    p_adc_fifo_data_valid_out    <= (others => '0');
+    p_gbtx_clk40_data_out        <= (others => (others => '0'));
+    p_gbtx_clk80_data_out        <= (others => (others => '0'));
+end generate;
+
+gen_db6_adc_interface_hss : if g_clocking_mode = 3 generate
+    i_db6_adc_interface_io_hss : entity tilecal.db6_adc_interface_io_hss
+        port map (
+            p_master_reset_in => p_adc_master_reset_in,
+            p_clknet_in        => p_clknet_in,
+            p_db_reg_rx_in      => p_db_reg_rx_in,
+            p_adc_bitclk_in     => p_adc_bitclk_in,
+            p_adc_frameclk_in   => p_adc_frameclk_in,
+            p_adc_hss_aux0_in   => p_adc_hss_aux0_in,
+            p_adc_hss_aux1_in   => p_adc_hss_aux1_in,
+            p_adc_hss_aux2_in   => p_adc_hss_aux2_in,
+            p_adc_lg_data_in    => p_adc_lg_data_in,
+            p_adc_hg_data_in    => p_adc_hg_data_in,
+            p_gbtx_clk40_b68_in => p_gbtx_clk40_b68_in,
+            p_gbtx_clk40_b67_in => p_gbtx_clk40_b67_in,
+            p_gbtx_clk40_b66_in => p_gbtx_clk40_b66_in,
+            p_gbtx_clk40_b47_in => p_gbtx_clk40_b47_in,
+            p_gbtx_clk40_b46_in => p_gbtx_clk40_b46_in,
+            p_gbtx_clk40_b44_in => p_gbtx_clk40_b44_in,
+            p_gbtx_clk80_b68_in => p_gbtx_clk80_b68_in,
+            p_gbtx_clk80_b67_in => p_gbtx_clk80_b67_in,
+            p_gbtx_clk80_b66_in => p_gbtx_clk80_b66_in,
+            p_gbtx_clk80_b47_in => p_gbtx_clk80_b47_in,
+            p_gbtx_clk80_b46_in => p_gbtx_clk80_b46_in,
+            p_gbtx_clk80_b44_in => p_gbtx_clk80_b44_in,
+            p_gbtx_clk40_data_out => p_gbtx_clk40_data_out,
+            p_gbtx_clk80_data_out => p_gbtx_clk80_data_out,
+
+            p_adc_bitclk_out          => p_adc_bitclk_out,
+            p_adc_bitclkdiv_out       => p_adc_bitclkdiv_out,
+            p_frame_missalignment_in  => p_adc_frame_missalignment_in,
+            p_ctrl_reset_from_sm_out  => p_adc_ctrl_reset_from_sm_out,
+            p_adc_frameclk_out        => p_adc_frameclk_iserdese_out,
+            p_adc_lg_data_out         => p_adc_lg_data_iserdese_out,
+            p_adc_hg_data_out         => p_adc_hg_data_iserdese_out,
+
+            p_adc_readout_control_in => s_adc_readout_control_unused,
+
+            p_leds_out => open,
+            p_pll0_locked_out     => p_adc_pll0_locked_out,
+            p_rst_seq_done_out    => p_adc_rst_seq_done_out,
+            p_fifo_data_valid_out => p_adc_fifo_data_valid_out
+        );
+
+    p_frame_missalignment_out <= (others => '0');
+    p_adc_frameclk_out        <= (others => (others => '0'));
+    p_adc_lg_data_out         <= (others => (others => '0'));
+    p_adc_hg_data_out         <= (others => (others => '0'));
+end generate;
 
 i_db6_cfgbus_interface_io_iddr : entity tilecal.db6_cfgbus_interface_io_iddr
     port map (

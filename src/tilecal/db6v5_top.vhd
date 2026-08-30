@@ -110,10 +110,35 @@ generic (
       --mb_interface
       p_adc_bitclk_in : in t_adc_clk_in;
       p_adc_frameclk_in : in t_adc_clk_in;
---      p_adc_gbtx_frameclk_in : in t_adc_clk_in;
+      -- hss_adc's PLL/RIU clock-distribution hardware is shared across the whole I/O
+      -- bank (locked CONFIG.PLL_SHARING=1, not a configurable choice for this device's
+      -- HP banks in Native+FIFO RX mode), so each channel's hss_adc instance also
+      -- claims 2 placeholder bitslice positions elsewhere in that channel's bank,
+      -- regardless of pin configuration -- these carry no real data but are I/O-bound
+      -- cells that must be placed on a real, otherwise-unused pin (see
+      -- db6_adc_interface_io_hss.vhd header and constraints/db6v5.xdc for the actual
+      -- per-channel pin, which is whatever the wizard itself natively assigns for
+      -- that channel's bank).
+      p_adc_hss_aux0_in : in std_logic_vector(5 downto 0);
+      p_adc_hss_aux1_in : in std_logic_vector(5 downto 0);
+      p_adc_hss_aux2_in : in std_logic_vector(5 downto 0);
       p_adc_lg_data_in : in t_adc_data_in;
       p_adc_hg_data_in : in t_adc_data_in;
-     
+      -- GBTx-forwarded 40MHz/80MHz clocks, per bank, deserialized as data on the
+      -- same per-channel hss_adc instance (see db6_adc_interface_io_hss.vhd header)
+      p_gbtx_clk40_b68_in : in t_diff_pair;
+      p_gbtx_clk40_b67_in : in t_diff_pair;
+      p_gbtx_clk40_b66_in : in t_diff_pair;
+      p_gbtx_clk40_b47_in : in t_diff_pair;
+      p_gbtx_clk40_b46_in : in t_diff_pair;
+      p_gbtx_clk40_b44_in : in t_diff_pair;
+      p_gbtx_clk80_b68_in : in t_diff_pair;
+      p_gbtx_clk80_b67_in : in t_diff_pair;
+      p_gbtx_clk80_b66_in : in t_diff_pair;
+      p_gbtx_clk80_b47_in : in t_diff_pair;
+      p_gbtx_clk80_b46_in : in t_diff_pair;
+      p_gbtx_clk80_b44_in : in t_diff_pair;
+
 --mb_driver
         p_ssel_out         : out t_mb_diff_pair;
         p_sclk_out         : out t_mb_diff_pair;
@@ -232,7 +257,20 @@ signal s_mb_driver_ssel, s_mb_driver_sclk, s_mb_driver_sdata_tx, s_mb_driver_sda
 
 -- db7_io_box: ADC interface, plain-logic side (stage 2)
 signal s_adc_bitclk, s_adc_bitclkdiv, s_frame_missalignment : std_logic_vector(5 downto 0);
-signal s_adc_frameclk, s_adc_lg_data, s_adc_hg_data : t_bitslice_sr;
+signal s_adc_frameclk, s_adc_lg_data, s_adc_hg_data : t_bitslice_sr; -- iddr only
+
+-- ADC readout front end, hss (SelectIO wizard) only (see db6_adc_interface.vhd / db7_io_box.vhd);
+-- selected instead of the iddr signals above via g_clocking_mode below.
+signal s_adc_frameclk_iserdese, s_adc_lg_data_iserdese, s_adc_hg_data_iserdese : t_byteslice_sr;
+signal s_adc_frame_missalignment_iserdese, s_adc_ctrl_reset_from_sm_iserdese : std_logic_vector(5 downto 0);
+
+-- hss_adc per-channel internal status (PLL lock / reset-sequence-done / fifo valid),
+-- for vio_clknet_status hardware debug (see db6_adc_interface_io_hss.vhd)
+signal s_adc_pll0_locked, s_adc_rst_seq_done, s_adc_fifo_data_valid : std_logic_vector(5 downto 0);
+
+-- deserialized gbtx_clk40/80 data, per channel (see db6_adc_interface_io_hss.vhd
+-- header) -- not consumed anywhere yet
+signal s_gbtx_clk40_data, s_gbtx_clk80_data : t_byteslice_sr;
 
 -- db7_io_box: CFGBUS local, plain-logic side (stage 2)
 signal s_cfgbus_bitslice_local : t_cfgbus_bitslice;
@@ -415,6 +453,20 @@ COMPONENT vio_clknet_status
     probe_in68 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
     probe_in69 : IN STD_LOGIC_VECTOR(6 DOWNTO 0);
     probe_in70 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
+    -- hss_adc per-channel status: PLL0 lock / internal reset-sequence-done / fifo
+    -- read-data-valid, one bit per ADC channel (see db6_adc_interface_io_hss.vhd)
+    probe_in71 : IN STD_LOGIC_VECTOR(5 DOWNTO 0);
+    probe_in72 : IN STD_LOGIC_VECTOR(5 DOWNTO 0);
+    probe_in73 : IN STD_LOGIC_VECTOR(5 DOWNTO 0);
+    -- sff-8472 A2h ddm fields, both sfp sides packed per probe (side 0 = 15:0, side 1 =
+    -- 31:16, matching stb_sfp_ddm_* in db6_gbt_encoder_sc.vhd -- see t_sfp_regs/c_sfp_*)
+    probe_in74 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
+    probe_in75 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
+    probe_in76 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
+    probe_in77 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
+    probe_in78 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
+    probe_in79 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
+    probe_in80 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
     probe_out0 : OUT STD_LOGIC_VECTOR(5 DOWNTO 0);
     probe_out1 : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
     probe_out2 : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
@@ -577,6 +629,9 @@ i_db6_clock_interface : entity tilecal.db6_clock_interface
 
         --mainboard interface
 i_db6_mainboard_interface : entity tilecal.db6_mainboard_interface
+      generic map(
+        g_clocking_mode => 0 -- 0/1/2 -> iddr, 3 -> selectio wizard hss_adc (must match i_db7_io_box below)
+        )
       Port map(
         p_master_reset_in => s_master_reset,
         p_clknet_in  => s_clknet,
@@ -588,6 +643,12 @@ i_db6_mainboard_interface : entity tilecal.db6_mainboard_interface
         p_adc_frameclk_in => s_adc_frameclk,
         p_adc_lg_data_in => s_adc_lg_data,
         p_adc_hg_data_in => s_adc_hg_data,
+        p_adc_frameclk_iserdese_in => s_adc_frameclk_iserdese,
+        p_adc_lg_data_iserdese_in  => s_adc_lg_data_iserdese,
+        p_adc_hg_data_iserdese_in  => s_adc_hg_data_iserdese,
+        p_adc_pll0_locked_in       => s_adc_pll0_locked,
+        p_adc_frame_missalignment_out => s_adc_frame_missalignment_iserdese,
+        p_adc_ctrl_reset_from_sm_in   => s_adc_ctrl_reset_from_sm_iserdese,
         -- mb interface (plain logic; pads reached via i_db7_io_box below)
         p_ssel_out         => s_mb_driver_ssel,
         p_sclk_out         => s_mb_driver_sclk,
@@ -621,7 +682,8 @@ i_db6_mainboard_interface : entity tilecal.db6_mainboard_interface
 i_db7_io_box : entity tilecal.db7_io_box
     generic map (
         g_num_gth_links    => g_num_gth_links,
-        g_num_gth_ref_clks => g_num_gth_ref_clks
+        g_num_gth_ref_clks => g_num_gth_ref_clks,
+        g_clocking_mode => 0 -- 0/1/2 -> iddr, 3 -> selectio wizard hss_adc (must match i_db6_mainboard_interface above)
     )
     port map (
         p_clknet_in    => s_clknet,
@@ -640,14 +702,39 @@ i_db7_io_box : entity tilecal.db7_io_box
         p_adc_master_reset_in => s_master_reset(c_adc_readout_reset_bit),
         p_adc_bitclk_in       => p_adc_bitclk_in,
         p_adc_frameclk_in     => p_adc_frameclk_in,
+        p_adc_hss_aux0_in     => p_adc_hss_aux0_in,
+        p_adc_hss_aux1_in     => p_adc_hss_aux1_in,
+        p_adc_hss_aux2_in     => p_adc_hss_aux2_in,
         p_adc_lg_data_in      => p_adc_lg_data_in,
         p_adc_hg_data_in      => p_adc_hg_data_in,
+        p_gbtx_clk40_b68_in   => p_gbtx_clk40_b68_in,
+        p_gbtx_clk40_b67_in   => p_gbtx_clk40_b67_in,
+        p_gbtx_clk40_b66_in   => p_gbtx_clk40_b66_in,
+        p_gbtx_clk40_b47_in   => p_gbtx_clk40_b47_in,
+        p_gbtx_clk40_b46_in   => p_gbtx_clk40_b46_in,
+        p_gbtx_clk40_b44_in   => p_gbtx_clk40_b44_in,
+        p_gbtx_clk80_b68_in   => p_gbtx_clk80_b68_in,
+        p_gbtx_clk80_b67_in   => p_gbtx_clk80_b67_in,
+        p_gbtx_clk80_b66_in   => p_gbtx_clk80_b66_in,
+        p_gbtx_clk80_b47_in   => p_gbtx_clk80_b47_in,
+        p_gbtx_clk80_b46_in   => p_gbtx_clk80_b46_in,
+        p_gbtx_clk80_b44_in   => p_gbtx_clk80_b44_in,
+        p_gbtx_clk40_data_out => s_gbtx_clk40_data,
+        p_gbtx_clk80_data_out => s_gbtx_clk80_data,
         p_adc_bitclk_out           => s_adc_bitclk,
         p_adc_bitclkdiv_out        => s_adc_bitclkdiv,
         p_frame_missalignment_out  => s_frame_missalignment,
         p_adc_frameclk_out         => s_adc_frameclk,
         p_adc_lg_data_out          => s_adc_lg_data,
         p_adc_hg_data_out          => s_adc_hg_data,
+        p_adc_frame_missalignment_in => s_adc_frame_missalignment_iserdese,
+        p_adc_ctrl_reset_from_sm_out => s_adc_ctrl_reset_from_sm_iserdese,
+        p_adc_frameclk_iserdese_out  => s_adc_frameclk_iserdese,
+        p_adc_lg_data_iserdese_out   => s_adc_lg_data_iserdese,
+        p_adc_hg_data_iserdese_out   => s_adc_hg_data_iserdese,
+        p_adc_pll0_locked_out     => s_adc_pll0_locked,
+        p_adc_rst_seq_done_out    => s_adc_rst_seq_done,
+        p_adc_fifo_data_valid_out => s_adc_fifo_data_valid,
 
         p_cfgbus_master_reset_in => s_master_reset(c_cfgbus_reset_bit),
         p_cfgbus_data_local_in   => p_cfgbus_data_local_in,
@@ -1316,6 +1403,27 @@ i_vio_clknet_status : vio_clknet_status
     probe_in68 => s_sfp_ku_mgt.sfp_tx_register(0),
     probe_in69 => s_cfgbus_interface.db_reg_rx(cfb_sfp_reg_address)(14 downto 8),
     probe_in70 => s_sfp_ku_mgt.sfp_tx_register(1),
+
+    -- hss_adc per-channel status (g_clocking_mode=3 only -- all zero otherwise)
+    probe_in71 => s_adc_pll0_locked,
+    probe_in72 => s_adc_rst_seq_done,
+    probe_in73 => s_adc_fifo_data_valid,
+
+    -- sff-8472 A2h ddm fields, both sfp sides packed per probe (side 0 = 15:0, side 1 = 31:16)
+    probe_in74(15 downto 0)  => s_sfp_interface.ddm(0)(c_sfp_temperature),
+    probe_in74(31 downto 16) => s_sfp_interface.ddm(1)(c_sfp_temperature),
+    probe_in75(15 downto 0)  => s_sfp_interface.ddm(0)(c_sfp_vcc),
+    probe_in75(31 downto 16) => s_sfp_interface.ddm(1)(c_sfp_vcc),
+    probe_in76(15 downto 0)  => s_sfp_interface.ddm(0)(c_sfp_tx_bias_current),
+    probe_in76(31 downto 16) => s_sfp_interface.ddm(1)(c_sfp_tx_bias_current),
+    probe_in77(15 downto 0)  => s_sfp_interface.ddm(0)(c_sfp_tx_power),
+    probe_in77(31 downto 16) => s_sfp_interface.ddm(1)(c_sfp_tx_power),
+    probe_in78(15 downto 0)  => s_sfp_interface.ddm(0)(c_sfp_rx_power),
+    probe_in78(31 downto 16) => s_sfp_interface.ddm(1)(c_sfp_rx_power),
+    probe_in79(15 downto 0)  => s_sfp_interface.ddm(0)(c_sfp_laser_temperature),
+    probe_in79(31 downto 16) => s_sfp_interface.ddm(1)(c_sfp_laser_temperature),
+    probe_in80(15 downto 0)  => s_sfp_interface.ddm(0)(c_sfp_tec_current),
+    probe_in80(31 downto 16) => s_sfp_interface.ddm(1)(c_sfp_tec_current),
 
     probe_out0(0) => s_clknet_debug_control.reset_mb.q0,
     probe_out0(1) => s_clknet_debug_control.reset_mb.q1,
