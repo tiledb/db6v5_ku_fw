@@ -37,23 +37,34 @@
 ## partway through and I would not ship a placement constraint I couldn't confirm actually
 ## took effect. Next attempt should verify cell membership from a fresh Vivado GUI/console
 ## session before trusting it, or use explicit per-cell LOC instead of a pblock.
+##
+## Each channel's cell filter below excludes i_pll_adc_channel (moved into this
+## generate scope in db6_adc_interface_io_iddr_bitclk280.vhd so a future TMR'd decoder
+## shares one physical PLL instead of instantiating three -- see that commit). Without
+## the exclusion, this pblock swept the PLL in along with the ISERDES/pipeline cells and
+## forced it out of its BUFGCE's clock region, which isn't a soft-pblock-tunable timing
+## margin issue like the rest of this pblock -- it's a hard placer DRC (rule_io_bufg_pll_2loads:
+## "Sub-optimal placement for IO_pin-BUFGCE-PLL") that fails the whole implementation run
+## outright. A PLL's placement is dictated by its own clock-dedicated-route requirement to
+## its driving BUFGCE, not by anything this pblock is trying to fix, so it doesn't belong
+## in this cell set at all.
 create_pblock pblock_adc_readout_ch0
-add_cells_to_pblock [get_pblocks pblock_adc_readout_ch0] [get_cells -quiet -hierarchical -filter {NAME =~ "i_db7_io_box/gen_db6_adc_interface_iddr.i_db6_adc_interface_io_iddr/gen_adc_channels[0]*" || NAME =~ "i_db7_io_box/gen_db6_adc_interface_iddr.i_db6_adc_interface_io_iddr/gen_adc_data_diff_to_se[0]*"}]
+add_cells_to_pblock [get_pblocks pblock_adc_readout_ch0] [get_cells -quiet -hierarchical -filter {(NAME =~ "i_db7_io_box/gen_db6_adc_interface_iddr.i_db6_adc_interface_io_iddr/gen_adc_channels[0]*" || NAME =~ "i_db7_io_box/gen_db6_adc_interface_iddr.i_db6_adc_interface_io_iddr/gen_adc_data_diff_to_se[0]*") && !(NAME =~ "*i_pll_adc_channel*")}]
 resize_pblock [get_pblocks pblock_adc_readout_ch0] -add {CLOCKREGION_X2Y3:CLOCKREGION_X2Y3}
 create_pblock pblock_adc_readout_ch1
-add_cells_to_pblock [get_pblocks pblock_adc_readout_ch1] [get_cells -quiet -hierarchical -filter {NAME =~ "i_db7_io_box/gen_db6_adc_interface_iddr.i_db6_adc_interface_io_iddr/gen_adc_channels[1]*" || NAME =~ "i_db7_io_box/gen_db6_adc_interface_iddr.i_db6_adc_interface_io_iddr/gen_adc_data_diff_to_se[1]*"}]
+add_cells_to_pblock [get_pblocks pblock_adc_readout_ch1] [get_cells -quiet -hierarchical -filter {(NAME =~ "i_db7_io_box/gen_db6_adc_interface_iddr.i_db6_adc_interface_io_iddr/gen_adc_channels[1]*" || NAME =~ "i_db7_io_box/gen_db6_adc_interface_iddr.i_db6_adc_interface_io_iddr/gen_adc_data_diff_to_se[1]*") && !(NAME =~ "*i_pll_adc_channel*")}]
 resize_pblock [get_pblocks pblock_adc_readout_ch1] -add {CLOCKREGION_X2Y3:CLOCKREGION_X2Y3}
 create_pblock pblock_adc_readout_ch2
-add_cells_to_pblock [get_pblocks pblock_adc_readout_ch2] [get_cells -quiet -hierarchical -filter {NAME =~ "i_db7_io_box/gen_db6_adc_interface_iddr.i_db6_adc_interface_io_iddr/gen_adc_channels[2]*" || NAME =~ "i_db7_io_box/gen_db6_adc_interface_iddr.i_db6_adc_interface_io_iddr/gen_adc_data_diff_to_se[2]*"}]
+add_cells_to_pblock [get_pblocks pblock_adc_readout_ch2] [get_cells -quiet -hierarchical -filter {(NAME =~ "i_db7_io_box/gen_db6_adc_interface_iddr.i_db6_adc_interface_io_iddr/gen_adc_channels[2]*" || NAME =~ "i_db7_io_box/gen_db6_adc_interface_iddr.i_db6_adc_interface_io_iddr/gen_adc_data_diff_to_se[2]*") && !(NAME =~ "*i_pll_adc_channel*")}]
 resize_pblock [get_pblocks pblock_adc_readout_ch2] -add {CLOCKREGION_X2Y2:CLOCKREGION_X2Y2}
 create_pblock pblock_adc_readout_ch3
-add_cells_to_pblock [get_pblocks pblock_adc_readout_ch3] [get_cells -quiet -hierarchical -filter {NAME =~ "i_db7_io_box/gen_db6_adc_interface_iddr.i_db6_adc_interface_io_iddr/gen_adc_channels[3]*" || NAME =~ "i_db7_io_box/gen_db6_adc_interface_iddr.i_db6_adc_interface_io_iddr/gen_adc_data_diff_to_se[3]*"}]
+add_cells_to_pblock [get_pblocks pblock_adc_readout_ch3] [get_cells -quiet -hierarchical -filter {(NAME =~ "i_db7_io_box/gen_db6_adc_interface_iddr.i_db6_adc_interface_io_iddr/gen_adc_channels[3]*" || NAME =~ "i_db7_io_box/gen_db6_adc_interface_iddr.i_db6_adc_interface_io_iddr/gen_adc_data_diff_to_se[3]*") && !(NAME =~ "*i_pll_adc_channel*")}]
 resize_pblock [get_pblocks pblock_adc_readout_ch3] -add {CLOCKREGION_X0Y3:CLOCKREGION_X0Y3}
 create_pblock pblock_adc_readout_ch4
-add_cells_to_pblock [get_pblocks pblock_adc_readout_ch4] [get_cells -quiet -hierarchical -filter {NAME =~ "i_db7_io_box/gen_db6_adc_interface_iddr.i_db6_adc_interface_io_iddr/gen_adc_channels[4]*" || NAME =~ "i_db7_io_box/gen_db6_adc_interface_iddr.i_db6_adc_interface_io_iddr/gen_adc_data_diff_to_se[4]*"}]
+add_cells_to_pblock [get_pblocks pblock_adc_readout_ch4] [get_cells -quiet -hierarchical -filter {(NAME =~ "i_db7_io_box/gen_db6_adc_interface_iddr.i_db6_adc_interface_io_iddr/gen_adc_channels[4]*" || NAME =~ "i_db7_io_box/gen_db6_adc_interface_iddr.i_db6_adc_interface_io_iddr/gen_adc_data_diff_to_se[4]*") && !(NAME =~ "*i_pll_adc_channel*")}]
 resize_pblock [get_pblocks pblock_adc_readout_ch4] -add {CLOCKREGION_X0Y2:CLOCKREGION_X0Y2}
 create_pblock pblock_adc_readout_ch5
-add_cells_to_pblock [get_pblocks pblock_adc_readout_ch5] [get_cells -quiet -hierarchical -filter {NAME =~ "i_db7_io_box/gen_db6_adc_interface_iddr.i_db6_adc_interface_io_iddr/gen_adc_channels[5]*" || NAME =~ "i_db7_io_box/gen_db6_adc_interface_iddr.i_db6_adc_interface_io_iddr/gen_adc_data_diff_to_se[5]*"}]
+add_cells_to_pblock [get_pblocks pblock_adc_readout_ch5] [get_cells -quiet -hierarchical -filter {(NAME =~ "i_db7_io_box/gen_db6_adc_interface_iddr.i_db6_adc_interface_io_iddr/gen_adc_channels[5]*" || NAME =~ "i_db7_io_box/gen_db6_adc_interface_iddr.i_db6_adc_interface_io_iddr/gen_adc_data_diff_to_se[5]*") && !(NAME =~ "*i_pll_adc_channel*")}]
 resize_pblock [get_pblocks pblock_adc_readout_ch5] -add {CLOCKREGION_X0Y0:CLOCKREGION_X0Y0}
 
 #create_pblock pblock_configbus
