@@ -447,7 +447,7 @@ gen_db6_adc_interface_iddr : if g_adc_clocking_scheme /= hss_wizard generate
             p_adc_frameclk_iserdese_in => (others => (others => '0')),
             p_adc_lg_data_iserdese_in  => (others => (others => '0')),
             p_adc_hg_data_iserdese_in  => (others => (others => '0')),
-            p_adc_pll0_locked_in       => (others => '0'),
+            p_adc_pll0_locked_in       => p_adc_pll0_locked_in,
             p_adc_frame_missalignment_out => open,
             p_adc_ctrl_reset_from_sm_in   => (others => '0'),
             p_adc_readout_control_in => s_adc_readout_control,

@@ -141,6 +141,7 @@ gen_tmr_disabled: if g_tmr_enabled = '0' generate
                 p_adc_frameclk_in   => p_adc_frameclk_in,
                 p_adc_lg_data_in    => p_adc_lg_data_in,
                 p_adc_hg_data_in    => p_adc_hg_data_in,
+                p_adc_pll0_locked_in => p_adc_pll0_locked_in,
 
                 --control
                 p_adc_readout_control_in => p_adc_readout_control_in,
@@ -206,10 +207,11 @@ gen_tmr_enabled: if g_tmr_enabled = '1' generate
                     p_adc_frameclk_in   => p_adc_frameclk_in,
                     p_adc_lg_data_in    => p_adc_lg_data_in,
                     p_adc_hg_data_in    => p_adc_hg_data_in,
+                    p_adc_pll0_locked_in => p_adc_pll0_locked_in,
 
                     --control
                     p_adc_readout_control_in => p_adc_readout_control_in,
-                    
+
                     --output
                     p_adc_readout_out   => s_adc_readout_tmr(v_tmr),
                     

@@ -64,6 +64,13 @@ entity db6_adc_interface_io_iddr_bitclk280 is
 --        p_adc_gbtx_frameclk_out : out std_logic_vector(5 downto 0);
         p_adc_lg_data_out : out t_bitslice_sr;
         p_adc_hg_data_out : out t_bitslice_sr;
+        -- per-channel pll_adc_channel lock (frequency-presence check on p_adc_bitclk_in,
+        -- see channel_clk280_locked): lives here, not in the decoder, because a PLL is a
+        -- physical clocking primitive that can't be triplicated -- one shared instance per
+        -- channel here, fanned out as a plain status bit to however many TMR copies of the
+        -- decoder read it, same as p_adc_pll0_locked_out already works for the hss_wizard
+        -- scheme (see db6_adc_interface_io_hss.vhd).
+        p_adc_pll0_locked_out : out std_logic_vector(5 downto 0);
         
         
         --control
@@ -103,6 +110,17 @@ architecture Behavioral of db6_adc_interface_io_iddr_bitclk280 is
 
     signal s_bitclk_div, s_bufgce_div_ctrl_reset_sync, s_bufgce_div_ctrl_reset_async : std_logic_vector (5 downto 0) := (others => '0');
 
+    -- per-channel bitclk280 presence/lock check -- moved here from the decoder (a PLL is a
+    -- physical clocking primitive, not triplicable; see p_adc_pll0_locked_out above)
+    component pll_adc_channel
+    port (
+      p_clk280_out : out std_logic;
+      p_locked_out : out std_logic;
+      p_clk_in     : in  std_logic
+     );
+    end component;
+    signal s_pll_adc_channel_locked : std_logic_vector(5 downto 0);
+
     signal s_adc_channel_sr_fc : t_adc_channel_sr;
     signal s_adc_channel_fifo_fc : t_adc_channel_fifo;
     signal s_adc_input_fc_buffer : t_adc_data;
@@ -116,6 +134,7 @@ architecture Behavioral of db6_adc_interface_io_iddr_bitclk280 is
 begin
 
 p_adc_bitclk_out <= s_bitclk_se;
+p_adc_pll0_locked_out <= s_pll_adc_channel_locked;
 
 -- differential to single-ended conversion of adc inputs from fmc
 gen_adc_data_diff_to_se : for i in 0 to 5 generate
@@ -187,6 +206,13 @@ gen_adc_data_diff_to_se : for i in 0 to 5 generate
             i => s_bitclk_se(i) -- 1-bit input: buffer
         );
     end generate;
+
+    i_pll_adc_channel : pll_adc_channel
+        port map (
+            p_clk280_out => open,
+            p_locked_out => s_pll_adc_channel_locked(i),
+            p_clk_in     => s_bitclk_se(i)
+        );
 
 end generate;
 -- generate adc data input registers and output word mapping,

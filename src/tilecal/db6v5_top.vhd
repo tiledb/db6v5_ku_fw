@@ -290,6 +290,9 @@ signal s_mb_driver_ssel, s_mb_driver_sclk, s_mb_driver_sdata_tx, s_mb_driver_sda
 -- db7_io_box: ADC interface, plain-logic side (stage 2)
 signal s_adc_bitclk, s_adc_bitclkdiv, s_frame_missalignment : std_logic_vector(5 downto 0);
 signal s_adc_frameclk, s_adc_lg_data, s_adc_hg_data : t_bitslice_sr; -- iddr only
+-- iddr280/iddr280_clkdiv: per-channel pll_adc_channel lock, generated in db7_io_box (a PLL
+-- can't be triplicated) and consumed as plain status by db6_mainboard_interface's decoder
+signal s_adc_pll0_locked : std_logic_vector(5 downto 0);
 
 -- ADC readout front end, hss (SelectIO wizard) only (see db6_adc_interface.vhd / db7_io_box.vhd);
 -- selected instead of the iddr signals above via g_adc_clocking_scheme below.
@@ -783,6 +786,7 @@ i_db6_mainboard_interface : entity tilecal.db6_mainboard_interface
         p_adc_frameclk_in => s_adc_frameclk,
         p_adc_lg_data_in => s_adc_lg_data,
         p_adc_hg_data_in => s_adc_hg_data,
+        p_adc_pll0_locked_in => s_adc_pll0_locked,
         p_adc_frameclk_iserdese_in => s_adc_frameclk_iserdese,
         p_adc_lg_data_iserdese_in  => s_adc_lg_data_iserdese,
         p_adc_hg_data_iserdese_in  => s_adc_hg_data_iserdese,
@@ -870,6 +874,7 @@ i_db7_io_box : entity tilecal.db7_io_box
         p_adc_frameclk_out         => s_adc_frameclk,
         p_adc_lg_data_out          => s_adc_lg_data,
         p_adc_hg_data_out          => s_adc_hg_data,
+        p_adc_pll0_locked_out      => s_adc_pll0_locked,
         p_adc_frame_missalignment_in => s_adc_frame_missalignment_iserdese,
         p_adc_ctrl_reset_from_sm_out => s_adc_ctrl_reset_from_sm_iserdese,
         p_adc_frameclk_iserdese_out  => s_adc_frameclk_iserdese,

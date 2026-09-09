@@ -400,6 +400,7 @@ gen_db6_adc_interface_iddr : if g_adc_clocking_scheme /= hss_wizard generate
             p_adc_frameclk_out        => p_adc_frameclk_out,
             p_adc_lg_data_out         => p_adc_lg_data_out,
             p_adc_hg_data_out         => p_adc_hg_data_out,
+            p_adc_pll0_locked_out     => p_adc_pll0_locked_out,
 
             p_adc_readout_control_in => s_adc_readout_control_unused,
 
@@ -410,7 +411,6 @@ gen_db6_adc_interface_iddr : if g_adc_clocking_scheme /= hss_wizard generate
     p_adc_frameclk_iserdese_out  <= (others => (others => '0'));
     p_adc_lg_data_iserdese_out   <= (others => (others => '0'));
     p_adc_hg_data_iserdese_out   <= (others => (others => '0'));
-    p_adc_pll0_locked_out        <= (others => '0');
     p_adc_rst_seq_done_out       <= (others => '0');
     p_adc_fifo_data_valid_out    <= (others => '0');
     p_gbtx_clk40_data_out        <= (others => (others => '0'));

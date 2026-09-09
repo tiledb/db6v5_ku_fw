@@ -53,8 +53,10 @@ entity db6_adc_interface_decoder_iddr_bitclk280 is
 --        p_adc_gbtx_frameclk_in : in std_logic_vector(5 downto 0);
         p_adc_lg_data_in : in t_bitslice_sr;
         p_adc_hg_data_in : in t_bitslice_sr;
-        
-        
+        -- per-channel pll_adc_channel lock, generated in db6_adc_interface_io_iddr_bitclk280
+        -- (not here -- a PLL can't be triplicated; see that file's p_adc_pll0_locked_out)
+        p_adc_pll0_locked_in : in std_logic_vector(5 downto 0) := (others => '0');
+
         --control
         p_adc_readout_control_in : in t_adc_readout_control;
         
@@ -176,25 +178,6 @@ architecture Behavioral of db6_adc_interface_decoder_iddr_bitclk280 is
     -- i.e. more than half a period) -- see proc_adc_cdc_lock
     constant c_pipeline_depth_b : integer := c_pipeline_depth + 4;
 
-    component pll_adc_channel
-    port
-     (-- Clock in ports
-      -- Clock out ports
-      p_clk280_out          : out    std_logic;
-      -- Status and control signals
-      p_locked_out            : out    std_logic;
-      p_clk_in           : in     std_logic
-     );
-    end component;
-    type t_pll_adc_channel is record
-      clk280_out          : std_logic;
-      locked_out            : std_logic;
-      clk_in           : std_logic;
-    end record;
-    type t_pll_adc_channel_array is array (0 to 5) of t_pll_adc_channel;
-    signal s_pll_adc_channel_array : t_pll_adc_channel_array;
-    
-    
 --debug
 COMPONENT vio_adc_readout_cdc
   PORT (
@@ -227,18 +210,7 @@ p_adc_readout_out <= s_adc_readout;
 gen_adc_channels: for v_adc in 0 to 5 generate
 
 
-    i_pll_adc_channel : pll_adc_channel
-       port map ( 
-      -- Clock out ports  
-       p_clk280_out => s_pll_adc_channel_array(v_adc).clk280_out,
-      -- Status and control signals                
-       p_locked_out => s_pll_adc_channel_array(v_adc).locked_out,
-       -- Clock in ports
-       p_clk_in => s_pll_adc_channel_array(v_adc).clk_in
-     );
-
-    s_pll_adc_channel_array(v_adc).clk_in <= p_adc_bitclk_in(v_adc);
-    s_adc_readout.channel_clk280_locked(v_adc) <= s_pll_adc_channel_array(v_adc).locked_out;
+    s_adc_readout.channel_clk280_locked(v_adc) <= p_adc_pll0_locked_in(v_adc);
 
     
     
