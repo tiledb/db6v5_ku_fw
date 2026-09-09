@@ -69,6 +69,20 @@ architecture Behavioral of db6_adc_interface_decoder_iddr_bitclk280 is
 
     signal s_adc_channel_fifo_fc, s_adc_channel_fifo_hg, s_adc_channel_fifo_lg : t_adc_channel_fifo; --t_adc_channel_fifo_cdc;--t_adc_channel_fifo;
     signal s_adc_input_fc_buffer, s_adc_input_fc_cdc_buffer, s_adc_input_lg_cdc_buffer, s_adc_input_lg_buffer, s_adc_input_hg_cdc_buffer, s_adc_input_hg_buffer : t_adc_data; --t_adc_oversample_data_type;--t_adc_data;
+
+    -- p_adc_bitclk_in(v_adc) -> cfgbus_clk40 crossing (see proc_adc_cdc_lock below): a second
+    -- copy of the deserialized word, pipelined for more p_adc_bitclk_in cycles than the "a" tap
+    -- above so its cfgbus_clk40 sampling hazard window can never coincide with tap a's.
+    signal s_adc_input_fc_cdc_buffer_b, s_adc_input_lg_cdc_buffer_b, s_adc_input_hg_cdc_buffer_b : t_adc_data;
+    -- both taps registered into cfgbus_clk40 (the only place the cross-domain hazard exists;
+    -- everything downstream of these is ordinary same-domain synchronous logic)
+    signal s_tap_a_reg_fc, s_tap_a_reg_lg, s_tap_a_reg_hg : t_adc_data;
+    signal s_tap_b_reg_fc, s_tap_b_reg_lg, s_tap_b_reg_hg : t_adc_data;
+    -- '0' = tap a selected, '1' = tap b selected; locked once a tap reads a consistently
+    -- valid fc frame marker, then held fixed (fixed latency, no per-word re-arbitration)
+    signal s_cdc_tap_select, s_cdc_tap_locked : std_logic_vector(5 downto 0) := (others => '0');
+    type t_cdc_lock_counter is array (0 to 5) of integer range 0 to 15;
+    signal s_cdc_lock_counter : t_cdc_lock_counter := (others => 0);
     signal s_channel_frame_missalignemt, s_channel_frame_missalignemt_reg, s_channel_frame_missalignemt_buffer_lg, s_channel_frame_missalignemt_buffer_hg , s_channel_frame_missalignemt_buffer_delayed, s_channel_frame_missalignemt_reset : std_logic_vector (5 downto 0) := (others => '1');
     signal s_channel_phase, s_channel_locked,s_channel_missed_locked, s_channel_missed_bit_count : std_logic_vector(5 downto 0);
     type t_cdc_transition is array (0 to 5) of std_logic;
@@ -146,6 +160,9 @@ architecture Behavioral of db6_adc_interface_decoder_iddr_bitclk280 is
     signal s_cdc_reset_in, s_cdc_reset_out : std_logic_vector(5 downto 0);
     signal s_calculated : std_logic_vector(5 downto 0);
     constant c_pipeline_depth : integer := 7;--c_global_pipeline_depth;
+    -- tap b: offset from tap a by 4 p_adc_bitclk_in cycles (~14.3ns of a ~25ns word period,
+    -- i.e. more than half a period) -- see proc_adc_cdc_lock
+    constant c_pipeline_depth_b : integer := c_pipeline_depth + 4;
 
     component pll_adc_channel
     port
@@ -242,7 +259,7 @@ gen_adc_channels: for v_adc in 0 to 5 generate
             
                 case v_mon_st is
                     when st_start=>
-                        if s_adc_input_fc_cdc_buffer(v_adc) = "11111110000000" then
+                        if s_adc_readout.fc_data(v_adc) = "11111110000000" then
                             s_channel_local_counter(v_adc)<=s_channel_local_counter(v_adc)+1;
                             s_channel_valid_fc_frame_counter(v_adc)<=s_channel_valid_fc_frame_counter(v_adc)+1;
                             s_channel_locked(v_adc)<= '1';
@@ -259,7 +276,7 @@ gen_adc_channels: for v_adc in 0 to 5 generate
                             s_channel_initial_difference_counter(v_adc)<=s_channel_valid_fc_frame_counter(v_adc) - s_channel_local_counter(v_adc);
                         end if;
                         s_channel_local_counter(v_adc)<=s_channel_local_counter(v_adc)+1;
-                        if s_adc_input_fc_cdc_buffer(v_adc) = "11111110000000" then
+                        if s_adc_readout.fc_data(v_adc) = "11111110000000" then
                             s_channel_valid_fc_frame_counter(v_adc)<=s_channel_valid_fc_frame_counter(v_adc)+1;
                             s_channel_locked(v_adc)<= '1';
                             v_mon_st:=st_monitor;
@@ -278,7 +295,7 @@ gen_adc_channels: for v_adc in 0 to 5 generate
                             s_channel_missed_bit_count(v_adc)<='1';
                         end if;
                         
-                        if s_adc_input_fc_cdc_buffer(v_adc) = "11111110000000" then
+                        if s_adc_readout.fc_data(v_adc) = "11111110000000" then
                             s_channel_valid_fc_frame_counter(v_adc)<=s_channel_valid_fc_frame_counter(v_adc)+1;
                             s_channel_locked(v_adc)<= '1';
                         else
@@ -293,9 +310,70 @@ gen_adc_channels: for v_adc in 0 to 5 generate
             
         end process;
 
-        s_adc_readout.fc_data(v_adc) <= s_adc_input_fc_cdc_buffer(v_adc);
-        s_adc_readout.lg_data(v_adc) <= s_adc_input_lg_cdc_buffer(v_adc);
-        s_adc_readout.hg_data(v_adc) <= s_adc_input_hg_cdc_buffer(v_adc);
+        -- p_adc_bitclk_in(v_adc) -> cfgbus_clk40 crossing: the two clocks are the same nominal
+        -- frequency but come from independent PLLs with an unknown, fixed (not drifting) phase
+        -- offset. A plain single-register sample of the 14-bit word (as this used to be) can
+        -- land on the ~25ns word-update boundary and capture a bit-incoherent mix of the old
+        -- and new word -- and since the phase offset is fixed, it does that on *every* sample,
+        -- not just rarely, until the next power-up happens to land on a different offset.
+        --
+        -- Fix: register both the tap-a and tap-b copies of the word into cfgbus_clk40 (each
+        -- individually still has that same hazard -- this is the only step where it exists),
+        -- then use fc_data's known-constant "11111110000000" frame marker as a self-checking
+        -- canary on the *already-registered* values: a torn sample won't match it, and tap b's
+        -- hazard window (offset ~14ns from tap a's, more than half the ~25ns period) can never
+        -- coincide with tap a's. Lock onto whichever tap first reads consistently valid and
+        -- hold that choice -- fixed pipeline latency for the life of the lock, no per-word
+        -- re-arbitration, no FIFO. Loss of lock on the selected tap is reported (channel_locked
+        -- below) rather than silently swapping taps mid-stream.
+        proc_adc_cdc_lock : process(p_clknet_in.cfgbus_clk40, s_cdc_reset_in(v_adc))
+        begin
+            if s_cdc_reset_in(v_adc) = '1' then
+                s_cdc_tap_select(v_adc) <= '0';
+                s_cdc_tap_locked(v_adc) <= '0';
+                s_cdc_lock_counter(v_adc) <= 0;
+            elsif rising_edge(p_clknet_in.cfgbus_clk40) then
+
+                s_tap_a_reg_fc(v_adc) <= s_adc_input_fc_cdc_buffer(v_adc);
+                s_tap_a_reg_lg(v_adc) <= s_adc_input_lg_cdc_buffer(v_adc);
+                s_tap_a_reg_hg(v_adc) <= s_adc_input_hg_cdc_buffer(v_adc);
+                s_tap_b_reg_fc(v_adc) <= s_adc_input_fc_cdc_buffer_b(v_adc);
+                s_tap_b_reg_lg(v_adc) <= s_adc_input_lg_cdc_buffer_b(v_adc);
+                s_tap_b_reg_hg(v_adc) <= s_adc_input_hg_cdc_buffer_b(v_adc);
+
+                if s_cdc_tap_locked(v_adc) = '0' then
+                    if s_tap_a_reg_fc(v_adc) = "11111110000000" then
+                        if s_cdc_lock_counter(v_adc) = 15 then
+                            s_cdc_tap_select(v_adc) <= '0';
+                            s_cdc_tap_locked(v_adc) <= '1';
+                        else
+                            s_cdc_lock_counter(v_adc) <= s_cdc_lock_counter(v_adc) + 1;
+                        end if;
+                    elsif s_tap_b_reg_fc(v_adc) = "11111110000000" then
+                        if s_cdc_lock_counter(v_adc) = 15 then
+                            s_cdc_tap_select(v_adc) <= '1';
+                            s_cdc_tap_locked(v_adc) <= '1';
+                        else
+                            s_cdc_lock_counter(v_adc) <= s_cdc_lock_counter(v_adc) + 1;
+                        end if;
+                    else
+                        s_cdc_lock_counter(v_adc) <= 0;
+                    end if;
+                else
+                    -- locked: keep the selected tap; flag loss rather than swapping mid-stream
+                    if ((s_cdc_tap_select(v_adc) = '0' and s_tap_a_reg_fc(v_adc) /= "11111110000000") or
+                        (s_cdc_tap_select(v_adc) = '1' and s_tap_b_reg_fc(v_adc) /= "11111110000000")) then
+                        s_cdc_tap_locked(v_adc) <= '0';
+                        s_cdc_lock_counter(v_adc) <= 0;
+                    end if;
+                end if;
+
+            end if;
+        end process;
+
+        s_adc_readout.fc_data(v_adc) <= s_tap_b_reg_fc(v_adc) when s_cdc_tap_select(v_adc) = '1' else s_tap_a_reg_fc(v_adc);
+        s_adc_readout.lg_data(v_adc) <= s_tap_b_reg_lg(v_adc) when s_cdc_tap_select(v_adc) = '1' else s_tap_a_reg_lg(v_adc);
+        s_adc_readout.hg_data(v_adc) <= s_tap_b_reg_hg(v_adc) when s_cdc_tap_select(v_adc) = '1' else s_tap_a_reg_hg(v_adc);
 
         s_cdc_reset_in(v_adc)<= (p_db_reg_rx_in(cfb_strobe_reg)(c_adc_readout_reset_channel_5_bit-v_adc)) or
                           (p_db_reg_rx_in(cfb_strobe_reg)(c_adc_readout_reset_bit)) or
@@ -333,6 +411,26 @@ gen_adc_channels: for v_adc in 0 to 5 generate
             Port map ( p_clk_in => p_adc_bitclk_in(v_adc),
                        p_pipeline_in => s_adc_channel_fifo_fc(v_adc).dout,
                        p_pipeline_out => s_adc_input_fc_cdc_buffer(v_adc));--s_adc_readout.fc_data(v_adc));
+
+        -- tap b for proc_adc_cdc_lock (see above): same source, offset pipeline depth
+        i_adc_data_lg_pipeline_b : entity tilecal.db6_pipeline_propagator
+            generic map(    g_pipeline_stages => c_pipeline_depth_b,
+                            g_pipeline_item_lenght => c_adc_bit_number)
+            Port map ( p_clk_in => p_adc_bitclk_in(v_adc),
+                       p_pipeline_in => s_adc_channel_fifo_lg(v_adc).dout,
+                       p_pipeline_out => s_adc_input_lg_cdc_buffer_b(v_adc));
+        i_adc_data_hg_pipeline_b : entity tilecal.db6_pipeline_propagator
+            generic map(    g_pipeline_stages => c_pipeline_depth_b,
+                            g_pipeline_item_lenght => c_adc_bit_number)
+            Port map ( p_clk_in => p_adc_bitclk_in(v_adc),
+                       p_pipeline_in => s_adc_channel_fifo_hg(v_adc).dout,
+                       p_pipeline_out => s_adc_input_hg_cdc_buffer_b(v_adc));
+        i_adc_data_fc_pipeline_b : entity tilecal.db6_pipeline_propagator
+            generic map(    g_pipeline_stages => c_pipeline_depth_b,
+                            g_pipeline_item_lenght => c_adc_bit_number)
+            Port map ( p_clk_in => p_adc_bitclk_in(v_adc),
+                       p_pipeline_in => s_adc_channel_fifo_fc(v_adc).dout,
+                       p_pipeline_out => s_adc_input_fc_cdc_buffer_b(v_adc));
 
 
         s_adc_channel_fifo_fc(v_adc).dout <= s_adc_channel_fifo_fc(v_adc).din;
