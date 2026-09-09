@@ -103,7 +103,23 @@ package db6_design_package is
         dinb : STD_LOGIC_VECTOR(7 DOWNTO 0);
         doutb : STD_LOGIC_VECTOR(7 DOWNTO 0);
     end record;
-    
+
+    -- 256x8 True Dual Port RAM: one flash page, filled by db7_is25lp256_driver's
+    -- PAGE_READ burst on port a, walked one byte at a time via cfb_flash_page_ram_address
+    -- on port b (same commanded-address readback idiom as t_blk_mem_gbtx_regs above).
+    type t_blk_mem_flash_page is record
+        clka : STD_LOGIC;
+        wea : STD_LOGIC_VECTOR(0 DOWNTO 0);
+        addra : STD_LOGIC_VECTOR(7 DOWNTO 0);
+        dina : STD_LOGIC_VECTOR(7 DOWNTO 0);
+        douta : STD_LOGIC_VECTOR(7 DOWNTO 0);
+        clkb : STD_LOGIC;
+        web : STD_LOGIC_VECTOR(0 DOWNTO 0);
+        addrb : STD_LOGIC_VECTOR(7 DOWNTO 0);
+        dinb : STD_LOGIC_VECTOR(7 DOWNTO 0);
+        doutb : STD_LOGIC_VECTOR(7 DOWNTO 0);
+    end record;
+
     type t_blk_mem_gbt_sc is record
         clka : STD_LOGIC;
         wea : STD_LOGIC_VECTOR(0 DOWNTO 0);
@@ -635,6 +651,19 @@ end record;
 	type slow_data_array is array (3 downto 0) of std_logic_vector(239 downto 0);
 	type shift_reg_array is array (3 downto 0) of std_logic_vector(4 downto 0);
 
+    -- ADC front-end clocking/CDC scheme select (replaces the old unnamed g_clocking_mode
+    -- integer 0/1/3 -- 2 ["pll with clk40_out"] was never implemented and is dropped here):
+    --   iddr280        : raw IDDRE1 bitclk280 capture, dual-tap canary-locked crossing
+    --                    straight into cfgbus_clk40 (see db6_adc_interface_decoder_iddr_bitclk280.vhd)
+    --   iddr280_clkdiv : same IDDRE1 front end, but bitclk280 is first divided down to a
+    --                    real ~40MHz clock as close to the IOs as possible (BUFGCE_DIV in
+    --                    db6_adc_interface_io_iddr_bitclk280.vhd), and the tap-select decision
+    --                    is BCR-locked (mirrors db6_clock_interface.vhd's proc_cdc_gen) before
+    --                    being handed to the same dual-tap canary capture
+    --   hss_wizard     : SelectIO Interface Wizard front end (db6_adc_interface_io_hss.vhd),
+    --                    registered on its own internally-generated divided clock
+    type t_adc_clocking_scheme is (iddr280, iddr280_clkdiv, hss_wizard);
+
     constant c_adc_bit_number : integer := 14;
     constant c_oversamples : integer := 2;
 	type t_adc_data_type is array (0 to 11) of std_logic_vector(c_adc_bit_number-1 downto 0);  -- 14 bit adc output words
@@ -1098,7 +1127,7 @@ end record;
 	type t_gbt_reg_addr_type is array (natural range <>) of integer;
 
 --gbttx registers
-    constant c_number_of_gbttx_regs : integer := 46+1;--14+1;-- 21 + 1;
+    constant c_number_of_gbttx_regs : integer := 50+1;--14+1;-- 21 + 1;
     type t_db_reg_tx is array (integer range 0 to c_number_of_gbttx_regs-1) of std_logic_vector(31 downto 0);
     type t_db_reg_tx_lut is array (integer range 0 to c_number_of_gbttx_regs-1) of std_logic_vector(15 downto 0);
     
@@ -1177,6 +1206,22 @@ end record;
     -- address compare "intended" vs "actual" gbtx register content
     constant stb_gbtx_config_readback : integer := 45+1;
 
+    -- db7_is25lp256_driver status/read-data readback (see db7_is25lp256_driver.vhd):
+    -- bit0=busy, bit1=done, bit15=write_blocked (see cfb_flash_write_floor),
+    -- bits9:2=last RDSR status byte, bits19:16=echoed opcode
+    constant stb_flash_status : integer := 46+1;
+    -- last read data (READ/FAST_READ/RDID): value right-justified in the low
+    -- (length_sel+1)*8 bits (RDID always reads 3 bytes), MSB-first -- e.g. for a
+    -- 2-byte read, byte0 lands in bits15:8 and byte1 in bits7:0; any bits above
+    -- the requested byte count read 0
+    constant stb_flash_rdata  : integer := 47+1;
+    -- flash page-buffer ram (see t_blk_mem_flash_page / cfb_flash_page_ram_address)
+    -- port b readback: bits7:0 echo the commanded address, bits15:8 carry the byte
+    constant stb_flash_page_ram_readback : integer := 48+1;
+    -- flash write fifo status (see cfb_flash_fifo_addr/cfb_flash_fifo_push):
+    -- bits5:0=fill count (0-32), bit6=full, bit7=empty
+    constant stb_flash_fifo_status : integer := 49+1;
+
 constant c_db_reg_tx_lut : t_db_reg_tx_lut := (
     x"0" & x"001", --stb_mb,
     x"0" & x"F0F", --stb_db_fwversion,
@@ -1235,14 +1280,18 @@ constant c_db_reg_tx_lut : t_db_reg_tx_lut := (
     x"0" & x"349", --stb_mb_boundary_scan_status
     x"0" & x"34a", --stb_mb_boundary_scan_reg_readback
     x"0" & x"34b", --stb_gbtx_reg_readback
-    x"0" & x"34c"  --stb_gbtx_config_readback
+    x"0" & x"34c", --stb_gbtx_config_readback
+    x"0" & x"34d", --stb_flash_status
+    x"0" & x"34e", --stb_flash_rdata
+    x"0" & x"34f", --stb_flash_page_ram_readback
+    x"0" & x"350"  --stb_flash_fifo_status
     );
 
 
 
 
 -- new code for configbus register arrays
-    constant c_number_of_cfgbus_regs : integer := 17+1; --75 + 1;
+    constant c_number_of_cfgbus_regs : integer := 23+1; --75 + 1;
     type t_db_reg_rx is array (integer range 0 to c_number_of_cfgbus_regs-1) of std_logic_vector(31 downto 0);
     type t_db_reg_rx_tmr is array (integer range 0 to 2) of t_db_reg_rx;
     type t_db_reg_rx_lut is array (integer range 0 to c_number_of_cfgbus_regs-1) of std_logic_vector(11 downto 0);
@@ -1269,6 +1318,31 @@ constant c_db_reg_tx_lut : t_db_reg_tx_lut := (
         constant cfb_strobe_reg             : integer := 15;
         constant cfb_mb_boundary_scan_reg_address : integer := 16; -- mainboard companion fpga boundary-scan ram port b address, per side: bits 6:0 = side 0, bits 14:8 = side 1
         constant cfb_gbtx_reg_readback_address : integer := 17; -- gbtx register readback ram port b address (bits 8:0)
+        -- db7_is25lp256_driver command interface (see db7_is25lp256_driver.vhd):
+        -- full 32-bit byte address for the 4-byte-address SPI opcode phase.
+        constant cfb_flash_address          : integer := 18;
+        -- bit31=start (level-held handshake, see db6_altera_jtag_driver p_start_in/p_done_out),
+        -- bits28:24=opcode (widened from 27:24 when RDERP/CLERP/GBUN were added),
+        -- bits9:8=length_sel (1-4 bytes), bits7:0=wdata (page program byte)
+        constant cfb_flash_command           : integer := 19;
+        -- write-protect floor (byte address, full 32 bits): PAGE_PROGRAM only executes
+        -- if cfb_flash_address is strictly greater than this; SECTOR_ERASE/BLOCK_ERASE
+        -- only execute if their erase-aligned block start (4KB/64KB) is strictly greater
+        -- than this too (an erase wipes its whole aligned block, not just the commanded
+        -- byte); CHIP_ERASE (no address to check) only executes if this is exactly 0.
+        -- A blocked command no-ops and reports stb_flash_status bit15 (write_blocked).
+        -- Defaults to half the 32MB device (see c_db_reg_rx below), keeping the low
+        -- half read-only -- and chip erase disabled -- unless firmware raises it.
+        constant cfb_flash_write_floor      : integer := 20;
+        -- 8-bit address into the 256-byte page-read buffer's port b (see
+        -- t_blk_mem_flash_page / stb_flash_page_ram_readback / PAGE_READ opcode)
+        constant cfb_flash_page_ram_address : integer := 21;
+        -- write fifo target address, staged before cfb_flash_fifo_push (see below)
+        constant cfb_flash_fifo_addr        : integer := 22;
+        -- write fifo push: bit31=push-toggle (flip to push a new entry -- see
+        -- stb_flash_fifo_status for fill/full/empty), bits7:0=data byte. Pushes
+        -- {cfb_flash_fifo_addr, bits7:0} as one fifo entry.
+        constant cfb_flash_fifo_push        : integer := 23;
         constant bc_number                  : integer := 4;--16; -- bunch crossing number counter
 --        constant cfb_adc_readout       : integer := 16;
 --        constant cfb_wr_strobe              : integer := 17; -- strobe indicating write to a cfb register 
@@ -1397,6 +1471,13 @@ constant c_db_reg_tx_lut : t_db_reg_tx_lut := (
         constant c_db_debug_mb_jtag_read_enable_q1 : integer := 26;
         constant c_db_debug_mb_boundary_scan_enable_q0 : integer := 27;
         constant c_db_debug_mb_boundary_scan_enable_q1 : integer := 28;
+        -- bisection test mode: shifts the sample opcode into the ir and returns
+        -- straight to idle, skipping the 603-bit dr shift entirely -- see
+        -- p_start_boundary_scan_ir_only_in on db6_altera_jtag_driver.vhd. added to
+        -- isolate whether loading the instruction alone (vs. the following boundary
+        -- register capture) is what freezes the altera companion fpga's firmware.
+        constant c_db_debug_mb_boundary_scan_ir_only_q0 : integer := 29;
+        constant c_db_debug_mb_boundary_scan_ir_only_q1 : integer := 30;
         
         --cfb_tx_control
         constant c_gbt_encoder_tx_fc_lg_bit : integer := 0;
@@ -1475,7 +1556,13 @@ constant c_db_reg_tx_lut : t_db_reg_tx_lut := (
         x"00e", --cfb_db_reg_mask,
         x"00f", --cfb_strobe_reg,
         x"010", --cfb_mb_boundary_scan_reg_address,
-        x"011" --cfb_gbtx_reg_readback_address,
+        x"011", --cfb_gbtx_reg_readback_address,
+        x"012", --cfb_flash_address,
+        x"013", --cfb_flash_command,
+        x"014", --cfb_flash_write_floor,
+        x"015", --cfb_flash_page_ram_address,
+        x"016", --cfb_flash_fifo_addr,
+        x"017" --cfb_flash_fifo_push,
 --        x"010" --cfb_adc_readout,
 --        x"011", --cfb_wr_strobe,
 --     --advanced configbus registers
@@ -1554,6 +1641,8 @@ constant c_db_reg_tx_lut : t_db_reg_tx_lut := (
         cfb_db_debug => "00000000000000000000001000000000",
         
         cfb_db_reg_mask => (others=>'1'),
+        -- half of the 32MB (256Mbit) IS25LP256 -- see cfb_flash_write_floor
+        cfb_flash_write_floor => x"01000000",
 --        adv_cfg_gty_txdiffctrl =>"00000000000000000000000010001000",
 --        adv_cfg_gty_txpostcursor =>"00000000000000000000001000010000",
 --        adv_cfg_gty_txprecursor =>"00000000000000000000001000010000",
@@ -1647,6 +1736,7 @@ type t_mb_interface is record
     mb_boundary_scan : t_mb_boundary_scan_array;
     mb_boundary_scan_done : t_mb_std_logic;
     mb_boundary_scan_boot_done : t_mb_std_logic; -- latched high the first time mb_boundary_scan_done pulses (the bootup scan); sticky until master reset
+    mb_boundary_scan_ir_only_done : t_mb_std_logic; -- bisection test mode done (see c_db_debug_mb_boundary_scan_ir_only_q0/q1) -- pulses/holds once the sample opcode has been shifted into the ir and the tap has returned to run-test/idle, without ever touching the dr
 end record;
 
 
@@ -1787,8 +1877,17 @@ type t_mmcm_clk_control_array is array (0 to 1) of t_mmcm_clk_control;
         adc_readout_threshold_select_channel : std_logic_vector(2 downto 0);
         cis_enable          : std_logic;
         cis_gain 				: std_logic; 
-        cis_bcid_charge 		: std_logic_vector(11 downto 0);  
+        cis_bcid_charge 		: std_logic_vector(11 downto 0);
         cis_bcid_discharge 	    : std_logic_vector(11 downto 0);
+        -- db7_is25lp256_driver manual override, ORed with cfb_flash_address/command
+        -- (see db7_is25lp256_driver.vhd) -- don't drive both non-zero at once
+        flash_manual_address   : std_logic_vector(31 downto 0);
+        flash_manual_command   : std_logic_vector(31 downto 0);
+        -- write-protect floor override for hw_manager debug: while enabled, this value is
+        -- muxed in place of cfb_flash_write_floor (not ORed -- a floor is only ever lowered
+        -- by actually replacing it, OR-ing could only ever raise it)
+        flash_manual_write_floor_enable : std_logic;
+        flash_manual_write_floor        : std_logic_vector(31 downto 0);
 
         --configuration
         db_side : std_logic_vector(0 downto 0);
@@ -1971,6 +2070,28 @@ type t_mmcm_clk_control_array is array (0 to 1) of t_mmcm_clk_control;
         cis_gain                             : std_logic;
         cis_bcid_charge                      : std_logic_vector(11 downto 0);
         cis_bcid_discharge                   : std_logic_vector(11 downto 0);
+        -- db7_is25lp256_driver manual override, from vio_clknet_status probe_out15
+        -- (97 bits: [96:65]=address, [64:33]=command, [32]=write_floor_enable,
+        -- [31:0]=write_floor -- see db6v5_top.vhd)
+        flash_manual_address                 : std_logic_vector(31 downto 0);
+        flash_manual_command                 : std_logic_vector(31 downto 0);
+        flash_manual_write_floor_enable       : std_logic;
+        flash_manual_write_floor              : std_logic_vector(31 downto 0);
+    end record;
+
+    -- db7_is25lp256_driver <-> db7_io_box STARTUPE3 interface (see db7_is25lp256_driver.vhd
+    -- and db7_io_box.vhd). Single record used on both directions, same trick as
+    -- t_xadc_control: the driver populates do/dts/fcsbo/fcsbts/usrcclko/usrcclkts on its
+    -- _out port, db7_io_box populates di on its _out port back to the driver -- never both
+    -- directions on the same field, so no two-driver conflict.
+    type t_is25lp256_control is record
+        do        : std_logic_vector(3 downto 0); -- value to drive onto flash IO3:IO0
+        dts       : std_logic_vector(3 downto 0); -- per-lane tristate, 1=input/0=drive
+        fcsbo     : std_logic; -- flash CS# value
+        fcsbts    : std_logic; -- CS# tristate, 1=float/0=drive
+        usrcclko  : std_logic; -- flash SCK value
+        usrcclkts : std_logic; -- SCK tristate, 1=float/0=drive
+        di        : std_logic_vector(3 downto 0); -- readback from flash IO3:IO0 (STARTUPE3 DI)
     end record;
 
 
@@ -2023,6 +2144,16 @@ type t_mmcm_clk_control_array is array (0 to 1) of t_mmcm_clk_control;
         tmr_error : std_logic;
         ku_dna : std_logic_vector(95 downto 0);
         ku_dna_done : std_logic;
+        -- db7_is25lp256_driver status/read-data (see db7_is25lp256_driver.vhd,
+        -- stb_flash_status/stb_flash_rdata in db6_gbt_encoder_sc.vhd)
+        flash_status : std_logic_vector(31 downto 0);
+        flash_rdata  : std_logic_vector(31 downto 0);
+        -- page-read buffer port b readback: bits7:0=echoed cfb_flash_page_ram_address,
+        -- bits15:8=byte value (see stb_flash_page_ram_readback)
+        flash_page_ram_readback : std_logic_vector(15 downto 0);
+        -- write fifo status: bits5:0=fill count (0-32), bit6=full, bit7=empty
+        -- (see stb_flash_fifo_status)
+        flash_fifo_status : std_logic_vector(7 downto 0);
     end record;
 
 

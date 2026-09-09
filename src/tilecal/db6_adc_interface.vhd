@@ -30,7 +30,7 @@ use tilecal.db6_design_package.all;
 entity db6_adc_interface is
     generic (
             g_tmr_enabled      : std_logic := '0';       -- 0 = no no_tmr, 1 = tmr
-            g_clocking_mode : integer := 0;---- 0-> simple, 1-> divclkout, 2-> pll with clk40_ou
+            g_adc_clocking_scheme : t_adc_clocking_scheme := iddr280;
             g_bitclk        : integer := 280
         );
     port (
@@ -86,8 +86,8 @@ p_adc_readout_out.channel_clk280_locked<=s_adc_bitclk_locked;
 -- This entity now takes their plain-logic outputs directly as its own inputs.
 
 -- ADC readout front end select: iddr (this branch, unchanged) or hss (below), by
--- g_clocking_mode. Only one is ever elaborated.
-gen_db6_adc_interface_iddr : if g_clocking_mode /= 3 generate
+-- g_adc_clocking_scheme. Only one is ever elaborated.
+gen_db6_adc_interface_iddr : if g_adc_clocking_scheme /= hss_wizard generate
 
 p_adc_frame_missalignment_out <= (others => '0');
 
@@ -96,10 +96,10 @@ gen_tmr_disabled: if g_tmr_enabled = '0' generate
     g_bitclk240 : if g_bitclk = 240 generate
         i_db6_adc_interface_decoder_iddr : entity tilecal.db6_adc_interface_decoder_iddr_bitclk240
             generic map(
-                g_clocking_mode =>  g_clocking_mode, ---- 0-> simple, 1-> divclkout, 2-> pll with clk40_out
+                g_adc_clocking_scheme =>  g_adc_clocking_scheme,
                 g_tmr_enabled => g_tmr_enabled
                 )
-            port map ( 	
+            port map (
                 p_master_reset_in   => p_master_reset_in,
                 --clock
                 p_clknet_in         => p_clknet_in,
@@ -111,23 +111,24 @@ gen_tmr_disabled: if g_tmr_enabled = '0' generate
                 p_adc_frameclk_in   => p_adc_frameclk_in,
                 p_adc_lg_data_in    => p_adc_lg_data_in,
                 p_adc_hg_data_in    => p_adc_hg_data_in,
-                
-                
+
+
                 --control
                 p_adc_readout_control_in => p_adc_readout_control_in,
-                
+
                 --output
                 p_adc_readout_out   => s_adc_readout,
-                
+
                 --debug
                 p_leds_out          => open
                         );
     end generate;
-    
+
     g_bitclk280 : if g_bitclk = 280 generate
         i_db6_adc_interface_decoder_iddr : entity tilecal.db6_adc_interface_decoder_iddr_bitclk280
             generic map(
-                g_tmr_enabled => g_tmr_enabled
+                g_tmr_enabled => g_tmr_enabled,
+                g_adc_clocking_scheme => g_adc_clocking_scheme
                 )
             port map ( 	
                 p_master_reset_in   => p_master_reset_in,
@@ -161,7 +162,7 @@ gen_tmr_enabled: if g_tmr_enabled = '1' generate
         g_bitclk240 : if g_bitclk = 240 generate
             i_db6_adc_interface_decoder_iddr : entity tilecal.db6_adc_interface_decoder_iddr_bitclk240
                 generic map(
-                    g_clocking_mode => g_clocking_mode,
+                    g_adc_clocking_scheme => g_adc_clocking_scheme,
                     g_tmr_enabled => g_tmr_enabled
                     )
                 port map ( 	
@@ -191,7 +192,8 @@ gen_tmr_enabled: if g_tmr_enabled = '1' generate
         g_bitclk280 : if g_bitclk = 280 generate
             i_db6_adc_interface_decoder_iddr : entity tilecal.db6_adc_interface_decoder_iddr_bitclk280
                 generic map(
-                    g_tmr_enabled => g_tmr_enabled
+                    g_tmr_enabled => g_tmr_enabled,
+                    g_adc_clocking_scheme => g_adc_clocking_scheme
                     )
                 port map ( 	
                     p_master_reset_in   => '0',
@@ -264,7 +266,7 @@ end generate; -- gen_db6_adc_interface_iddr
 -- SelectIO Interface Wizard front end (hss_adc, registered on the divided clkdiv --
 -- see db6_adc_interface_io_hss.vhd -- instead of IDDRE1's raw undivided-bitclk output,
 -- which needed an SRL pipeline stage tight enough to violate timing at 280 Mbps).
-gen_db6_adc_interface_iserdese : if g_clocking_mode = 3 generate
+gen_db6_adc_interface_iserdese : if g_adc_clocking_scheme = hss_wizard generate
 
 gen_tmr_disabled: if g_tmr_enabled = '0' generate
     p_adc_readout_out<=s_adc_readout;

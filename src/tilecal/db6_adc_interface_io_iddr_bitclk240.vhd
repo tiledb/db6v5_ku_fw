@@ -39,7 +39,7 @@ use xpm.vcomponents.all;
 
 entity db6_adc_interface_io_iddr_bitclk240 is
     generic (
-        g_clocking_mode : integer := 0;  -- 0-> simple, 1-> divclkout, 2-> pll with clk40_out 
+        g_adc_clocking_scheme : t_adc_clocking_scheme := iddr280;
         g_common_delay_value_fc : t_idelay_integer_array := (0,0,0,0,0,0);
         g_common_delay_value_lg : t_idelay_integer_array := (0,0,0,0,0,0);
         g_common_delay_value_hg : t_idelay_integer_array := (0,0,0,0,0,0)
@@ -167,7 +167,7 @@ gen_adc_data_diff_to_se : for i in 0 to 5 generate
         IB => p_adc_bitclk_in(i).n  -- Diff_n buffer input (connect directly to top-level port)
         );
 
-    gen_enable_bitclkdiv: if g_clocking_mode = 1 generate 
+    gen_enable_bitclkdiv: if g_adc_clocking_scheme = iddr280_clkdiv generate
     
         bufgce_div_inst : bufgce_div
         generic map (

@@ -39,7 +39,7 @@ use xpm.vcomponents.all;
 
 entity db6_adc_interface_io_iddr_bitclk280 is
     generic (
-        g_clocking_mode : integer := 0;  -- 0-> simple, 1-> divclkout, 2-> pll with clk40_out 
+        g_adc_clocking_scheme : t_adc_clocking_scheme := iddr280;
         g_common_delay_value_fc : t_idelay_integer_array := (0,0,0,0,0,0);
         g_common_delay_value_lg : t_idelay_integer_array := (0,0,0,0,0,0);
         g_common_delay_value_hg : t_idelay_integer_array := (0,0,0,0,0,0)
@@ -165,8 +165,13 @@ gen_adc_data_diff_to_se : for i in 0 to 5 generate
 --        IB => p_adc_gbtx_frameclk_in(i).n  -- Diff_n buffer input (connect directly to top-level port)
 --        );
 
-    gen_enable_bitclkdiv: if g_clocking_mode = 1 generate 
-    
+    -- clock division as close to the IOs as possible: a real BUFGCE_DIV hardware divider
+    -- (not a logic counter) fed straight off the buffered bit clock, /7 to match the 7
+    -- p_adc_bitclk_in cycles per deserialized word (~40MHz). clr just needs one clean pulse
+    -- to give the divider a fixed (not necessarily word-aligned -- that part is handled by
+    -- the BCR lock downstream) starting phase; see proc_bufgce_div_reset_sync below.
+    gen_enable_bitclkdiv: if g_adc_clocking_scheme = iddr280_clkdiv generate
+
         bufgce_div_inst : bufgce_div
         generic map (
             bufgce_divide => 7, -- 1-8
@@ -182,7 +187,6 @@ gen_adc_data_diff_to_se : for i in 0 to 5 generate
             i => s_bitclk_se(i) -- 1-bit input: buffer
         );
     end generate;
--- p_adc_bitclkdiv_out(i) <= '0';
 
 end generate;
 -- generate adc data input registers and output word mapping,
@@ -444,6 +448,25 @@ gen_adc_channels: for v_adc in 0 to 5 generate
 
 
     s_bufgce_div_ctrl_reset_async(v_adc)<=p_master_reset_in or (p_db_reg_rx_in(cfb_strobe_reg)(c_adc_readout_reset_bit)) or (p_db_reg_rx_in(cfb_strobe_reg)(c_adc_readout_reset_channel_0_bit+v_adc));
+
+    -- gen_enable_bitclkdiv's BUFGCE_DIV clr is a plain synchronous-clear input on that
+    -- primitive's own input clock (s_bitclk_se(v_adc)) -- a standard 2-flop reset
+    -- synchronizer here is all that's needed to release it cleanly (single bit, and this
+    -- primitive tolerates any fixed starting phase; only its consumer needs a lock, done via
+    -- BCR downstream in the decoder).
+    gen_bufgce_div_reset_sync: if g_adc_clocking_scheme = iddr280_clkdiv generate
+        proc_bufgce_div_reset_sync : process(s_bitclk_se(v_adc), s_bufgce_div_ctrl_reset_async(v_adc))
+            variable v_reset_sync : std_logic := '1';
+        begin
+            if s_bufgce_div_ctrl_reset_async(v_adc) = '1' then
+                v_reset_sync := '1';
+                s_bufgce_div_ctrl_reset_sync(v_adc) <= '1';
+            elsif rising_edge(s_bitclk_se(v_adc)) then
+                s_bufgce_div_ctrl_reset_sync(v_adc) <= v_reset_sync;
+                v_reset_sync := '0';
+            end if;
+        end process;
+    end generate;
 
 
 end generate;

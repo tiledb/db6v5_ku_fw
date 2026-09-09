@@ -237,6 +237,9 @@ signal s_sfp_interface : t_sfp_interface;
 signal s_sfp_ku_mgt : t_ku_mgt;
 -- reg block ram port b addresses, settable directly from vio_clknet_status debug probes
 signal s_sfp_reg_address_vio : t_sfp_reg_addr_array;
+-- mb boundary-scan/gbtx reg readback vio address overrides retired (their probe_out
+-- slots -- old probe_out14/15/16 -- were reclaimed for db7_is25lp256_driver's manual
+-- override, see i_vio_clknet_status below); tied off, only the cfb_* db_reg_rx path remains.
 signal s_mb_boundary_scan_reg_address_vio : t_sfp_reg_addr_array;
 signal s_gbtx_reg_readback_address_vio : std_logic_vector(8 downto 0);
 signal s_gbtx_reg_readback_address : std_logic_vector(8 downto 0);
@@ -271,6 +274,9 @@ signal s_boot_sfp_read_done   : std_logic_vector(1 downto 0) := (others => '0');
 -- ltx keeps a real probe label (see the concurrent assignment right after "begin" below)
 signal c_global_date : std_logic_vector(31 downto 0);
 signal c_global_time : std_logic_vector(31 downto 0);
+-- cfgbus loopback mux cannot live in the vio port map (to_integer/unsigned is an
+-- operation); named net so the ltx probe keeps a real label
+signal s_vio_cfgbus_loopback_reg : std_logic_vector(31 downto 0);
 
 -- vio_clknet_status now lives here instead of inside db6_clock_interface; these carry
 -- exactly what it needs across that module boundary (see db6_design_package.vhd).
@@ -286,7 +292,7 @@ signal s_adc_bitclk, s_adc_bitclkdiv, s_frame_missalignment : std_logic_vector(5
 signal s_adc_frameclk, s_adc_lg_data, s_adc_hg_data : t_bitslice_sr; -- iddr only
 
 -- ADC readout front end, hss (SelectIO wizard) only (see db6_adc_interface.vhd / db7_io_box.vhd);
--- selected instead of the iddr signals above via g_clocking_mode below.
+-- selected instead of the iddr signals above via g_adc_clocking_scheme below.
 signal s_adc_frameclk_iserdese, s_adc_lg_data_iserdese, s_adc_hg_data_iserdese : t_byteslice_sr;
 signal s_adc_frame_missalignment_iserdese, s_adc_ctrl_reset_from_sm_iserdese : std_logic_vector(5 downto 0);
 
@@ -325,6 +331,9 @@ signal s_cfgbus_clk40_local : std_logic;
 -- db7_io_box: XADC, plain-logic side (stage 5)
 signal s_xadc_control_to_box, s_xadc_control_from_box : t_xadc_control;
 
+-- db7_io_box: IS25LP256 config flash (STARTUPE3), plain-logic side
+signal s_flash_control_to_box, s_flash_control_from_box : t_is25lp256_control;
+
 -- db7_io_box: I2C inout buses (SFP/GBTx/integrator), plain-logic side (stage 6)
 signal s_sfp_sda_drive, s_sfp_sda_tri, s_sfp_sda_read : std_logic_vector(1 downto 0);
 signal s_sfp_scl_drive, s_sfp_scl_tri, s_sfp_scl_read : std_logic_vector(1 downto 0);
@@ -333,8 +342,8 @@ signal s_gbtx_scl_drive, s_gbtx_scl_tri, s_gbtx_scl_read : std_logic_vector(0 do
 signal s_integrator_sda_drive, s_integrator_sda_tri, s_integrator_sda_read : t_mb_std_logic;
 signal s_integrator_scl_drive, s_integrator_scl_tri, s_integrator_scl_read : t_mb_std_logic;
 
-attribute keep of s_sfp_interface, s_sfp_control, s_gbtx_interface, s_mb_interface, s_sem_interface, s_system_management_interface, s_gbtx_control, s_serial_id_interface : signal is "TRUE";
-attribute dont_touch of s_sfp_interface, s_sfp_control, s_gbtx_interface, s_mb_interface, s_sem_interface, s_system_management_interface, s_gbtx_control, s_serial_id_interface : signal is "TRUE";
+attribute keep of s_sfp_interface, s_sfp_control, s_gbtx_interface, s_mb_interface, s_sem_interface, s_system_management_interface, s_gbtx_control, s_serial_id_interface, s_boot_gbtx_write_done, s_boot_gbtx_read_done, s_boot_sfp_read_done, s_clknet_debug_control : signal is "TRUE";
+attribute dont_touch of s_sfp_interface, s_sfp_control, s_gbtx_interface, s_mb_interface, s_sem_interface, s_system_management_interface, s_gbtx_control, s_serial_id_interface, s_boot_gbtx_write_done, s_boot_gbtx_read_done, s_boot_sfp_read_done, s_clknet_debug_control : signal is "TRUE";
 
 
 COMPONENT vio_leds_debug
@@ -481,65 +490,48 @@ COMPONENT vio_clknet_status
     probe_in69 : IN STD_LOGIC_VECTOR(6 DOWNTO 0);
     probe_in70 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
     -- gbtx write/config ram shadow readback: same address as the gbtx_reg_readback
-    -- ram (probe_in96/probe_out16), carries the originally-intended write value
-    -- instead of the actual i2c readback value -- reuses the slot vacated by
-    -- removing the hss_adc pll0_locked debug bits (see stb_gbtx_config_readback)
+    -- ram (cfb_gbtx_reg_readback_address; no longer vio-addressable, see
+    -- s_gbtx_reg_readback_address_vio comment above), carries the originally-intended
+    -- write value instead of the actual i2c readback value -- reuses the slot vacated
+    -- by removing the hss_adc pll0_locked debug bits (see stb_gbtx_config_readback)
     probe_in71 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
     -- hss_adc per-channel status: internal reset-sequence-done / fifo read-data-valid,
     -- one bit per ADC channel (see db6_adc_interface_io_hss.vhd)
     probe_in72 : IN STD_LOGIC_VECTOR(5 DOWNTO 0);
     probe_in73 : IN STD_LOGIC_VECTOR(5 DOWNTO 0);
+    -- db7_is25lp256_driver status readback (see db6_gbt_encoder_sc.vhd
+    -- stb_flash_status/stb_flash_rdata -- mirrored here for hardware debug).
+    -- Everything that used to live in probe_in74-110 except the sfp+ ddm fields and
+    -- the sticky first-done flags (both restored below, at different indices) was
+    -- dropped from the vio to make room -- the rest (mb boundary-scan readout, gbtx
+    -- reg readback byte, xadc channel scan, led value, boundary-scan timed trigger)
+    -- remains readable via db_reg_tx/DAQ software only.
+    probe_in74 : IN STD_LOGIC_VECTOR(31 DOWNTO 0); -- stb_flash_status
+    probe_in75 : IN STD_LOGIC_VECTOR(31 DOWNTO 0); -- stb_flash_rdata
     -- sff-8472 A2h ddm fields -- one dedicated probe per side per field (matching
     -- stb_sfp_ddm_* in db6_gbt_encoder_sc.vhd -- see t_sfp_regs/c_sfp_*)
-    probe_in74 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm temperature q0
-    probe_in75 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm temperature q1
-    probe_in76 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm vcc q0
-    probe_in77 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm vcc q1
-    probe_in78 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm tx_bias_current q0
-    probe_in79 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm tx_bias_current q1
-    probe_in80 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm tx_power q0
-    probe_in81 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm tx_power q1
-    probe_in82 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm rx_power q0
-    probe_in83 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm rx_power q1
-    probe_in84 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm laser_temperature q0
-    probe_in85 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm laser_temperature q1
-    probe_in86 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm tec_current q0
-    probe_in87 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm tec_current q1
-    -- mainboard companion fpga (ep4ce10f17) boundary-scan (sample) readout -- one
-    -- dedicated probe per side per field (address commanded via
-    -- cfb_mb_boundary_scan_reg_address or probe_out14/15, scan triggered via
-    -- cfb_db_debug or the timed post-reset trigger -- see db6_altera_jtag_driver.vhd)
-    probe_in88 : IN STD_LOGIC_VECTOR(2 DOWNTO 0); -- boundary-scan msel q0
-    probe_in89 : IN STD_LOGIC_VECTOR(2 DOWNTO 0); -- boundary-scan msel q1
-    probe_in90 : IN STD_LOGIC_VECTOR(6 DOWNTO 0); -- boundary-scan clk_present q0
-    probe_in91 : IN STD_LOGIC_VECTOR(6 DOWNTO 0); -- boundary-scan clk_present q1
-    probe_in92 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); -- boundary-scan done q0
-    probe_in93 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); -- boundary-scan done q1
-    probe_in94 : IN STD_LOGIC_VECTOR(7 DOWNTO 0); -- boundary-scan ram port b data q0
-    probe_in95 : IN STD_LOGIC_VECTOR(7 DOWNTO 0); -- boundary-scan ram port b data q1
-    -- gbtx register readback ram port b raw byte (address commanded via
-    -- cfb_gbtx_reg_readback_address or probe_out16)
-    probe_in96 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
-    -- xadc: currently-scanned channel index, its voltage reading, and a new-
-    -- conversion strobe (see t_system_management_interface -- read-only, this
-    -- module free-runs its own channel scan, nothing to address from the vio)
-    probe_in97 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
-    probe_in98 : IN STD_LOGIC_VECTOR(15 DOWNTO 0);
-    probe_in99 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    -- current led output value (s_leds_out, see proc_startup_sm)
-    probe_in100 : IN STD_LOGIC_VECTOR(3 DOWNTO 0);
-    -- fires ~1s after each side's altera companion fpga reset releases (see
-    -- proc_mb_boundary_scan_timed_trigger above)
-    probe_in101 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); -- boundary-scan timed trigger q0
-    probe_in102 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); -- boundary-scan timed trigger q1
+    probe_in76 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm temperature q0
+    probe_in77 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm temperature q1
+    probe_in78 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm vcc q0
+    probe_in79 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm vcc q1
+    probe_in80 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm tx_bias_current q0
+    probe_in81 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm tx_bias_current q1
+    probe_in82 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm tx_power q0
+    probe_in83 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm tx_power q1
+    probe_in84 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm rx_power q0
+    probe_in85 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm rx_power q1
+    probe_in86 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm laser_temperature q0
+    probe_in87 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm laser_temperature q1
+    probe_in88 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm tec_current q0
+    probe_in89 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm tec_current q1
     -- sticky "performed at least once since master reset" flags for the bootup
     -- boundary scan, gbtx register write/read, and sfp+ a2h read
-    probe_in103 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); -- mb boundary-scan boot-done q0
-    probe_in104 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); -- mb boundary-scan boot-done q1
-    probe_in105 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); -- gbtx register write first-done
-    probe_in106 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); -- gbtx register read first-done
-    probe_in107 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); -- sfp+ a2h read first-done q0
-    probe_in108 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); -- sfp+ a2h read first-done q1
+    probe_in90 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); -- mb boundary-scan boot-done q0
+    probe_in91 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); -- mb boundary-scan boot-done q1
+    probe_in92 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); -- gbtx register write first-done
+    probe_in93 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); -- gbtx register read first-done
+    probe_in94 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); -- sfp+ a2h read first-done q0
+    probe_in95 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); -- sfp+ a2h read first-done q1
     probe_out0 : OUT STD_LOGIC_VECTOR(5 DOWNTO 0);
     probe_out1 : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
     probe_out2 : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
@@ -555,14 +547,18 @@ COMPONENT vio_clknet_status
     -- reg block ram port b addresses -- one dedicated probe per side
     probe_out12 : out std_logic_vector(6 downto 0); -- sfp+ reg block ram, q0
     probe_out13 : out std_logic_vector(6 downto 0); -- sfp+ reg block ram, q1
-    probe_out14 : out std_logic_vector(6 downto 0); -- mb boundary-scan reg block ram, q0
-    probe_out15 : out std_logic_vector(6 downto 0); -- mb boundary-scan reg block ram, q1
-    probe_out16 : out std_logic_vector(8 downto 0); -- gbtx register readback ram
     -- mainboard companion fpga reset (active low): restores vio_mb_jtag_debug's old
     -- probe_out3/4 control, now undriven since that vio was disabled -- see
-    -- vio_mb_jtag_debug_commented_out memory note
-    probe_out17 : out std_logic_vector(0 downto 0); -- p_mb_fpga_reset_low q0
-    probe_out18 : out std_logic_vector(0 downto 0)  -- p_mb_fpga_reset_low q1
+    -- vio_mb_jtag_debug_commented_out memory note. mb boundary-scan reg block ram
+    -- address (q0/q1) and gbtx register readback ram address, previously
+    -- probe_out14-16, were dropped to make room for the flash override below --
+    -- both remain settable via cfb_mb_boundary_scan_reg_address/cfb_gbtx_reg_readback_address.
+    probe_out14 : out std_logic_vector(1 downto 0); -- p_mb_fpga_reset_low: (0)=q0, (1)=q1
+    -- db7_is25lp256_driver manual override (see t_db_clknet.flash_manual_*):
+    -- (96 downto 65)=address, (64 downto 33)=command -- both ORed with the cfb_flash_*
+    -- db_reg_rx path; (32)=write_floor_enable, (31 downto 0)=write_floor -- muxed in
+    -- place of cfb_flash_write_floor while (32) is high, for hw_manager debug
+    probe_out15 : out std_logic_vector(96 downto 0)
   );
 END COMPONENT;
 
@@ -597,6 +593,7 @@ begin  -- rtl
 -- through a named signal instead so vio_clknet_status's ltx keeps a sensible label.
 c_global_date <= GLOBAL_DATE;
 c_global_time <= GLOBAL_TIME;
+s_vio_cfgbus_loopback_reg <= s_cfgbus_interface.db_reg_rx(to_integer(unsigned(s_cfgbus_interface.db_reg_rx(cfb_loopback)(3 downto 0))));
 
 -- kept as an internal signal (rather than reading the p_mb_fpga_reset_low out port
 -- directly) so proc_mb_boundary_scan_timed_trigger below can watch it release.
@@ -766,7 +763,14 @@ i_db6_clock_interface : entity tilecal.db6_clock_interface
         --mainboard interface
 i_db6_mainboard_interface : entity tilecal.db6_mainboard_interface
       generic map(
-        g_clocking_mode => 0 -- 0/1/2 -> iddr, 3 -> selectio wizard hss_adc (must match i_db7_io_box below)
+        -- iddr280 | iddr280_clkdiv | hss_wizard (must match i_db7_io_box below)
+        g_adc_clocking_scheme => iddr280,
+        -- mb boundary-scan (sample) feature kill switch: false because triggering
+        -- any jtag instruction change freezes this altera companion fpga's firmware
+        -- until reset (confirmed via the ir-only bisection test mode). flip to true
+        -- only once that's understood/fixed on the altera side, or for a
+        -- mainboard/firmware revision confirmed not to have the issue.
+        g_enable_mb_boundary_scan => false
         )
       Port map(
         p_master_reset_in => s_master_reset,
@@ -821,7 +825,8 @@ i_db7_io_box : entity tilecal.db7_io_box
     generic map (
         g_num_gth_links    => g_num_gth_links,
         g_num_gth_ref_clks => g_num_gth_ref_clks,
-        g_clocking_mode => 0 -- 0/1/2 -> iddr, 3 -> selectio wizard hss_adc (must match i_db6_mainboard_interface above)
+        -- iddr280 | iddr280_clkdiv | hss_wizard (must match i_db6_mainboard_interface above)
+        g_adc_clocking_scheme => iddr280
     )
     port map (
         p_clknet_in    => s_clknet,
@@ -948,7 +953,10 @@ i_db7_io_box : entity tilecal.db7_io_box
         p_proasic_tck_out  => p_proasic_tck_out,
         p_proasic_tdi_out  => p_proasic_tdi_out,
         p_proasic_tdo_in   => p_proasic_tdo_in,
-        p_proasic_trst_out => p_proasic_trst_out
+        p_proasic_trst_out => p_proasic_trst_out,
+
+        p_flash_control_in  => s_flash_control_to_box,
+        p_flash_control_out => s_flash_control_from_box
     );
 
 i_db6_sfp_interface : entity tilecal.db6_sfp_interface
@@ -1039,6 +1047,10 @@ i_db6_system_management_interface : entity tilecal.db6_system_management_interfa
         --device dna (db6_ku_dna, moved here from db6_clock_interface); manual re-read
         --trigger from vio_clknet_status
         p_dna_reset_in => s_dna_reset,
+
+        --is25lp256 config flash: plain logic; STARTUPE3 reached via i_db7_io_box below
+        p_flash_control_out => s_flash_control_to_box,
+        p_flash_control_in  => s_flash_control_from_box,
 
         --output
         p_system_management_interface_out => s_system_management_interface, 
@@ -1460,9 +1472,10 @@ end process;
 
 -- vio_clknet_status moved here from inside db6_clock_interface (probe_in/out widths are
 -- fixed by the IP -- all 64 original probe_in bits are already spoken for, so mb jtag
--- id/done ride on the new probe_in64-66 added when the IP was regenerated). probe_in12's
--- BUFG_GT_SYNC CE/CLR bits were never actually driven inside db6_clock_interface (dead
--- signal), so they're tied off here rather than threaded through as real status.
+-- id/done ride on the new probe_in64-66 added when the IP was regenerated). Combinational
+-- operators are not allowed in the port map (unnamed nets, meaningless ltx labels) --
+-- AND/OR/concat operands are split onto separate probes, reusing probe_in12 (dead
+-- BUFG_GT_SYNC CE/CLR) and the previously tied-off probe_in17/19.
 i_vio_clknet_status : vio_clknet_status
   PORT MAP (
     clk => s_clknet.osc_clk40,
@@ -1480,24 +1493,29 @@ i_vio_clknet_status : vio_clknet_status
     probe_in9(0) => s_clknet.clk_1hz,
     probe_in10(0) => s_mb_interface.mb_driver.mb_tx_collission_out.q0,
     probe_in11(0) => s_mb_interface.mb_driver.mb_tx_collission_out.q1,
-    probe_in12 => "00",
-    probe_in13 => s_db6_gbt_bank.tx_phcomputed_o(0)&s_db6_gbt_bank.tx_phcomputed_o(1)&s_db6_gbt_bank.tx_phaligned_o(0)&s_db6_gbt_bank.tx_phaligned_o(1),
-    probe_in14(0) => s_clknet.mb_fpga_reset_low.q0 and s_clknet.mb_fpga_reset_low.q1,
+    -- was dead BUFG_GT_SYNC CE/CLR; now the cfb_db_debug gbt-cdc-phase override bits
+    -- that used to be ORed into probe_in21
+    probe_in12(0) => s_cfgbus_interface.db_reg_rx(cfb_db_debug)(c_db_debug_gbt_cdc_phase_array),
+    probe_in12(1) => s_cfgbus_interface.db_reg_rx(cfb_db_debug)(c_db_debug_gbt_cdc_phase_array + 1),
+    probe_in13(3) => s_db6_gbt_bank.tx_phcomputed_o(0),
+    probe_in13(2) => s_db6_gbt_bank.tx_phcomputed_o(1),
+    probe_in13(1) => s_db6_gbt_bank.tx_phaligned_o(0),
+    probe_in13(0) => s_db6_gbt_bank.tx_phaligned_o(1),
+    probe_in14(0) => s_clknet.mb_fpga_reset_low.q0,
     probe_in15(0) => p_gbtx_rxready_in(0),
     probe_in16(0) => s_clknet.locked_tp_q0,
-    probe_in17 => "0",
+    probe_in17(0) => s_clknet.mb_fpga_reset_low.q1,
     probe_in18(0) => s_clknet.gth_wordclk_sel,
-    probe_in19 => "0",
+    probe_in19(0) => s_sfp_ku_mgt.qpll1lock_out(1),
     probe_in20 => "0",
-    probe_in21(0) => s_clknet.gbt_cdc_gearbox_phase(0) or s_cfgbus_interface.db_reg_rx(cfb_db_debug)(c_db_debug_gbt_cdc_phase_array),
-    probe_in21(1) => s_clknet.gbt_cdc_gearbox_phase(1) or s_cfgbus_interface.db_reg_rx(cfb_db_debug)(c_db_debug_gbt_cdc_phase_array+1),
+    probe_in21 => s_clknet.gbt_cdc_gearbox_phase,
     probe_in22(0) => s_sfp_ku_mgt.qpll1refclklost_out(0),
     probe_in22(1) => s_sfp_ku_mgt.gtwiz_reset_tx_done_out(0),
     probe_in22(2) => s_sfp_ku_mgt.qpll1fbclklost_out(0),
     probe_in22(3) => s_sfp_ku_mgt.qpll1refclklost_out(0),
     probe_in22(4) => s_sfp_ku_mgt.gtwiz_buffbypass_tx_done_out(0),
     probe_in22(5) => s_sfp_ku_mgt.gtwiz_buffbypass_tx_error_out(0),
-    probe_in22(6) => s_sfp_ku_mgt.qpll1lock_out(0) and s_sfp_ku_mgt.qpll1lock_out(1),
+    probe_in22(6) => s_sfp_ku_mgt.qpll1lock_out(0),
     probe_in22(7) => s_sfp_ku_mgt.qpll1fbclklost_out(0),
     probe_in22(8) => s_sfp_ku_mgt.gtwiz_buffbypass_tx_start_user_in(0),
     probe_in22(9) => s_sfp_ku_mgt.gtwiz_reset_tx_done_out(0),
@@ -1538,14 +1556,14 @@ i_vio_clknet_status : vio_clknet_status
     probe_in34 => s_mb_interface.adc_readout.tmr_error_lg,
     probe_in35 => s_mb_interface.adc_readout.tmr_error_hg,
     probe_in36 => s_mb_interface.adc_readout.tmr_error_fc,
-    probe_in37 => '0' & s_clknet.running_time(31 downto 1),
+    probe_in37 => s_clknet.running_time,
     probe_in38(18) => s_mb_interface.mb_integrator.end_of_read_quadrant.q0,
     probe_in38(17) => s_mb_interface.mb_integrator.end_of_read_quadrant.q1,
     probe_in38(16) => s_mb_interface.mb_integrator.end_of_read,
     probe_in38(15 downto 0) => s_mb_interface.mb_integrator.bc_count_readout,
     probe_in39 => s_db6_gbt_bank.gbt_bank_sync,
     probe_in40 => p_md_number_in,
-    probe_in41 => s_cfgbus_interface.db_reg_rx(to_integer(unsigned(s_cfgbus_interface.db_reg_rx(cfb_loopback)(3 downto 0)))),
+    probe_in41 => s_vio_cfgbus_loopback_reg,
 
     probe_in42(0) => s_db6_sem_interface.sem_interface.status_heartbeat,
     probe_in43(0) => s_db6_sem_interface.sem_interface.status_initialization,
@@ -1586,58 +1604,41 @@ i_vio_clknet_status : vio_clknet_status
     probe_in69 => s_cfgbus_interface.db_reg_rx(cfb_sfp_reg_address)(14 downto 8),
     probe_in70 => s_sfp_ku_mgt.sfp_tx_register(1),
 
-    -- gbtx write/config ram shadow readback (see probe_in96/probe_out16)
+    -- gbtx write/config ram shadow readback (address no longer vio-addressable,
+    -- see s_gbtx_reg_readback_address_vio comment above)
     probe_in71 => s_gbtx_interface.gbtx_config_readback.doutb,
-    -- hss_adc per-channel status (g_clocking_mode=3 only -- all zero otherwise)
+    -- hss_adc per-channel status (g_adc_clocking_scheme=hss_wizard only -- all zero otherwise)
     probe_in72 => s_adc_rst_seq_done,
     probe_in73 => s_adc_fifo_data_valid,
 
+    -- db7_is25lp256_driver status readback (see comment on the component declaration
+    -- above for what used to live in probe_in74-110)
+    probe_in74 => s_system_management_interface.flash_status,
+    probe_in75 => s_system_management_interface.flash_rdata,
+
     -- sff-8472 A2h ddm fields, one dedicated probe per side per field
-    probe_in74 => s_sfp_interface.ddm(0)(c_sfp_temperature),
-    probe_in75 => s_sfp_interface.ddm(1)(c_sfp_temperature),
-    probe_in76 => s_sfp_interface.ddm(0)(c_sfp_vcc),
-    probe_in77 => s_sfp_interface.ddm(1)(c_sfp_vcc),
-    probe_in78 => s_sfp_interface.ddm(0)(c_sfp_tx_bias_current),
-    probe_in79 => s_sfp_interface.ddm(1)(c_sfp_tx_bias_current),
-    probe_in80 => s_sfp_interface.ddm(0)(c_sfp_tx_power),
-    probe_in81 => s_sfp_interface.ddm(1)(c_sfp_tx_power),
-    probe_in82 => s_sfp_interface.ddm(0)(c_sfp_rx_power),
-    probe_in83 => s_sfp_interface.ddm(1)(c_sfp_rx_power),
-    probe_in84 => s_sfp_interface.ddm(0)(c_sfp_laser_temperature),
-    probe_in85 => s_sfp_interface.ddm(1)(c_sfp_laser_temperature),
-    probe_in86 => s_sfp_interface.ddm(0)(c_sfp_tec_current),
-    probe_in87 => s_sfp_interface.ddm(1)(c_sfp_tec_current),
-
-    -- mainboard companion fpga boundary-scan (sample) readout, one dedicated probe per side
-    probe_in88 => s_mb_interface.mb_boundary_scan(0).msel,
-    probe_in89 => s_mb_interface.mb_boundary_scan(1).msel,
-    probe_in90 => s_mb_interface.mb_boundary_scan(0).clk_present,
-    probe_in91 => s_mb_interface.mb_boundary_scan(1).clk_present,
-    probe_in92(0) => s_mb_interface.mb_boundary_scan_done.q0,
-    probe_in93(0) => s_mb_interface.mb_boundary_scan_done.q1,
-    probe_in94 => s_mb_interface.mb_boundary_scan(0).mem.doutb,
-    probe_in95 => s_mb_interface.mb_boundary_scan(1).mem.doutb,
-    probe_in96 => s_gbtx_interface.gbtx_reg_readback.doutb,
-
-    -- xadc: free-running channel scan, read-only
-    probe_in97 => s_system_management_interface.xadc_channel,
-    probe_in98 => s_system_management_interface.xadc_channel_voltage,
-    probe_in99(0) => s_system_management_interface.xadc_new_conversion,
-
-    -- current led output value
-    probe_in100 => s_leds_out,
-
-    -- timed boundary-scan trigger (~1s after each side's altera companion fpga reset)
-    probe_in101(0) => s_mb_boundary_scan_timed_trigger.q0,
-    probe_in102(0) => s_mb_boundary_scan_timed_trigger.q1,
+    probe_in76 => s_sfp_interface.ddm(0)(c_sfp_temperature),
+    probe_in77 => s_sfp_interface.ddm(1)(c_sfp_temperature),
+    probe_in78 => s_sfp_interface.ddm(0)(c_sfp_vcc),
+    probe_in79 => s_sfp_interface.ddm(1)(c_sfp_vcc),
+    probe_in80 => s_sfp_interface.ddm(0)(c_sfp_tx_bias_current),
+    probe_in81 => s_sfp_interface.ddm(1)(c_sfp_tx_bias_current),
+    probe_in82 => s_sfp_interface.ddm(0)(c_sfp_tx_power),
+    probe_in83 => s_sfp_interface.ddm(1)(c_sfp_tx_power),
+    probe_in84 => s_sfp_interface.ddm(0)(c_sfp_rx_power),
+    probe_in85 => s_sfp_interface.ddm(1)(c_sfp_rx_power),
+    probe_in86 => s_sfp_interface.ddm(0)(c_sfp_laser_temperature),
+    probe_in87 => s_sfp_interface.ddm(1)(c_sfp_laser_temperature),
+    probe_in88 => s_sfp_interface.ddm(0)(c_sfp_tec_current),
+    probe_in89 => s_sfp_interface.ddm(1)(c_sfp_tec_current),
 
     -- first-bootup-operation-completed status
-    probe_in103(0) => s_mb_interface.mb_boundary_scan_boot_done.q0,
-    probe_in104(0) => s_mb_interface.mb_boundary_scan_boot_done.q1,
-    probe_in105(0) => s_boot_gbtx_write_done,
-    probe_in106(0) => s_boot_gbtx_read_done,
-    probe_in107(0) => s_boot_sfp_read_done(0),
-    probe_in108(0) => s_boot_sfp_read_done(1),
+    probe_in90(0) => s_mb_interface.mb_boundary_scan_boot_done.q0,
+    probe_in91(0) => s_mb_interface.mb_boundary_scan_boot_done.q1,
+    probe_in92(0) => s_boot_gbtx_write_done,
+    probe_in93(0) => s_boot_gbtx_read_done,
+    probe_in94(0) => s_boot_sfp_read_done(0),
+    probe_in95(0) => s_boot_sfp_read_done(1),
 
     probe_out0(0) => s_mb_reset_vio.q0,
     probe_out0(1) => s_mb_reset_vio.q1,
@@ -1665,12 +1666,19 @@ i_vio_clknet_status : vio_clknet_status
 
     probe_out12 => s_sfp_reg_address_vio(0),
     probe_out13 => s_sfp_reg_address_vio(1),
-    probe_out14 => s_mb_boundary_scan_reg_address_vio(0),
-    probe_out15 => s_mb_boundary_scan_reg_address_vio(1),
-    probe_out16 => s_gbtx_reg_readback_address_vio,
-    probe_out17(0) => s_mb_fpga_reset_low.q0,
-    probe_out18(0) => s_mb_fpga_reset_low.q1
+    probe_out14(0) => s_mb_fpga_reset_low.q0,
+    probe_out14(1) => s_mb_fpga_reset_low.q1,
+    probe_out15(96 downto 65) => s_clknet_debug_control.flash_manual_address,
+    probe_out15(64 downto 33) => s_clknet_debug_control.flash_manual_command,
+    probe_out15(32)           => s_clknet_debug_control.flash_manual_write_floor_enable,
+    probe_out15(31 downto 0)  => s_clknet_debug_control.flash_manual_write_floor
   );
+
+-- mb boundary-scan/gbtx reg readback vio address overrides retired (see the
+-- s_mb_boundary_scan_reg_address_vio/s_gbtx_reg_readback_address_vio declaration
+-- comment above) -- tied off since their probe_out driver is gone.
+s_mb_boundary_scan_reg_address_vio <= (others => (others => '0'));
+s_gbtx_reg_readback_address_vio    <= (others => '0');
 
 
 --i_vio_leds_debug : vio_leds_debug

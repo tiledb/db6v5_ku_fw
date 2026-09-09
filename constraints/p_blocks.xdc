@@ -19,6 +19,24 @@
 ## Regions below were read back from the routed design (get_property CLOCK_REGION on each
 ## channel's placed BITSLICE_RX_TX site / its BUFGCE's CLOCK_ROOT) -- not guessed.
 ## Re-verify with the same query if the ADC pinout/bank assignment ever changes.
+## These pblocks are soft (create_pblock's default) -- deliberately, after a failed
+## alternative: IS_SOFT FALSE (hard) on the whole clock region made channel 0 much worse
+## (-0.827ns vs -0.187 to -0.006ns soft), because forcing the *entire* channel's cell set
+## into one region with no give left the placer unable to find a good relative site for
+## the one register that actually matters, and it paid for that everywhere at once.
+## Soft still leaves a real, observed run-to-run risk: channel 0 has been seen anywhere
+## from -0.006ns to -0.187ns setup slack across otherwise-identical rebuilds (see
+## db6_adc_interface_decoder_iddr_bitclk280.vhd's CDC lock -- a real fix, not a workaround
+## for this) with nothing in the RTL or these constraints changing between runs. Closing
+## this the rest of the way needs a hard, *small* site-range or explicit LOC on just the
+## handful of pipeline-register cells that are actually tight (see the timing report's
+## "Data Path Delay" route component for gen_adc_channels[0]/[2]'s fc/hg/lg
+## bitslice_sr_*_pipeline registers), not a whole-region constraint. A first attempt at
+## that (a small hard SLICE-range pblock on just those cells) was reverted here --
+## querying pblock cell membership through this session's tooling proved unreliable
+## partway through and I would not ship a placement constraint I couldn't confirm actually
+## took effect. Next attempt should verify cell membership from a fresh Vivado GUI/console
+## session before trusting it, or use explicit per-cell LOC instead of a pblock.
 create_pblock pblock_adc_readout_ch0
 add_cells_to_pblock [get_pblocks pblock_adc_readout_ch0] [get_cells -quiet -hierarchical -filter {NAME =~ "i_db7_io_box/gen_db6_adc_interface_iddr.i_db6_adc_interface_io_iddr/gen_adc_channels[0]*" || NAME =~ "i_db7_io_box/gen_db6_adc_interface_iddr.i_db6_adc_interface_io_iddr/gen_adc_data_diff_to_se[0]*"}]
 resize_pblock [get_pblocks pblock_adc_readout_ch0] -add {CLOCKREGION_X2Y3:CLOCKREGION_X2Y3}

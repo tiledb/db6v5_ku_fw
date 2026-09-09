@@ -58,7 +58,7 @@ entity db7_io_box is
     generic (
         g_num_gth_links    : integer := 2;
         g_num_gth_ref_clks : integer := 1;
-        g_clocking_mode : integer := 0 -- 0/1/2 -> iddr (see db6_adc_interface_io_iddr_bitclk280), 3 -> selectio wizard (hss_adc). Must match db6_mainboard_interface's.
+        g_adc_clocking_scheme : t_adc_clocking_scheme := iddr280 -- must match db6_mainboard_interface's
     );
     port (
         -- internal (non-pad) signals needed by the wrapped IO files
@@ -81,7 +81,7 @@ entity db7_io_box is
         p_adc_master_reset_in : in std_logic;
         p_adc_bitclk_in   : in t_adc_clk_in;
         p_adc_frameclk_in : in t_adc_clk_in;
-        -- g_clocking_mode=3 (hss) only: hss_adc PLL/RIU sharing placeholder pins,
+        -- g_adc_clocking_scheme=hss_wizard only: hss_adc PLL/RIU sharing placeholder pins,
         -- one bit per channel (see db6_adc_interface_io_hss.vhd header).
         p_adc_hss_aux0_in : in std_logic_vector(5 downto 0);
         p_adc_hss_aux1_in : in std_logic_vector(5 downto 0);
@@ -108,7 +108,7 @@ entity db7_io_box is
         -- ADC interface -- plain logic side (to db6_adc_interface). frameclk/lg/hg use
         -- separate ports per readout mode since iddr (2 bits/channel) and hss
         -- (8-bit container, 4 meaningful bits/channel) aren't the same width; only one
-        -- set is actually driven, per g_clocking_mode (see db6_adc_interface_io_iddr_bitclk280
+        -- set is actually driven, per g_adc_clocking_scheme (see db6_adc_interface_io_iddr_bitclk280
         -- / db6_adc_interface_io_hss).
         p_adc_bitclk_out          : out std_logic_vector(5 downto 0);
         p_adc_bitclkdiv_out       : out std_logic_vector(5 downto 0);
@@ -117,7 +117,7 @@ entity db7_io_box is
         p_adc_lg_data_out         : out t_bitslice_sr;  -- iddr only
         p_adc_hg_data_out         : out t_bitslice_sr;  -- iddr only
 
-        -- g_clocking_mode=3 (hss) only: closed-loop resync between io_hss (here) and
+        -- g_adc_clocking_scheme=hss_wizard only: closed-loop resync between io_hss (here) and
         -- db6_adc_interface_decoder_iserdese (in db6_mainboard_interface) -- the decoder
         -- tracks frame alignment from the marker bits and reports it back here.
         -- ctrl_reset_from_sm is tied '0' by db6_adc_interface_io_hss (hss_adc uses
@@ -127,7 +127,7 @@ entity db7_io_box is
         p_adc_frameclk_iserdese_out  : out t_byteslice_sr;
         p_adc_lg_data_iserdese_out   : out t_byteslice_sr;
         p_adc_hg_data_iserdese_out   : out t_byteslice_sr;
-        -- g_clocking_mode=3 (hss) only: per-channel hss_adc internal status for
+        -- g_adc_clocking_scheme=hss_wizard only: per-channel hss_adc internal status for
         -- hardware debug (see db6_adc_interface_io_hss.vhd)
         p_adc_pll0_locked_out     : out std_logic_vector(5 downto 0);
         p_adc_rst_seq_done_out    : out std_logic_vector(5 downto 0);
@@ -224,7 +224,14 @@ entity db7_io_box is
         p_proasic_tck_out  : out std_logic;
         p_proasic_tdi_out  : out std_logic;
         p_proasic_tdo_in   : in  std_logic;
-        p_proasic_trst_out : out std_logic
+        p_proasic_trst_out : out std_logic;
+
+        -- IS25LP256 config flash -- no pads: wired to the FPGA's dedicated
+        -- configuration-bank pins, reached only through the STARTUPE3 primitive
+        -- (see db7_is25lp256_driver.vhd header). plain logic side (to/from
+        -- db6_system_management_interface, via db6v5_top).
+        p_flash_control_in  : in  t_is25lp256_control;
+        p_flash_control_out : out t_is25lp256_control
     );
 end db7_io_box;
 
@@ -319,6 +326,36 @@ architecture rtl of db7_io_box is
     );
     end component;
 
+-- IS25LP256 config flash: UNISIM primitive, only legal access path to the
+-- FPGA's dedicated configuration-bank pins post-bitstream-load (see
+-- db7_is25lp256_driver.vhd header). Only one STARTUPE3 instance is allowed
+-- per device -- none exists elsewhere in this design.
+component STARTUPE3
+    generic (
+        PROG_USR      : string := "FALSE";
+        SIM_CCLK_FREQ : real   := 0.0
+    );
+    port (
+        CFGCLK    : out std_ulogic;
+        CFGMCLK   : out std_ulogic;
+        DI        : out std_logic_vector(3 downto 0);
+        EOS       : out std_ulogic;
+        PREQ      : out std_ulogic;
+        DO        : in  std_logic_vector(3 downto 0);
+        DTS       : in  std_logic_vector(3 downto 0);
+        FCSBO     : in  std_ulogic;
+        FCSBTS    : in  std_ulogic;
+        GSR       : in  std_ulogic;
+        GTS       : in  std_ulogic;
+        KEYCLEARB : in  std_ulogic;
+        PACK      : in  std_ulogic;
+        USRCCLKO  : in  std_ulogic;
+        USRCCLKTS : in  std_ulogic;
+        USRDONEO  : in  std_ulogic;
+        USRDONETS : in  std_ulogic
+    );
+end component;
+
 begin
 
 -- Proasic JTAG pads: no driver left (db6_proasic_jtag_driver removed), float them.
@@ -342,11 +379,11 @@ i_db6_mainboard_driver_io : entity tilecal.db6_mainboard_driver_io
 
 -- ADC readout front end: iddr (IDDRE1, off the undivided bitclk) or hss (SelectIO
 -- Interface Wizard, hss_adc -- see db6_adc_interface_io_hss.vhd), selected by
--- g_clocking_mode. Only one is ever elaborated.
-gen_db6_adc_interface_iddr : if g_clocking_mode /= 3 generate
+-- g_adc_clocking_scheme. Only one is ever elaborated.
+gen_db6_adc_interface_iddr : if g_adc_clocking_scheme /= hss_wizard generate
     i_db6_adc_interface_io_iddr : entity tilecal.db6_adc_interface_io_iddr_bitclk280
         generic map (
-            g_clocking_mode => g_clocking_mode
+            g_adc_clocking_scheme => g_adc_clocking_scheme
             )
         port map (
             p_master_reset_in => p_adc_master_reset_in,
@@ -380,7 +417,7 @@ gen_db6_adc_interface_iddr : if g_clocking_mode /= 3 generate
     p_gbtx_clk80_data_out        <= (others => (others => '0'));
 end generate;
 
-gen_db6_adc_interface_hss : if g_clocking_mode = 3 generate
+gen_db6_adc_interface_hss : if g_adc_clocking_scheme = hss_wizard generate
     i_db6_adc_interface_io_hss : entity tilecal.db6_adc_interface_io_hss
         port map (
             p_master_reset_in => p_adc_master_reset_in,
@@ -619,6 +656,40 @@ i_system_management : system_management
         i2c_sda  => p_xadc_i2c_inout.sda,
         i2c_sclk => p_xadc_i2c_inout.scl
     );
+
+-- IS25LP256 config flash: the driver owns the SPI bus permanently (fcsbts/
+-- usrcclkts tied '0' by db7_is25lp256_driver), so no additional tie-off logic
+-- is needed here beyond the primitive's own always-off housekeeping inputs.
+i_startupe3_flash : STARTUPE3
+    generic map (
+        PROG_USR      => "FALSE",
+        SIM_CCLK_FREQ => 0.0
+    )
+    port map (
+        CFGCLK    => open,
+        CFGMCLK   => open,
+        EOS       => open,
+        PREQ      => open,
+        DI        => p_flash_control_out.di,
+        DO        => p_flash_control_in.do,
+        DTS       => p_flash_control_in.dts,
+        FCSBO     => p_flash_control_in.fcsbo,
+        FCSBTS    => p_flash_control_in.fcsbts,
+        USRCCLKO  => p_flash_control_in.usrcclko,
+        USRCCLKTS => p_flash_control_in.usrcclkts,
+        GSR       => '0',
+        GTS       => '0',
+        KEYCLEARB => '1',
+        PACK      => '0',
+        USRDONEO  => '0',
+        USRDONETS => '1'
+    );
+p_flash_control_out.do        <= (others => '0');
+p_flash_control_out.dts       <= (others => '0');
+p_flash_control_out.fcsbo     <= '0';
+p_flash_control_out.fcsbts    <= '0';
+p_flash_control_out.usrcclko  <= '0';
+p_flash_control_out.usrcclkts <= '0';
 
 -- I2C IOBUFs: each master already computed clean drive/tri/read-back signals
 -- internally (this is a mechanical relocation of the primitive, not a logic change).

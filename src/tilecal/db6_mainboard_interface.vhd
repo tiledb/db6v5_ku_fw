@@ -37,8 +37,16 @@ use tilecal.db6_design_package.all;
 entity db6_mainboard_interface is
   generic (
             g_vio_adc_readout : natural :=0;
-            g_clocking_mode : natural :=0; -- 0/1/2 -> iddr, 3 -> selectio wizard (hss_adc)
-            g_bitclk        : integer := 280
+            g_adc_clocking_scheme : t_adc_clocking_scheme := iddr280;
+            g_bitclk        : integer := 280;
+            -- compile-time kill switch for the whole mb boundary-scan (sample)
+            -- feature (auto-chain, 1s timed trigger, manual cfb_db_debug bit, and
+            -- the ir-only bisection test mode) -- default false because triggering
+            -- any jtag instruction change (not just the dr capture -- confirmed via
+            -- the ir-only test mode) freezes this altera companion fpga's firmware
+            -- until reset. set true only once that's understood/fixed on the altera
+            -- side, or for a mainboard/firmware revision known not to have the issue.
+            g_enable_mb_boundary_scan : boolean := false
             );
   Port ( 
         p_master_reset_in : in std_logic_vector(31 downto 0);
@@ -209,6 +217,9 @@ signal s_mb_jtag_gap_cnt_q0, s_mb_jtag_gap_cnt_q1 : integer range 0 to c_jtag_ga
 -- mainboard boundary-scan (sample) reader -- see db6_altera_jtag_driver.vhd /
 -- db6_jtag_readers_controller.vhd
 signal s_mb_boundary_scan_enable : t_mb_std_logic;
+-- bisection test mode (manual debug bit only, see c_db_debug_mb_boundary_scan_ir_only_q0/q1)
+signal s_mb_boundary_scan_ir_only_enable : t_mb_std_logic;
+signal s_mb_boundary_scan_ir_only_done   : t_mb_std_logic;
 signal s_mb_boundary_scan        : t_mb_boundary_scan_array;
 signal s_mb_boundary_scan_done   : t_mb_std_logic;
 -- sticky "first boundary scan since this side's fpga reset completed" flag, latched
@@ -413,7 +424,7 @@ p_mb_interface_out.mb_reset <= p_mb_reset_vio_in;
 
 s_reset_adc_interface <= p_master_reset_in(c_adc_readout_reset_bit) or s_reset_adc_interface_from_vio;
 
-gen_db6_adc_interface_iddr : if g_clocking_mode /= 3 generate
+gen_db6_adc_interface_iddr : if g_adc_clocking_scheme /= hss_wizard generate
 
     p_adc_frame_missalignment_out <= (others => '0');
 
@@ -421,7 +432,7 @@ gen_db6_adc_interface_iddr : if g_clocking_mode /= 3 generate
       generic map(
         g_tmr_enabled      => '0',       -- 0 = no no_tmr, 1 = tmr
         g_bitclk           => g_bitclk,
-        g_clocking_mode    => g_clocking_mode
+        g_adc_clocking_scheme => g_adc_clocking_scheme
         )
       Port map (
             p_master_reset_in => s_reset_adc_interface,
@@ -451,13 +462,13 @@ end generate;
 -- instead of IDDRE1's raw undivided-bitclk output, which needed an SRL pipeline stage
 -- tight enough to violate timing at 280 Mbps (see db6_adc_interface_io_hss.vhd /
 -- db6_adc_interface.vhd).
-gen_db6_adc_interface_iserdese : if g_clocking_mode = 3 generate
+gen_db6_adc_interface_iserdese : if g_adc_clocking_scheme = hss_wizard generate
 
     i_db6_adc_interface_iserdese : entity tilecal.db6_adc_interface
       generic map(
         g_tmr_enabled      => '0',       -- 0 = no no_tmr, 1 = tmr
         g_bitclk           => g_bitclk,
-        g_clocking_mode    => g_clocking_mode
+        g_adc_clocking_scheme => g_adc_clocking_scheme
         )
       Port map (
             p_master_reset_in => s_reset_adc_interface,
@@ -648,15 +659,18 @@ i_db6_mainboard_driver : entity tilecal.db6_mainboard_driver
 s_mb_jtag_enable.q0 <= s_mb_jtag_auto_trigger.q0 or p_db_reg_rx_in(cfb_db_debug)(c_db_debug_mb_jtag_read_enable_q0);
 s_mb_jtag_enable.q1 <= s_mb_jtag_auto_trigger.q1 or p_db_reg_rx_in(cfb_db_debug)(c_db_debug_mb_jtag_read_enable_q1);
 
--- boundary-scan (sample) reader: manual configbus debug bit only for now -- the
--- auto-chain (after idcode) and the 1s-post-reset timed trigger are disabled below
--- (proc_mb_jtag_auto_read no longer visits st_gap/st_read_boundary, and their
--- contribution here is commented out) because triggering a boundary scan was found
--- to freeze the altera companion fpga's own firmware on real hardware -- root cause
--- not yet identified (sample opcode/bit-order checked against the bsdl and are
--- correct, so it isn't that). re-enable only once that's understood.
-s_mb_boundary_scan_enable.q0 <= p_db_reg_rx_in(cfb_db_debug)(c_db_debug_mb_boundary_scan_enable_q0); -- was: s_mb_boundary_scan_auto_trigger.q0 or s_boundary_scan_timed_trigger_sync_ff2.q0 or ...
-s_mb_boundary_scan_enable.q1 <= p_db_reg_rx_in(cfb_db_debug)(c_db_debug_mb_boundary_scan_enable_q1); -- was: s_mb_boundary_scan_auto_trigger.q1 or s_boundary_scan_timed_trigger_sync_ff2.q1 or ...
+-- boundary-scan (sample) reader: auto-read trigger below (chained after the idcode
+-- scan, same reset-release event) ORed with the manual configbus debug bit, plus a
+-- shared reg-block-ram port b address command (per side). the whole feature -- this
+-- enable, and the ir-only bisection test enable below -- is gated by
+-- g_enable_mb_boundary_scan: triggering ANY jtag instruction change (confirmed via
+-- the ir-only test mode, not just the boundary-register capture) was found to freeze
+-- the altera companion fpga's own firmware on real hardware until reset, so this
+-- defaults to disabled -- see the generic's declaration for details.
+s_mb_boundary_scan_enable.q0 <= (s_mb_boundary_scan_auto_trigger.q0 or s_boundary_scan_timed_trigger_sync_ff2.q0 or p_db_reg_rx_in(cfb_db_debug)(c_db_debug_mb_boundary_scan_enable_q0)) when g_enable_mb_boundary_scan else '0';
+s_mb_boundary_scan_enable.q1 <= (s_mb_boundary_scan_auto_trigger.q1 or s_boundary_scan_timed_trigger_sync_ff2.q1 or p_db_reg_rx_in(cfb_db_debug)(c_db_debug_mb_boundary_scan_enable_q1)) when g_enable_mb_boundary_scan else '0';
+s_mb_boundary_scan_ir_only_enable.q0 <= p_db_reg_rx_in(cfb_db_debug)(c_db_debug_mb_boundary_scan_ir_only_q0) when g_enable_mb_boundary_scan else '0';
+s_mb_boundary_scan_ir_only_enable.q1 <= p_db_reg_rx_in(cfb_db_debug)(c_db_debug_mb_boundary_scan_ir_only_q1) when g_enable_mb_boundary_scan else '0';
 s_mb_boundary_scan_rx_register(0) <= p_db_reg_rx_in(cfb_mb_boundary_scan_reg_address)(6 downto 0) or p_mb_boundary_scan_reg_address_vio_in(0);
 s_mb_boundary_scan_rx_register(1) <= p_db_reg_rx_in(cfb_mb_boundary_scan_reg_address)(14 downto 8) or p_mb_boundary_scan_reg_address_vio_in(1);
 
@@ -693,14 +707,19 @@ begin
                     s_mb_jtag_auto_read_sm_q0  <= st_read_id;
                 end if;
             when st_read_id =>
-                -- goes straight back to st_idle instead of chaining into
-                -- st_gap/st_read_boundary -- boundary-scan auto-chaining is
-                -- disabled for now (see s_mb_boundary_scan_enable above); st_gap/
-                -- st_read_boundary are kept below, unreachable, so the fix is a
-                -- one-line revert once the altera-freeze root cause is found
+                -- only chains into the boundary-scan states when
+                -- g_enable_mb_boundary_scan is true; otherwise goes straight back to
+                -- st_idle, since s_mb_boundary_scan_enable below never asserts in
+                -- that case and chaining anyway would leave this stuck forever in
+                -- st_read_boundary waiting for a done that can never come (also
+                -- breaking mb_jtag_id auto-read on every subsequent reset)
                 if s_mb_jtag_done.q0 = '1' then
                     s_mb_jtag_auto_trigger.q0  <= '0';
-                    s_mb_jtag_auto_read_sm_q0  <= st_idle;
+                    if g_enable_mb_boundary_scan then
+                        s_mb_jtag_auto_read_sm_q0  <= st_gap;
+                    else
+                        s_mb_jtag_auto_read_sm_q0  <= st_idle;
+                    end if;
                 end if;
             when st_gap =>
                 -- both auto-triggers held low for c_jtag_gap_cycles (see declaration
@@ -729,11 +748,14 @@ begin
                     s_mb_jtag_auto_read_sm_q1  <= st_read_id;
                 end if;
             when st_read_id =>
-                -- see q0's st_read_id above: goes straight to st_idle, boundary-scan
-                -- auto-chaining disabled for now
+                -- see q0's st_read_id above
                 if s_mb_jtag_done.q1 = '1' then
                     s_mb_jtag_auto_trigger.q1  <= '0';
-                    s_mb_jtag_auto_read_sm_q1  <= st_idle;
+                    if g_enable_mb_boundary_scan then
+                        s_mb_jtag_auto_read_sm_q1  <= st_gap;
+                    else
+                        s_mb_jtag_auto_read_sm_q1  <= st_idle;
+                    end if;
                 end if;
             when st_gap =>
                 if s_mb_jtag_gap_cnt_q1 = c_jtag_gap_cycles-1 then
@@ -760,6 +782,7 @@ p_mb_interface_out.mb_jtag_done <= s_mb_jtag_done;
 p_mb_interface_out.mb_boundary_scan      <= s_mb_boundary_scan;
 p_mb_interface_out.mb_boundary_scan_done <= s_mb_boundary_scan_done;
 p_mb_interface_out.mb_boundary_scan_boot_done <= s_boot_boundary_scan_done;
+p_mb_interface_out.mb_boundary_scan_ir_only_done <= s_mb_boundary_scan_ir_only_done;
 
 i_db6_jtag_readers_controller : entity tilecal.db6_jtag_readers_controller
     generic map (
@@ -769,6 +792,8 @@ i_db6_jtag_readers_controller : entity tilecal.db6_jtag_readers_controller
         p_clk_in       => p_clknet_in.osc_clk200,
         p_enable_in    => s_mb_jtag_enable,
         p_enable_boundary_scan_in => s_mb_boundary_scan_enable,
+        p_enable_boundary_scan_ir_only_in => s_mb_boundary_scan_ir_only_enable,
+        p_ir_only_done_out        => s_mb_boundary_scan_ir_only_done,
         p_boundary_scan_out       => s_mb_boundary_scan,
         p_boundary_scan_done_out  => s_mb_boundary_scan_done,
         p_bs_rx_register_in       => s_mb_boundary_scan_rx_register,

@@ -36,7 +36,7 @@ use UNISIM.VComponents.all;
 
 entity db6_adc_interface_decoder_iddr_bitclk240 is
     generic (
-        g_clocking_mode : integer :=0;
+        g_adc_clocking_scheme : t_adc_clocking_scheme := iddr280;
         g_tmr_enabled : std_logic := '1'
     );
     port ( 	
