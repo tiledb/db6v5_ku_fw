@@ -8,9 +8,16 @@
 -- running, drives PLL0 directly, and is center-aligned with the data eye --
 -- matches how this board's LVDS ADC actually forwards its clock).
 --
--- One SEPARATE IP customization per ADC channel (hss_adc_ch0..hss_adc_ch4,
--- plus hss_adc for channel 5) rather than one shared IP instantiated 6 times.
--- This is required, not just tidier: the wizard's own auto-generated XDC
+-- One SEPARATE IP customization per ADC channel (hss_adc_ch0..hss_adc_ch5)
+-- rather than one shared IP instantiated 6 times. IP naming is by bank number,
+-- ascending: hss_adc_ch0=bank44, ch1=bank46, ch2=bank47, ch3=bank66, ch4=bank67,
+-- ch5=bank68 -- NOT the same order as the port-array index below (0=bank68 ..
+-- 5=bank44, fixed by this board's physical pin assignment, see
+-- p_adc_bitclk_in/p_adc_lg_data_in etc in constraints/db6v5.xdc): each
+-- gen_adc_channels(i) instance wires whichever IP matches its own bank, so the
+-- two numberings run in opposite directions by construction, not by mistake --
+-- e.g. i_hss_adc_ch5 (bank68) is instantiated using port-array index 0.
+-- This separate-IP-per-bank split is required, not just tidier: the wizard's own auto-generated XDC
 -- (hss_adc.xdc) bakes real PACKAGE_PIN LOCs for its internal shared-PLL/RIU
 -- bitslices into the IP's out-of-context synthesis checkpoint, based on
 -- whatever CONFIG.BANK the IP was customized for. Reusing one IP's netlist
@@ -30,7 +37,8 @@
 --
 -- Pin group: on this board, every channel's bitclk/frameclk/lg/hg pads
 -- physically land in the T2 byte-group of their bank (confirmed via each
--- pin's PIN_FUNC, e.g. channel 0's lg pad G15 = IO_L15P_T2L_N4..._68) --
+-- pin's PIN_FUNC, e.g. port-array index 0's (bank68, hss_adc_ch5) lg pad
+-- G15 = IO_L15P_T2L_N4..._68) --
 -- wizard byte-group numbers map to fixed physical T-groups (BYTE2=T2, not a
 -- free relabeling), so each IP is configured with bitclk on BYTE2_PIN0 (the
 -- wizard's dedicated PLL0 clock-in slot) and frameclk/lg/hg differential
@@ -44,8 +52,8 @@
 -- ("gbtx_clk40"). This is the same T1 byte-group across every bank as the
 -- pre-existing (dead) p_adc_gbtx_frameclk_in constraints from before this
 -- port was rewired onto hss_adc -- confirmed pin-for-pin identical via
--- CONFIG.BYTE1_PIN8/10_LOC per bank, e.g. bank 68 channel 0's clk40 P leg is
--- E18, matching the old p_adc_gbtx_frameclk_in[0][p].
+-- CONFIG.BYTE1_PIN8/10_LOC per bank, e.g. bank 68 (port-array index 0,
+-- hss_adc_ch5)'s clk40 P leg is E18, matching the old p_adc_gbtx_frameclk_in[0][p].
 --
 -- Each hss_adc-configured differential pin pair (e.g. adc_lg_30 / bg2_pin5_31)
 -- exposes a data_to_fabric_* port on BOTH the P pin (custom-named, e.g.
@@ -127,8 +135,9 @@ entity db6_adc_interface_io_hss is
         p_adc_lg_data_out         : out t_byteslice_sr;
         p_adc_hg_data_out         : out t_byteslice_sr;
         -- deserialized gbtx_clk40/80 data, one t_byteslice_sr element per channel
-        -- (channel index matches p_adc_lg_data_out etc: 0=bank68 .. 5=bank44);
-        -- not consumed anywhere yet, see header
+        -- (port-array index matches p_adc_lg_data_out etc, NOT the hss_adc_chN IP
+        -- naming -- see header: 0=bank68/ch5 .. 5=bank44/ch0); not consumed
+        -- anywhere yet, see header
         p_gbtx_clk40_data_out     : out t_byteslice_sr;
         p_gbtx_clk80_data_out     : out t_byteslice_sr;
 
@@ -150,7 +159,7 @@ architecture Behavioral of db6_adc_interface_io_hss is
 
     -- identical port list for all 6 (per-channel IP customizations differ only in
     -- which bank/pins their internal LOCs point at -- see header)
-    component hss_adc_ch0
+    component hss_adc_ch5
       PORT (
         fifo_rd_data_valid : OUT STD_LOGIC;
         fifo_rd_clk_21 : IN STD_LOGIC;
@@ -227,40 +236,7 @@ architecture Behavioral of db6_adc_interface_io_hss is
       );
     end component;
 
-    component hss_adc_ch1 is port (
-        fifo_rd_data_valid : OUT STD_LOGIC; fifo_rd_clk_21 : IN STD_LOGIC; fifo_rd_clk_22 : IN STD_LOGIC;
-        fifo_rd_clk_23 : IN STD_LOGIC; fifo_rd_clk_24 : IN STD_LOGIC;
-        fifo_rd_clk_28 : IN STD_LOGIC; fifo_rd_clk_29 : IN STD_LOGIC;
-        fifo_rd_clk_30 : IN STD_LOGIC; fifo_rd_clk_31 : IN STD_LOGIC; fifo_rd_clk_32 : IN STD_LOGIC;
-        fifo_rd_clk_33 : IN STD_LOGIC; fifo_rd_clk_51 : IN STD_LOGIC;
-        fifo_empty_21 : OUT STD_LOGIC; fifo_empty_22 : OUT STD_LOGIC; fifo_empty_23 : OUT STD_LOGIC; fifo_empty_24 : OUT STD_LOGIC;
-        fifo_empty_28 : OUT STD_LOGIC;
-        fifo_empty_29 : OUT STD_LOGIC; fifo_empty_30 : OUT STD_LOGIC; fifo_empty_31 : OUT STD_LOGIC;
-        fifo_empty_32 : OUT STD_LOGIC; fifo_empty_33 : OUT STD_LOGIC; fifo_empty_51 : OUT STD_LOGIC;
-        vtc_rdy_bsc2 : OUT STD_LOGIC; en_vtc_bsc2 : IN STD_LOGIC; vtc_rdy_bsc3 : OUT STD_LOGIC; en_vtc_bsc3 : IN STD_LOGIC;
-        vtc_rdy_bsc4 : OUT STD_LOGIC; en_vtc_bsc4 : IN STD_LOGIC; vtc_rdy_bsc5 : OUT STD_LOGIC;
-        en_vtc_bsc5 : IN STD_LOGIC; vtc_rdy_bsc6 : OUT STD_LOGIC; en_vtc_bsc6 : IN STD_LOGIC;
-        vtc_rdy_bsc7 : OUT STD_LOGIC; en_vtc_bsc7 : IN STD_LOGIC;
-        dly_rdy_bsc2 : OUT STD_LOGIC; dly_rdy_bsc3 : OUT STD_LOGIC; dly_rdy_bsc4 : OUT STD_LOGIC;
-        dly_rdy_bsc5 : OUT STD_LOGIC; dly_rdy_bsc6 : OUT STD_LOGIC; dly_rdy_bsc7 : OUT STD_LOGIC;
-        rst_seq_done : OUT STD_LOGIC; shared_pll0_clkoutphy_out : OUT STD_LOGIC; pll0_clkout0 : OUT STD_LOGIC;
-        rst : IN STD_LOGIC; clk : IN STD_LOGIC; riu_clk : IN STD_LOGIC; pll0_locked : OUT STD_LOGIC;
-        bg1_pin0_nc : IN STD_LOGIC; bg3_pin0_nc : IN STD_LOGIC;
-        gbtx_clk80_21 : IN STD_LOGIC; data_to_fabric_gbtx_clk80_21 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
-        bg1_pin9_22 : IN STD_LOGIC; data_to_fabric_bg1_pin9_22 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
-        gbtx_clk40_23 : IN STD_LOGIC; data_to_fabric_gbtx_clk40_23 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
-        bg1_pin11_24 : IN STD_LOGIC; data_to_fabric_bg1_pin11_24 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
-        adc_fc_28 : IN STD_LOGIC; data_to_fabric_adc_fc_28 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
-        bg2_pin3_29 : IN STD_LOGIC; data_to_fabric_bg2_pin3_29 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
-        adc_lg_30 : IN STD_LOGIC; data_to_fabric_adc_lg_30 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
-        bg2_pin5_31 : IN STD_LOGIC; data_to_fabric_bg2_pin5_31 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
-        adc_hg_32 : IN STD_LOGIC; data_to_fabric_adc_hg_32 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
-        bg2_pin7_33 : IN STD_LOGIC; data_to_fabric_bg2_pin7_33 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
-        bg3_pin12_51 : IN STD_LOGIC; data_to_fabric_bg3_pin12_51 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0)
-      );
-    end component;
-
-    component hss_adc_ch2 is port (
+    component hss_adc_ch4 is port (
         fifo_rd_data_valid : OUT STD_LOGIC; fifo_rd_clk_21 : IN STD_LOGIC; fifo_rd_clk_22 : IN STD_LOGIC;
         fifo_rd_clk_23 : IN STD_LOGIC; fifo_rd_clk_24 : IN STD_LOGIC;
         fifo_rd_clk_28 : IN STD_LOGIC; fifo_rd_clk_29 : IN STD_LOGIC;
@@ -326,7 +302,7 @@ architecture Behavioral of db6_adc_interface_io_hss is
       );
     end component;
 
-    component hss_adc_ch4 is port (
+    component hss_adc_ch2 is port (
         fifo_rd_data_valid : OUT STD_LOGIC; fifo_rd_clk_21 : IN STD_LOGIC; fifo_rd_clk_22 : IN STD_LOGIC;
         fifo_rd_clk_23 : IN STD_LOGIC; fifo_rd_clk_24 : IN STD_LOGIC;
         fifo_rd_clk_28 : IN STD_LOGIC; fifo_rd_clk_29 : IN STD_LOGIC;
@@ -359,8 +335,40 @@ architecture Behavioral of db6_adc_interface_io_hss is
       );
     end component;
 
-    -- channel 5 (bank 44): the original, first-configured IP, kept as plain "hss_adc"
-    component hss_adc is port (
+    component hss_adc_ch1 is port (
+        fifo_rd_data_valid : OUT STD_LOGIC; fifo_rd_clk_21 : IN STD_LOGIC; fifo_rd_clk_22 : IN STD_LOGIC;
+        fifo_rd_clk_23 : IN STD_LOGIC; fifo_rd_clk_24 : IN STD_LOGIC;
+        fifo_rd_clk_28 : IN STD_LOGIC; fifo_rd_clk_29 : IN STD_LOGIC;
+        fifo_rd_clk_30 : IN STD_LOGIC; fifo_rd_clk_31 : IN STD_LOGIC; fifo_rd_clk_32 : IN STD_LOGIC;
+        fifo_rd_clk_33 : IN STD_LOGIC; fifo_rd_clk_51 : IN STD_LOGIC;
+        fifo_empty_21 : OUT STD_LOGIC; fifo_empty_22 : OUT STD_LOGIC; fifo_empty_23 : OUT STD_LOGIC; fifo_empty_24 : OUT STD_LOGIC;
+        fifo_empty_28 : OUT STD_LOGIC;
+        fifo_empty_29 : OUT STD_LOGIC; fifo_empty_30 : OUT STD_LOGIC; fifo_empty_31 : OUT STD_LOGIC;
+        fifo_empty_32 : OUT STD_LOGIC; fifo_empty_33 : OUT STD_LOGIC; fifo_empty_51 : OUT STD_LOGIC;
+        vtc_rdy_bsc2 : OUT STD_LOGIC; en_vtc_bsc2 : IN STD_LOGIC; vtc_rdy_bsc3 : OUT STD_LOGIC; en_vtc_bsc3 : IN STD_LOGIC;
+        vtc_rdy_bsc4 : OUT STD_LOGIC; en_vtc_bsc4 : IN STD_LOGIC; vtc_rdy_bsc5 : OUT STD_LOGIC;
+        en_vtc_bsc5 : IN STD_LOGIC; vtc_rdy_bsc6 : OUT STD_LOGIC; en_vtc_bsc6 : IN STD_LOGIC;
+        vtc_rdy_bsc7 : OUT STD_LOGIC; en_vtc_bsc7 : IN STD_LOGIC;
+        dly_rdy_bsc2 : OUT STD_LOGIC; dly_rdy_bsc3 : OUT STD_LOGIC; dly_rdy_bsc4 : OUT STD_LOGIC;
+        dly_rdy_bsc5 : OUT STD_LOGIC; dly_rdy_bsc6 : OUT STD_LOGIC; dly_rdy_bsc7 : OUT STD_LOGIC;
+        rst_seq_done : OUT STD_LOGIC; shared_pll0_clkoutphy_out : OUT STD_LOGIC; pll0_clkout0 : OUT STD_LOGIC;
+        rst : IN STD_LOGIC; clk : IN STD_LOGIC; riu_clk : IN STD_LOGIC; pll0_locked : OUT STD_LOGIC;
+        bg1_pin0_nc : IN STD_LOGIC; bg3_pin0_nc : IN STD_LOGIC;
+        gbtx_clk80_21 : IN STD_LOGIC; data_to_fabric_gbtx_clk80_21 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
+        bg1_pin9_22 : IN STD_LOGIC; data_to_fabric_bg1_pin9_22 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
+        gbtx_clk40_23 : IN STD_LOGIC; data_to_fabric_gbtx_clk40_23 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
+        bg1_pin11_24 : IN STD_LOGIC; data_to_fabric_bg1_pin11_24 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
+        adc_fc_28 : IN STD_LOGIC; data_to_fabric_adc_fc_28 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
+        bg2_pin3_29 : IN STD_LOGIC; data_to_fabric_bg2_pin3_29 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
+        adc_lg_30 : IN STD_LOGIC; data_to_fabric_adc_lg_30 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
+        bg2_pin5_31 : IN STD_LOGIC; data_to_fabric_bg2_pin5_31 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
+        adc_hg_32 : IN STD_LOGIC; data_to_fabric_adc_hg_32 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
+        bg2_pin7_33 : IN STD_LOGIC; data_to_fabric_bg2_pin7_33 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
+        bg3_pin12_51 : IN STD_LOGIC; data_to_fabric_bg3_pin12_51 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0)
+      );
+    end component;
+
+    component hss_adc_ch0 is port (
         fifo_rd_data_valid : OUT STD_LOGIC; fifo_rd_clk_21 : IN STD_LOGIC; fifo_rd_clk_22 : IN STD_LOGIC;
         fifo_rd_clk_23 : IN STD_LOGIC; fifo_rd_clk_24 : IN STD_LOGIC;
         fifo_rd_clk_28 : IN STD_LOGIC; fifo_rd_clk_29 : IN STD_LOGIC;
@@ -435,7 +443,7 @@ begin
 
   end generate;
 
-    i_hss_adc_ch0 : hss_adc_ch0
+    i_hss_adc_ch5 : hss_adc_ch5
       port map (
         fifo_rd_data_valid => s_data_valid(0),
         fifo_rd_clk_21 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_22 => p_clknet_in.cfgbus_clk40,
@@ -468,7 +476,7 @@ begin
         bg3_pin12_51 => p_adc_hss_aux1_in(0), data_to_fabric_bg3_pin12_51 => open
       );
 
-    i_hss_adc_ch1 : hss_adc_ch1
+    i_hss_adc_ch4 : hss_adc_ch4
       port map (
         fifo_rd_data_valid => s_data_valid(1),
         fifo_rd_clk_21 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_22 => p_clknet_in.cfgbus_clk40,
@@ -501,7 +509,7 @@ begin
         bg3_pin12_51 => p_adc_hss_aux1_in(1), data_to_fabric_bg3_pin12_51 => open
       );
 
-    i_hss_adc_ch2 : hss_adc_ch2
+    i_hss_adc_ch3 : hss_adc_ch3
       port map (
         fifo_rd_data_valid => s_data_valid(2),
         fifo_rd_clk_21 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_22 => p_clknet_in.cfgbus_clk40,
@@ -534,7 +542,7 @@ begin
         bg3_pin12_51 => p_adc_hss_aux1_in(2), data_to_fabric_bg3_pin12_51 => open
       );
 
-    i_hss_adc_ch3 : hss_adc_ch3
+    i_hss_adc_ch2 : hss_adc_ch2
       port map (
         fifo_rd_data_valid => s_data_valid(3),
         fifo_rd_clk_21 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_22 => p_clknet_in.cfgbus_clk40,
@@ -567,7 +575,7 @@ begin
         bg3_pin12_51 => p_adc_hss_aux1_in(3), data_to_fabric_bg3_pin12_51 => open
       );
 
-    i_hss_adc_ch4 : hss_adc_ch4
+    i_hss_adc_ch1 : hss_adc_ch1
       port map (
         fifo_rd_data_valid => s_data_valid(4),
         fifo_rd_clk_21 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_22 => p_clknet_in.cfgbus_clk40,
@@ -600,7 +608,7 @@ begin
         bg3_pin12_51 => p_adc_hss_aux1_in(4), data_to_fabric_bg3_pin12_51 => open
       );
 
-    i_hss_adc_ch5 : hss_adc
+    i_hss_adc_ch0 : hss_adc_ch0
       port map (
         fifo_rd_data_valid => s_data_valid(5),
         fifo_rd_clk_21 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_22 => p_clknet_in.cfgbus_clk40,
