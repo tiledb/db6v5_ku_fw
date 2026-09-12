@@ -290,10 +290,7 @@
   HWMonitor.registerPlugin({
     id: ID,
     treeNodeTypes: ['sysmon'],
-    onInit() {
-      const btn = document.querySelector('[data-refresh="' + ID + '"]');
-      if (btn) btn.addEventListener('click', refresh);
-    },
+    onInit() {},
     refresh,
     onDisconnect,
     onDeviceChange,

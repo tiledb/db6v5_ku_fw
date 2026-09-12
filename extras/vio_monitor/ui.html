@@ -8,11 +8,15 @@
 </head>
 <body>
 
+<div class="app-shell">
 <header>
   <h1>HW Monitor</h1>
   <div style="display:flex;align-items:center;gap:.5rem">
     <button type="button" class="btn-icon" title="Plugin configuration" onclick="openConfigModal()">⚙</button>
-    <div id="statusBar">Ready</div>
+    <div id="statusBar" class="status-bar">
+      <span id="statusSpinner" class="status-spinner hidden" aria-hidden="true"></span>
+      <span id="statusText">Ready</span>
+    </div>
   </div>
 </header>
 
@@ -21,11 +25,11 @@
     <label>Vivado</label>
     <select id="selVivado" onchange="selectVivado()"></select>
   </div>
-  <div class="field grow">
+  <div class="field field-server">
     <label>Server</label>
-    <div style="display:flex;gap:.25rem">
-      <select id="selServer" onchange="onServerChange()" style="flex:1;max-width:160px"></select>
-      <input type="text" id="serverUrl" placeholder="host:port" style="flex:2">
+    <div class="field-inline">
+      <select id="selServer" onchange="onServerChange()"></select>
+      <input type="text" id="serverUrl" placeholder="host:port">
     </div>
   </div>
   <div class="field">
@@ -109,6 +113,14 @@
   </section>
 </div>
 
+<div id="busyOverlay" class="busy-overlay hidden" aria-live="polite" aria-busy="false">
+  <div class="busy-card">
+    <div class="busy-spinner" aria-hidden="true"></div>
+    <div id="busyLabel" class="busy-label">Working…</div>
+  </div>
+</div>
+</div>
+
 <div class="terminal-wrap">
   <div class="terminal-head" id="termHead" onclick="toggleTerminal()">
     <span id="termArrow">▾</span> Tcl console <span id="termHint"></span>
@@ -127,13 +139,53 @@
       <button type="button" class="btn-icon" onclick="closeConfigModal()">✕</button>
     </div>
     <div class="modal-body">
-      <h3 class="modal-section">Plugins</h3>
-      <p class="modal-hint">Enable or disable tabs. Each plugin lives in its own folder under <code>plugins/</code>.</p>
+      <h3 class="modal-section">Vivado installs</h3>
+      <p class="modal-hint">Label and path shown in the toolbar dropdown. Add manually or merge autodetected installs.</p>
+      <div id="vivadoInstallList" class="server-config-list"></div>
+      <div class="config-btn-row">
+        <button type="button" class="btn-add-row" onclick="addVivadoInstallRow()">+ Add install</button>
+        <button type="button" class="btn-add-row" onclick="autodetectVivadoInstalls()">Autodetect</button>
+      </div>
+      <p class="modal-hint">Active Tcl session: <code id="vivadoCurrentPath"></code></p>
+
+      <h3 class="modal-section">Hardware servers</h3>
+      <p class="modal-hint">Saved hw_server URLs for quick connect. Edit the list below.</p>
+      <div id="serverConfigList" class="server-config-list"></div>
+      <button type="button" class="btn-add-row" onclick="addServerConfigRow()">+ Add server</button>
+
+      <h3 class="modal-section modal-section-last">Plugins</h3>
+      <p class="modal-hint">Enable or disable tabs and use ▲/▼ to set tab order. Use <em>Probe mapping…</em> for VIO names. Uncheck <em>Auto-read when ready</em> to avoid slow first readouts on connect.</p>
       <div id="pluginConfigList"></div>
     </div>
     <div class="modal-foot">
       <button onclick="closeConfigModal()">Cancel</button>
-      <button class="primary" onclick="savePluginConfig()">Save &amp; reload</button>
+      <button class="primary" onclick="saveAppConfig()">Save &amp; reload</button>
+    </div>
+  </div>
+</div>
+
+<div id="probeConfigModal" class="modal">
+  <div class="modal-backdrop" onclick="closeProbeConfigModal()"></div>
+  <div class="modal-panel modal-panel-wide">
+    <div class="modal-head">
+      <h2 id="probeConfigTitle">VIO probe mapping</h2>
+      <button type="button" class="btn-icon" onclick="closeProbeConfigModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="modal-hint" id="probeConfigHint">
+        Load an LTX file to populate VIO probe names. No Vivado connection is required.
+      </p>
+      <div class="probe-ltx-bar" id="probeLtxBar">
+        <label for="probeLtxSelect">LTX file</label>
+        <select id="probeLtxSelect" onchange="onProbeLtxSelect()"></select>
+        <input type="text" id="probeLtxPath" placeholder="path/to/design.ltx" />
+        <button type="button" id="btnProbeLoadLtx" onclick="loadProbeCatalogFromLtx()">Load LTX</button>
+      </div>
+      <div id="probeConfigBody"><p class="empty">Loading…</p></div>
+    </div>
+    <div class="modal-foot">
+      <button type="button" onclick="closeProbeConfigModal()">Cancel</button>
+      <button type="button" class="primary" onclick="saveProbeConfigModal()">Save mapping</button>
     </div>
   </div>
 </div>

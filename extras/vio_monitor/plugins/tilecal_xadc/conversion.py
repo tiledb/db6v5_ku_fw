@@ -133,6 +133,52 @@ FG_DIMENSIONS = [
 ADDR_TO_IDX = {addr: idx for idx, addr in enumerate(ADDRESSES)}
 
 
+def tilecal_xadc_channel_probe_key(addr: int) -> str:
+    return f"ch_{addr:02x}"
+
+
+def default_sysmon_property(addr: int) -> str:
+    """Preferred hw_sysmon property name for a TileCal DRP address."""
+    if addr == 0x00:
+        return "TEMPERATURE"
+    if addr == 0x01:
+        return "VCCINT"
+    if addr == 0x02:
+        return "VCCAUX"
+    if addr == 0x03:
+        return "VP_VN"
+    if addr == 0x04:
+        return "VP_REF"
+    if addr == 0x05:
+        return "VN_REF"
+    if addr == 0x06:
+        return "VCCBRAM"
+    if 0x10 <= addr <= 0x1F:
+        i = addr - 0x10
+        return f"VAUXP{i}_VAUXN{i}"
+    if addr == 0x20:
+        return "MAX_TEMPERATURE"
+    if addr == 0x21:
+        return "MAX_VCCAUX"
+    if addr == 0x22:
+        return "MAX_VCCINT"
+    if addr == 0x23:
+        return "MAX_VCCBRAM"
+    if addr == 0x24:
+        return "MIN_TEMPERATURE"
+    if addr == 0x25:
+        return "MIN_VCCAUX"
+    if addr == 0x26:
+        return "MIN_VCCINT"
+    if addr == 0x27:
+        return "MIN_VCCBRAM"
+    return f"ADDR_0x{addr:02X}"
+
+
+def sysmon_property_catalog() -> list[str]:
+    return sorted(set(SYSMON_PROP_TO_ADDR.keys()))
+
+
 def is_xadc_addr_probe(name: str) -> bool:
     n = (name or "").lower()
     if "probe_in97" in n:
@@ -249,20 +295,43 @@ def _physical_to_raw(idx: int, value: float, prop: str) -> int:
     return int(round((data_eval_mV - FB[idx]) / FA[idx]))
 
 
-def sysmon_to_raw_by_addr(readings: list[dict]) -> tuple[dict[int, int], dict[int, str]]:
+def sysmon_to_raw_by_addr(
+    readings: list[dict],
+    prop_by_addr: dict[int, str] | None = None,
+) -> tuple[dict[int, int], dict[int, str]]:
     """Map hw_sysmon property rows to DRP addresses (16-bit raw codes)."""
-    raw_by_addr: dict[int, int] = {}
-    sources: dict[int, str] = {}
+    prop_by_addr = prop_by_addr or {}
+    reading_by_prop: dict[str, dict] = {}
     for row in readings:
         prop = (row.get("property") or "").upper()
-        if prop.endswith("_SCALE") or prop.endswith("_OFFSET"):
+        if prop:
+            reading_by_prop[prop] = row
+
+    raw_by_addr: dict[int, int] = {}
+    sources: dict[int, str] = {}
+
+    for idx, addr in enumerate(ADDRESSES):
+        configured = prop_by_addr.get(addr)
+        prop_candidates: list[str] = []
+        if configured:
+            prop_candidates.append(configured.upper())
+        default_prop = default_sysmon_property(addr)
+        if default_prop.upper() not in prop_candidates:
+            prop_candidates.append(default_prop.upper())
+        for mapped_prop, mapped_addr in SYSMON_PROP_TO_ADDR.items():
+            if mapped_addr == addr and mapped_prop.upper() not in prop_candidates:
+                prop_candidates.append(mapped_prop.upper())
+
+        row = None
+        matched_prop = None
+        for prop in prop_candidates:
+            row = reading_by_prop.get(prop)
+            if row is not None:
+                matched_prop = prop
+                break
+        if row is None:
             continue
-        addr = SYSMON_PROP_TO_ADDR.get(prop)
-        if addr is None:
-            continue
-        idx = ADDR_TO_IDX.get(addr)
-        if idx is None:
-            continue
+
         text = str(row.get("value") or "").strip()
         if not text:
             continue
@@ -270,13 +339,14 @@ def sysmon_to_raw_by_addr(readings: list[dict]) -> tuple[dict[int, int], dict[in
             if text.lower().startswith("0x"):
                 raw = int(text, 16)
             elif "." in text:
-                raw = _physical_to_raw(idx, float(text), prop)
+                raw = _physical_to_raw(idx, float(text), matched_prop or "")
             else:
                 raw = int(text, 0)
         except (TypeError, ValueError):
             continue
         raw_by_addr[addr] = raw & 0xFFFF
-        sources[addr] = f"sysmon:{prop}"
+        sources[addr] = f"sysmon:{matched_prop}"
+
     return raw_by_addr, sources
 
 

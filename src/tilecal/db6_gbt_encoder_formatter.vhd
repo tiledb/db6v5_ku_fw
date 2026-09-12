@@ -104,6 +104,9 @@ begin
         begin
             if rising_edge(p_clknet_in.cfgbus_clk40) then --(p_clknet_in.refclk40) then--(p_clknet_in.refclk40) then  --(p_clknet_in.gth_txwordclk40_out(i)) then
                 s_tdo<=p_tdo_remote_in;
+                -- see t_gbt_encoder_interface.data_toggle declaration (db6_design_package.vhd)
+                -- and db6_gbt_encoder_gearbox.vhd's proc_cdc_capture for the CDC this feeds
+                s_gbt_encoder_interface.data_toggle <= not s_gbt_encoder_interface.data_toggle;
                 s_gbt_encoder_interface.gbt_tx_data_out.lg(10 downto 0)    <= tilecal.db6_design_package.tile_link_crc_compute(
                                                     "00" &
                                                     s_gbt_encoder_interface.sc_switch(0) &

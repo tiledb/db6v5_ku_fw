@@ -85,10 +85,7 @@
   HWMonitor.registerPlugin({
     id: ID,
     requiresDevice: true,
-    onInit() {
-      const btn = document.querySelector('[data-refresh="' + ID + '"]');
-      if (btn) btn.addEventListener('click', refresh);
-    },
+    onInit() {},
     refresh,
     onDisconnect,
     onDeviceChange,

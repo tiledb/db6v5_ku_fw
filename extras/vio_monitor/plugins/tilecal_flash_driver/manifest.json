@@ -1,0 +1,41 @@
+{
+  "id": "tilecal_flash_driver",
+  "name": "TileCal DB FLASH Driver",
+  "description": "Manual IS25LP256 config-flash access via s_clknet_debug_control flash_manual_* VIO probes",
+  "version": "1.0.0",
+  "default_enabled": true,
+  "order": 36,
+  "requires_target": true,
+  "requires_device": true,
+  "tree_node_types": ["tilecal_flash_driver"],
+  "probe_defaults": {
+    "address_probe": "s_clknet_debug_control[flash_manual_address]",
+    "command_probe": "s_clknet_debug_control[flash_manual_command]",
+    "floor_enable_probe": "s_clknet_debug_control[flash_manual_write_floor_enable]",
+    "floor_probe": "s_clknet_debug_control[flash_manual_write_floor]",
+    "status_probe": "s_system_management_interface[flash_status]",
+    "rdata_probe": "s_system_management_interface[flash_rdata]"
+  },
+  "probe_labels": {
+    "address_probe": "flash_manual_address",
+    "command_probe": "flash_manual_command",
+    "floor_enable_probe": "flash_manual_write_floor_enable",
+    "floor_probe": "flash_manual_write_floor",
+    "status_probe": "flash_status",
+    "rdata_probe": "flash_rdata"
+  },
+  "probe_hints": {
+    "address_probe": "VIO output — 32-bit byte address",
+    "command_probe": "VIO output — start/opcode/length/wdata",
+    "floor_enable_probe": "VIO output — override write floor",
+    "floor_probe": "VIO output — write-protect floor address",
+    "status_probe": "VIO input — bit1=done",
+    "rdata_probe": "VIO input — read data from last command"
+  },
+  "assets": {
+    "panel": "panel.html",
+    "script": "plugin.js",
+    "styles": ["styles.css"],
+    "external_scripts": []
+  }
+}

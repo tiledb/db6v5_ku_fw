@@ -85,6 +85,125 @@ set_clock_groups -asynchronous -group [get_clocks {p_gbt_cfgbus_clk40_local_in[p
 # per-channel IPs; with it, both drop out entirely (confirmed via get_timing_paths).
 set_false_path -to [get_pins -hier -filter {NAME =~ *sync_flop_0*/D}]
 
+# 2026-09-12: db6_adc_interface_decoder_iddr_bitclk280.vhd's gen_tap_select_iddr280_clkdiv
+# (proc_tap_select_sync, the p_adc_bitclkdiv -> cfgbus_clk40 tap-select/tap-locked resync
+# this exception used to cover) was removed along with the whole dual-tap canary-lock CDC
+# it supported -- see that file's proc_cdc_capture header. Replaced by the toggle/handshake
+# exceptions below (shared with db6_adc_interface_decoder_iserdese.vhd's identical pattern)
+# and by db6_adc_idelay_calibration.vhd's own req/ack synchronizer exceptions further down.
+
+# db6_cis_interface_hss_io.vhd's proc_cis_cdc_gen (name mirrors db6_clock_interface.vhd's
+# proc_cdc_gen -- the same established single-flop, edge-tolerant BCR resync pattern used
+# throughout this codebase, see the two set_false_path groups above): reads
+# p_clknet_in.bcr.bcr/bcr_locked directly inside a process clocked by the CIS block's own
+# PLL (s_hss_cis.pll0_clkout0), same class of genuine but intentionally-unsynchronized CDC
+# boundary as the other two groups above -- BCR is a slow (~11kHz), edge-detected orbit
+# pulse; missing a resync cycle here just delays the next resync attempt by one orbit, not
+# a data-integrity issue. Missing this exception showed up as WNS -1.993ns/TNS -10.9ns
+# across 6 endpoints (s_bcr_cis_reg, FSM_onehot_s_sm_cis_sync_reg*, s_cdc_counter_reg*) once
+# g_adc_clocking_scheme=hss_wizard was fully placed and routed (2026-09-10).
+set_false_path -to [get_pins -hier -filter {NAME =~ *s_bcr_cis_reg*/D}]
+set_false_path -to [get_pins -hier -filter {NAME =~ *FSM_onehot_s_sm_cis_sync_reg*/CE}]
+set_false_path -to [get_pins -hier -filter {NAME =~ *s_cdc_counter_reg*/CE}]
+
+# db6_adc_interface_io_hss.vhd (g_adc_clocking_scheme=hss_wizard, 2026-09-11 fix): the
+# hss_wizard decoder's own internal FSM output now genuinely updates in each channel's own
+# s_adc_rx_clk domain (~140MHz, hss_adc's own pll0_clkout0, buffered -- previously this was
+# all tied to cfgbus_clk40, which is why this crossing never showed up before). Two
+# consequences, both false-path-safe for the same underlying reason (see the next group for
+# the second one):
+#
+# ila_adc_readout (db6_mainboard_interface.vhd) samples s_adc_readout's fc/hg/lg
+# data and channel_locked/frame_missalignemt fields on its own separate refclk40 (40MHz), a
+# manually-instantiated debug-only ILA with no auto-inserted timing exception (unlike
+# Vivado's "Mark Debug" flow). Not a real CDC: it's a passive monitoring tap with no
+# feedback into functional logic, so an asynchronous, occasionally-metastable sample is
+# entirely acceptable, same reasoning as the three CDC groups above. Missing this exception
+# is why the router got stuck fighting an unmeetable ~140MHz-to-40MHz same-cycle
+# relationship on ila_adc_readout's own capture register (shifted_data_in_reg*_srl8) after
+# the s_adc_rx_clk fix -- 30+ minutes with no forward progress in rip-up/reroute.
+set_false_path -to [get_pins -hier -filter {NAME =~ *i_ila_adc_readout*/D}]
+
+# same reasoning, two more debug-only consumers newly exposed to this same s_adc_rx_clk
+# crossing: ila_adc_nibble (this session's own new debug ILA, db6_mainboard_interface.vhd)
+# is clocked by channel 0's own s_adc_rx_clk but some of its probes (channel_locked,
+# channel_frame_missalignemt, fc_data) now come from the cfgbus_clk40-domain CDC-lock
+# output in db6_adc_interface_decoder_iserdese.vhd -- the mirror-image crossing direction
+# of the ila_adc_readout case above, same debug-only/no-feedback justification. And
+# vio_clknet_status (db6v5_top.vhd) monitors s_adc_fifo_data_valid/s_adc_rst_seq_done,
+# hss_adc status signals that now genuinely live in the s_adc_rx_clk domain too (same root
+# cause as db6_adc_interface_io_hss.vhd's fix above -- previously accidentally
+# same-domain via the old fifo_rd_clk=cfgbus_clk40 wiring).
+set_false_path -to [get_pins -hier -filter {NAME =~ *i_ila_adc_nibble*/D}]
+set_false_path -to [get_pins -hier -filter {NAME =~ *i_vio_clknet_status*/D}]
+
+# db6_adc_interface_decoder_iserdese.vhd (2026-09-11): async reset-recovery/removal timing
+# on p_master_reset_in (a board-wide, long-asserted system reset) into this decoder's new
+# ~140MHz-domain registers (s_fc_data_fast_reg etc and the proc_align_data/proc_cdc_lock
+# process variables) -- this class of check was never exercised before since everything in
+# this file used to run on the much slower cfgbus_clk40. Standard, always-safe-to-except
+# FPGA practice (Xilinx UG906/UG949): a late-arriving reset *release* here only risks
+# holding these registers in reset one extra cycle, never metastability propagating into
+# data, since the reset itself stays asserted for many cycles at the system level.
+## 2026-09-12: the /R,/PRE,/CLR-only version of this exception above turned out
+## incomplete -- checked against a full post-route report, every one of the 314
+## remaining failing endpoints traced back to s_master_reset_reg[24] (replicated for
+## fanout as _replica_1/_replica_2), not to genuine same-domain data-path logic depth as
+## first suspected. Because p_master_reset_in also participates in proc_align_data's
+## reset/no-reset if-elsif condition (not just the async reset pin itself), synthesis
+## folds part of that check into these registers' CE logic too -- so the exception needs
+## to cover CE destinations as well, which a purely destination-pin-type-based filter
+## can't cleanly do without also catching genuine data-driven CE paths. Sourced instead:
+## anything launched from this specific reset bit's register, landing anywhere in this
+## decoder, is by construction reset-recovery-class, not data-path timing.
+set_false_path -from [get_cells -hier -filter {NAME =~ *s_master_reset_reg*}] -to [get_pins -hier -filter {NAME =~ *i_db6_adc_interface_decoder_iserdese*}]
+
+# db6_adc_interface_decoder_iserdese.vhd (2026-09-12, same root cause as the group above):
+# real functional consumers of s_adc_readout (db6_gbt_encoder_adc_data among others) DO
+# need fc/hg/lg data back in cfgbus_clk40 -- see that file's proc_cdc_capture, a
+# toggle/valid-handshake synchronizer (replaced an earlier dual-tap canary-lock design
+# that gave different, data-dependent latency per channel -- unacceptable for a
+# multi-channel system needing identical fixed latency across all six ADCs; see that
+# file's header comment). The ONLY signal that genuinely crosses the clock boundary
+# asynchronously is the single-bit s_data_toggle, sampled into s_toggle_sync0 -- a
+# conventional first-stage synchronizer flop, the same class of exception as
+# s_frame_missalignment_sync0 just below (a torn read of one bit just glitches cleanly to
+# old or new, never metastability propagating into the multi-bit data itself, which by
+# design is only ever read once the synchronized toggle has settled and confirmed stable
+# for several source cycles).
+set_false_path -to [get_pins -hier -filter {NAME =~ *s_toggle_sync0_reg*/D}]
+# proc_cdc_capture's actual data/status capture (s_adc_readout.fc_data/hg_data/lg_data/
+# channel_locked, all written together inside the same toggle-gated if-block) is, from
+# Vivado's STA point of view, ALSO a clock-boundary-crossing read of the fast-domain
+# s_fc_data_fast/s_hg_data_fast/s_lg_data_fast -- it has no way to know the toggle
+# handshake already guarantees this specific read only ever happens once that data has
+# been stable for several source cycles, so it still reports the same class of unmeetable
+# ~140MHz-to-40MHz timing relationship on these registers as it did on the toggle
+# synchronizer itself. Scoped to this decoder's own hierarchy (s_adc_readout_reg is
+# otherwise unique to it, so this can't accidentally catch anything unrelated).
+set_false_path -to [get_pins -hier -filter {NAME =~ *i_db6_adc_interface_decoder_iserdese*s_adc_readout_reg*/D}]
+# same file's plain double-flop synchronizer for the single-bit channel_frame_missalignemt
+# status (no dual-tap/marker-check needed for a single bit -- a torn read of one bit just
+# glitches cleanly to old or new, unlike a multi-bit word): only the first stage
+# (s_frame_missalignment_sync0_reg) is the actual CDC boundary needing this exception.
+set_false_path -to [get_pins -hier -filter {NAME =~ *s_frame_missalignment_sync0_reg*/D}]
+
+# 2026-09-12: db6_adc_interface_decoder_iddr_bitclk280.vhd's proc_cdc_capture -- identical
+# toggle/handshake pattern and identical signal names (s_toggle_sync0/1/1_prev) to the
+# iserdese decoder above, so the generic s_toggle_sync0_reg exception already covers its
+# first-stage synchronizer. Only the scoped exception for the actual data-capture registers
+# needs a second entry, since that one is deliberately scoped by instance path (see the
+# comment above the iserdese version of this exception).
+set_false_path -to [get_pins -hier -filter {NAME =~ *i_db6_adc_interface_decoder_iddr*s_adc_readout_reg*/D}]
+
+# 2026-09-12: db6_adc_idelay_calibration.vhd's cfgbus_clk40 <-> p_adc_bitclk_in(v_adc)
+# req/ack level-handshake (see that file's header) -- two independent 2-flop synchronizers,
+# one per direction. Same class of exception as every other synchronizer group above: only
+# the first stage of each actually crosses the clock boundary; everything downstream reads
+# an already-settled, held level.
+set_false_path -to [get_pins -hier -filter {NAME =~ *s_load_req_sync0_reg*/D}]
+set_false_path -to [get_pins -hier -filter {NAME =~ *s_load_ack_sync0_reg*/D}]
+
 set_clock_groups -asynchronous -group [get_clocks {p_clk40_out_pll_osc_clk}] -group [get_clocks {p_clk320_out_mmcm_cis_interface}]
 
 #set_false_path -from [get_clocks {p_gbt_cfgbus_clk40_local_in[p]}] -to [get_clocks {txoutclk_out[0]}]

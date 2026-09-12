@@ -28,12 +28,28 @@
 -- place the same cell). Six separately-customized IPs, each targeting its
 -- channel's real bank, avoids this: each gets correct, non-colliding LOCs.
 --
--- hss_adc's own RX FIFO (fifo_rd_clk_*) is read at cfgbus_clk40 (40MHz,
--- matching the ADC frame rate) rather than at the ~140MHz PLL0 output --
--- this makes the FIFO itself the CDC bridge from the write-side (bitclk/4)
--- domain into the cfgbus_clk40 domain that db6_adc_interface_decoder_iserdese
--- / db6_gbt_encoder_sc run on, so p_adc_bitclkdiv_out (the decoder's clock)
--- is simply tied to cfgbus_clk40 -- no separate synchronizer needed.
+-- 2026-09-11: hss_adc's own RX FIFO (fifo_rd_clk_*) used to be read at
+-- cfgbus_clk40 (40MHz) instead of the wizard's own ~140MHz pll0_clkout0
+-- output (which was left "=> open", unused), on the theory that this made
+-- the FIFO itself a safe CDC bridge from the write-side (bitclk/4, ~140MHz)
+-- domain into cfgbus_clk40, letting p_adc_bitclkdiv_out (the decoder's
+-- clock) just tie to cfgbus_clk40 directly with no separate synchronizer.
+-- That reasoning doesn't hold: nothing ever checked fifo_empty/
+-- fifo_rd_data_valid, so the "bridge" had no actual handshake -- it just
+-- read at an arbitrary, much slower rate than data was being written,
+-- aliasing the stream. Confirmed on hardware: a dedicated per-channel ILA
+-- sampling the raw pre-decode nibbles in this file's own clock domain
+-- showed a spurious steady period of 6 divided-clock cycles instead of the
+-- true 7-nibble/28-bit marker period, and db6_adc_interface_decoder_iserdese's
+-- frame-marker FSM could only ever match by lucky partial coincidence,
+-- never achieve a continuously-reverified lock -- independent of its
+-- comparison-constant bit order, which was a red herring chased earlier.
+-- Fixed by looping hss_adc's own pll0_clkout0 back as fifo_rd_clk_* for
+-- that same channel (see db6_cis_interface_hss_io.vhd's identical, working
+-- pll0_clkout0 usage -- there documented "160mhz @ 1280mbps", same
+-- SERIALIZATION_FACTOR-derived ratio, used directly with no explicit BUFG)
+-- and using it as p_adc_bitclkdiv_out too, so RX data and the decoder now
+-- share one real, correctly-paced clock domain -- no CDC needed here at all.
 --
 -- Pin group: on this board, every channel's bitclk/frameclk/lg/hg pads
 -- physically land in the T2 byte-group of their bank (confirmed via each
@@ -208,8 +224,7 @@ architecture Behavioral of db6_adc_interface_io_hss is
         rst : IN STD_LOGIC;
         clk : IN STD_LOGIC;
         riu_clk : IN STD_LOGIC;
-        pll0_locked : OUT STD_LOGIC;
-        bg1_pin0_nc : IN STD_LOGIC;
+        pll0_locked : OUT STD_LOGIC;        bg1_pin0_nc : IN STD_LOGIC;
         bg3_pin0_nc : IN STD_LOGIC;
         gbtx_clk80_21 : IN STD_LOGIC;
         data_to_fabric_gbtx_clk80_21 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
@@ -236,7 +251,7 @@ architecture Behavioral of db6_adc_interface_io_hss is
       );
     end component;
 
-    component hss_adc_ch4 is port (
+    component hss_adc_ch4 port (
         fifo_rd_data_valid : OUT STD_LOGIC; fifo_rd_clk_21 : IN STD_LOGIC; fifo_rd_clk_22 : IN STD_LOGIC;
         fifo_rd_clk_23 : IN STD_LOGIC; fifo_rd_clk_24 : IN STD_LOGIC;
         fifo_rd_clk_28 : IN STD_LOGIC; fifo_rd_clk_29 : IN STD_LOGIC;
@@ -253,8 +268,7 @@ architecture Behavioral of db6_adc_interface_io_hss is
         dly_rdy_bsc2 : OUT STD_LOGIC; dly_rdy_bsc3 : OUT STD_LOGIC; dly_rdy_bsc4 : OUT STD_LOGIC;
         dly_rdy_bsc5 : OUT STD_LOGIC; dly_rdy_bsc6 : OUT STD_LOGIC; dly_rdy_bsc7 : OUT STD_LOGIC;
         rst_seq_done : OUT STD_LOGIC; shared_pll0_clkoutphy_out : OUT STD_LOGIC; pll0_clkout0 : OUT STD_LOGIC;
-        rst : IN STD_LOGIC; clk : IN STD_LOGIC; riu_clk : IN STD_LOGIC; pll0_locked : OUT STD_LOGIC;
-        bg1_pin0_nc : IN STD_LOGIC; bg3_pin0_nc : IN STD_LOGIC;
+        rst : IN STD_LOGIC; clk : IN STD_LOGIC; riu_clk : IN STD_LOGIC; pll0_locked : OUT STD_LOGIC;        bg1_pin0_nc : IN STD_LOGIC; bg3_pin0_nc : IN STD_LOGIC;
         gbtx_clk80_21 : IN STD_LOGIC; data_to_fabric_gbtx_clk80_21 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
         bg1_pin9_22 : IN STD_LOGIC; data_to_fabric_bg1_pin9_22 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
         gbtx_clk40_23 : IN STD_LOGIC; data_to_fabric_gbtx_clk40_23 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
@@ -269,7 +283,7 @@ architecture Behavioral of db6_adc_interface_io_hss is
       );
     end component;
 
-    component hss_adc_ch3 is port (
+    component hss_adc_ch3 port (
         fifo_rd_data_valid : OUT STD_LOGIC; fifo_rd_clk_21 : IN STD_LOGIC; fifo_rd_clk_22 : IN STD_LOGIC;
         fifo_rd_clk_23 : IN STD_LOGIC; fifo_rd_clk_24 : IN STD_LOGIC;
         fifo_rd_clk_28 : IN STD_LOGIC; fifo_rd_clk_29 : IN STD_LOGIC;
@@ -286,8 +300,7 @@ architecture Behavioral of db6_adc_interface_io_hss is
         dly_rdy_bsc2 : OUT STD_LOGIC; dly_rdy_bsc3 : OUT STD_LOGIC; dly_rdy_bsc4 : OUT STD_LOGIC;
         dly_rdy_bsc5 : OUT STD_LOGIC; dly_rdy_bsc6 : OUT STD_LOGIC; dly_rdy_bsc7 : OUT STD_LOGIC;
         rst_seq_done : OUT STD_LOGIC; shared_pll0_clkoutphy_out : OUT STD_LOGIC; pll0_clkout0 : OUT STD_LOGIC;
-        rst : IN STD_LOGIC; clk : IN STD_LOGIC; riu_clk : IN STD_LOGIC; pll0_locked : OUT STD_LOGIC;
-        bg1_pin0_nc : IN STD_LOGIC; bg3_pin0_nc : IN STD_LOGIC;
+        rst : IN STD_LOGIC; clk : IN STD_LOGIC; riu_clk : IN STD_LOGIC; pll0_locked : OUT STD_LOGIC;        bg1_pin0_nc : IN STD_LOGIC; bg3_pin0_nc : IN STD_LOGIC;
         gbtx_clk80_21 : IN STD_LOGIC; data_to_fabric_gbtx_clk80_21 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
         bg1_pin9_22 : IN STD_LOGIC; data_to_fabric_bg1_pin9_22 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
         gbtx_clk40_23 : IN STD_LOGIC; data_to_fabric_gbtx_clk40_23 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
@@ -302,7 +315,7 @@ architecture Behavioral of db6_adc_interface_io_hss is
       );
     end component;
 
-    component hss_adc_ch2 is port (
+    component hss_adc_ch2 port (
         fifo_rd_data_valid : OUT STD_LOGIC; fifo_rd_clk_21 : IN STD_LOGIC; fifo_rd_clk_22 : IN STD_LOGIC;
         fifo_rd_clk_23 : IN STD_LOGIC; fifo_rd_clk_24 : IN STD_LOGIC;
         fifo_rd_clk_28 : IN STD_LOGIC; fifo_rd_clk_29 : IN STD_LOGIC;
@@ -319,8 +332,7 @@ architecture Behavioral of db6_adc_interface_io_hss is
         dly_rdy_bsc2 : OUT STD_LOGIC; dly_rdy_bsc3 : OUT STD_LOGIC; dly_rdy_bsc4 : OUT STD_LOGIC;
         dly_rdy_bsc5 : OUT STD_LOGIC; dly_rdy_bsc6 : OUT STD_LOGIC; dly_rdy_bsc7 : OUT STD_LOGIC;
         rst_seq_done : OUT STD_LOGIC; shared_pll0_clkoutphy_out : OUT STD_LOGIC; pll0_clkout0 : OUT STD_LOGIC;
-        rst : IN STD_LOGIC; clk : IN STD_LOGIC; riu_clk : IN STD_LOGIC; pll0_locked : OUT STD_LOGIC;
-        bg1_pin0_nc : IN STD_LOGIC; bg3_pin0_nc : IN STD_LOGIC;
+        rst : IN STD_LOGIC; clk : IN STD_LOGIC; riu_clk : IN STD_LOGIC; pll0_locked : OUT STD_LOGIC;        bg1_pin0_nc : IN STD_LOGIC; bg3_pin0_nc : IN STD_LOGIC;
         gbtx_clk80_21 : IN STD_LOGIC; data_to_fabric_gbtx_clk80_21 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
         bg1_pin9_22 : IN STD_LOGIC; data_to_fabric_bg1_pin9_22 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
         gbtx_clk40_23 : IN STD_LOGIC; data_to_fabric_gbtx_clk40_23 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
@@ -335,7 +347,7 @@ architecture Behavioral of db6_adc_interface_io_hss is
       );
     end component;
 
-    component hss_adc_ch1 is port (
+    component hss_adc_ch1 port (
         fifo_rd_data_valid : OUT STD_LOGIC; fifo_rd_clk_21 : IN STD_LOGIC; fifo_rd_clk_22 : IN STD_LOGIC;
         fifo_rd_clk_23 : IN STD_LOGIC; fifo_rd_clk_24 : IN STD_LOGIC;
         fifo_rd_clk_28 : IN STD_LOGIC; fifo_rd_clk_29 : IN STD_LOGIC;
@@ -352,8 +364,7 @@ architecture Behavioral of db6_adc_interface_io_hss is
         dly_rdy_bsc2 : OUT STD_LOGIC; dly_rdy_bsc3 : OUT STD_LOGIC; dly_rdy_bsc4 : OUT STD_LOGIC;
         dly_rdy_bsc5 : OUT STD_LOGIC; dly_rdy_bsc6 : OUT STD_LOGIC; dly_rdy_bsc7 : OUT STD_LOGIC;
         rst_seq_done : OUT STD_LOGIC; shared_pll0_clkoutphy_out : OUT STD_LOGIC; pll0_clkout0 : OUT STD_LOGIC;
-        rst : IN STD_LOGIC; clk : IN STD_LOGIC; riu_clk : IN STD_LOGIC; pll0_locked : OUT STD_LOGIC;
-        bg1_pin0_nc : IN STD_LOGIC; bg3_pin0_nc : IN STD_LOGIC;
+        rst : IN STD_LOGIC; clk : IN STD_LOGIC; riu_clk : IN STD_LOGIC; pll0_locked : OUT STD_LOGIC;        bg1_pin0_nc : IN STD_LOGIC; bg3_pin0_nc : IN STD_LOGIC;
         gbtx_clk80_21 : IN STD_LOGIC; data_to_fabric_gbtx_clk80_21 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
         bg1_pin9_22 : IN STD_LOGIC; data_to_fabric_bg1_pin9_22 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
         gbtx_clk40_23 : IN STD_LOGIC; data_to_fabric_gbtx_clk40_23 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
@@ -368,7 +379,7 @@ architecture Behavioral of db6_adc_interface_io_hss is
       );
     end component;
 
-    component hss_adc_ch0 is port (
+    component hss_adc_ch0 port (
         fifo_rd_data_valid : OUT STD_LOGIC; fifo_rd_clk_21 : IN STD_LOGIC; fifo_rd_clk_22 : IN STD_LOGIC;
         fifo_rd_clk_23 : IN STD_LOGIC; fifo_rd_clk_24 : IN STD_LOGIC;
         fifo_rd_clk_28 : IN STD_LOGIC; fifo_rd_clk_29 : IN STD_LOGIC;
@@ -385,8 +396,7 @@ architecture Behavioral of db6_adc_interface_io_hss is
         dly_rdy_bsc2 : OUT STD_LOGIC; dly_rdy_bsc3 : OUT STD_LOGIC; dly_rdy_bsc4 : OUT STD_LOGIC;
         dly_rdy_bsc5 : OUT STD_LOGIC; dly_rdy_bsc6 : OUT STD_LOGIC; dly_rdy_bsc7 : OUT STD_LOGIC;
         rst_seq_done : OUT STD_LOGIC; shared_pll0_clkoutphy_out : OUT STD_LOGIC; pll0_clkout0 : OUT STD_LOGIC;
-        rst : IN STD_LOGIC; clk : IN STD_LOGIC; riu_clk : IN STD_LOGIC; pll0_locked : OUT STD_LOGIC;
-        bg1_pin0_nc : IN STD_LOGIC; bg3_pin0_nc : IN STD_LOGIC;
+        rst : IN STD_LOGIC; clk : IN STD_LOGIC; riu_clk : IN STD_LOGIC; pll0_locked : OUT STD_LOGIC;        bg1_pin0_nc : IN STD_LOGIC; bg3_pin0_nc : IN STD_LOGIC;
         gbtx_clk80_21 : IN STD_LOGIC; data_to_fabric_gbtx_clk80_21 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
         bg1_pin9_22 : IN STD_LOGIC; data_to_fabric_bg1_pin9_22 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
         gbtx_clk40_23 : IN STD_LOGIC; data_to_fabric_gbtx_clk40_23 : OUT STD_LOGIC_VECTOR(3 DOWNTO 0);
@@ -409,6 +419,27 @@ architecture Behavioral of db6_adc_interface_io_hss is
     signal s_pll0_locked  : t_std_logic_array6;
     signal s_rst_seq_done : t_std_logic_array6;
     signal s_data_valid   : t_std_logic_array6;
+    -- 2026-09-11: hss_wizard's own generated RX word clock (per channel), ~140MHz at
+    -- 560Mbps/SERIALIZATION_FACTOR=4 -- see db6_cis_interface_hss_io.vhd's identical
+    -- pll0_clkout0 usage (there documented "160mhz @ 1280mbps", same ratio) for the
+    -- proven-working precedent this mirrors. Previously this port was left "=> open"
+    -- and every fifo_rd_clk_* plus p_adc_bitclkdiv_out was tied to the unrelated
+    -- 40MHz cfgbus_clk40 instead -- reading a ~140MHz-updating RX FIFO on an
+    -- unrelated 40MHz clock with no use of fifo_rd_data_valid to qualify the reads,
+    -- which aliased the data and made db6_adc_interface_decoder_iserdese's
+    -- frame-marker FSM unable to ever see a correctly-ordered nibble sequence,
+    -- independent of its comparison-constant bit order (verified via hardware
+    -- capture: raw nibble stream showed a spurious steady period of 6 divided-clock
+    -- cycles instead of the true 7-nibble/28-bit marker period).
+    --
+    -- s_adc_rx_clk_raw is pll0_clkout0 straight off the wizard; s_adc_rx_clk is that
+    -- signal through a per-channel BUFG. Unlike db6_cis_interface_hss_io.vhd's use
+    -- (plain fabric FF clock, one instance), here pll0_clkout0 also needs to drive
+    -- fifo_rd_clk_* on up to 11 bitslices of the SAME channel -- a raw PLL output
+    -- routed as general interconnect to that many clock-input pins produced
+    -- pathological routing congestion on hardware (~12000 unresolved node overlaps,
+    -- no forward progress after 30+ minutes of rip-up/reroute) until buffered here.
+    signal s_adc_rx_clk_raw, s_adc_rx_clk : t_std_logic_array6;
 
     signal s_data_lg, s_data_hg, s_data_fc : t_byteslice_sr := (others => (others => '0'));
     signal s_data_gbtx_clk40, s_data_gbtx_clk80 : t_byteslice_sr := (others => (others => '0'));
@@ -426,6 +457,19 @@ begin
         IB => p_adc_bitclk_in(i).n
         );
 
+    -- DRC REQP-1852 (Warning, harmless): flags this as cascaded from the wizard's own
+    -- internal pll0_clkout0_buf BUFGCE (confirmed via report_drc -- that's why
+    -- db6_cis_interface_hss_io.vhd's single-fanout use of pll0_clkout0 needs no buffer of
+    -- its own). Redundant double-buffering, but resolving the routing congestion that
+    -- motivated adding it (~12000 unresolved node overlaps driving fifo_rd_clk_* on 11
+    -- bitslices per channel directly from the unbuffered PLL output, see comment above)
+    -- mattered more than removing one redundant BUFG once it worked -- left in place.
+    i_BUFG_ADC_RX_CLK : BUFG -- see s_adc_rx_clk_raw/s_adc_rx_clk comment above
+      port map (
+        O => s_adc_rx_clk(i),
+        I => s_adc_rx_clk_raw(i)
+        );
+
     proc_reset_sync : process(p_clknet_in.cfgbus_clk40, p_master_reset_in)
     begin
         if p_master_reset_in = '1' then
@@ -438,7 +482,7 @@ begin
     end process;
 
       p_adc_bitclk_out(i)         <= s_bitclk_se(i);
-      p_adc_bitclkdiv_out(i)      <= p_clknet_in.cfgbus_clk40;
+      p_adc_bitclkdiv_out(i)      <= s_adc_rx_clk(i);
       p_ctrl_reset_from_sm_out(i) <= '0'; -- RX_DELAY_TYPE=FIXED: no idelay resync needed
 
   end generate;
@@ -446,12 +490,12 @@ begin
     i_hss_adc_ch5 : hss_adc_ch5
       port map (
         fifo_rd_data_valid => s_data_valid(0),
-        fifo_rd_clk_21 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_22 => p_clknet_in.cfgbus_clk40,
-        fifo_rd_clk_23 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_24 => p_clknet_in.cfgbus_clk40,
-        fifo_rd_clk_28 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_29 => p_clknet_in.cfgbus_clk40,
-        fifo_rd_clk_30 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_31 => p_clknet_in.cfgbus_clk40,
-        fifo_rd_clk_32 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_33 => p_clknet_in.cfgbus_clk40,
-        fifo_rd_clk_51 => p_clknet_in.cfgbus_clk40,
+        fifo_rd_clk_21 => s_adc_rx_clk(0), fifo_rd_clk_22 => s_adc_rx_clk(0),
+        fifo_rd_clk_23 => s_adc_rx_clk(0), fifo_rd_clk_24 => s_adc_rx_clk(0),
+        fifo_rd_clk_28 => s_adc_rx_clk(0), fifo_rd_clk_29 => s_adc_rx_clk(0),
+        fifo_rd_clk_30 => s_adc_rx_clk(0), fifo_rd_clk_31 => s_adc_rx_clk(0),
+        fifo_rd_clk_32 => s_adc_rx_clk(0), fifo_rd_clk_33 => s_adc_rx_clk(0),
+        fifo_rd_clk_51 => s_adc_rx_clk(0),
         fifo_empty_21 => open, fifo_empty_22 => open, fifo_empty_23 => open, fifo_empty_24 => open,
         fifo_empty_28 => open, fifo_empty_29 => open, fifo_empty_30 => open, fifo_empty_31 => open,
         fifo_empty_32 => open, fifo_empty_33 => open, fifo_empty_51 => open,
@@ -460,9 +504,8 @@ begin
         vtc_rdy_bsc6 => open, en_vtc_bsc6 => s_en_vtc(0), vtc_rdy_bsc7 => open, en_vtc_bsc7 => s_en_vtc(0),
         dly_rdy_bsc2 => open, dly_rdy_bsc3 => open, dly_rdy_bsc4 => open, dly_rdy_bsc5 => open,
         dly_rdy_bsc6 => open, dly_rdy_bsc7 => open,
-        rst_seq_done => s_rst_seq_done(0), shared_pll0_clkoutphy_out => open, pll0_clkout0 => open,
-        rst => s_rst(0), clk => s_bitclk_se(0), riu_clk => p_clknet_in.cfgbus_clk40, pll0_locked => s_pll0_locked(0),
-        bg1_pin0_nc => p_adc_hss_aux2_in(0), bg3_pin0_nc => p_adc_hss_aux0_in(0),
+        rst_seq_done => s_rst_seq_done(0), shared_pll0_clkoutphy_out => open, pll0_clkout0 => s_adc_rx_clk_raw(0),
+        rst => s_rst(0), clk => s_bitclk_se(0), riu_clk => p_clknet_in.cfgbus_clk40, pll0_locked => s_pll0_locked(0),        bg1_pin0_nc => p_adc_hss_aux2_in(0), bg3_pin0_nc => p_adc_hss_aux0_in(0),
         gbtx_clk80_21 => p_gbtx_clk80_b68_in.p, data_to_fabric_gbtx_clk80_21 => s_data_gbtx_clk80(0)(3 downto 0),
         bg1_pin9_22 => p_gbtx_clk80_b68_in.n, data_to_fabric_bg1_pin9_22 => open,
         gbtx_clk40_23 => p_gbtx_clk40_b68_in.p, data_to_fabric_gbtx_clk40_23 => s_data_gbtx_clk40(0)(3 downto 0),
@@ -479,12 +522,12 @@ begin
     i_hss_adc_ch4 : hss_adc_ch4
       port map (
         fifo_rd_data_valid => s_data_valid(1),
-        fifo_rd_clk_21 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_22 => p_clknet_in.cfgbus_clk40,
-        fifo_rd_clk_23 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_24 => p_clknet_in.cfgbus_clk40,
-        fifo_rd_clk_28 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_29 => p_clknet_in.cfgbus_clk40,
-        fifo_rd_clk_30 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_31 => p_clknet_in.cfgbus_clk40,
-        fifo_rd_clk_32 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_33 => p_clknet_in.cfgbus_clk40,
-        fifo_rd_clk_51 => p_clknet_in.cfgbus_clk40,
+        fifo_rd_clk_21 => s_adc_rx_clk(1), fifo_rd_clk_22 => s_adc_rx_clk(1),
+        fifo_rd_clk_23 => s_adc_rx_clk(1), fifo_rd_clk_24 => s_adc_rx_clk(1),
+        fifo_rd_clk_28 => s_adc_rx_clk(1), fifo_rd_clk_29 => s_adc_rx_clk(1),
+        fifo_rd_clk_30 => s_adc_rx_clk(1), fifo_rd_clk_31 => s_adc_rx_clk(1),
+        fifo_rd_clk_32 => s_adc_rx_clk(1), fifo_rd_clk_33 => s_adc_rx_clk(1),
+        fifo_rd_clk_51 => s_adc_rx_clk(1),
         fifo_empty_21 => open, fifo_empty_22 => open, fifo_empty_23 => open, fifo_empty_24 => open,
         fifo_empty_28 => open, fifo_empty_29 => open, fifo_empty_30 => open, fifo_empty_31 => open,
         fifo_empty_32 => open, fifo_empty_33 => open, fifo_empty_51 => open,
@@ -493,9 +536,8 @@ begin
         vtc_rdy_bsc6 => open, en_vtc_bsc6 => s_en_vtc(1), vtc_rdy_bsc7 => open, en_vtc_bsc7 => s_en_vtc(1),
         dly_rdy_bsc2 => open, dly_rdy_bsc3 => open, dly_rdy_bsc4 => open, dly_rdy_bsc5 => open,
         dly_rdy_bsc6 => open, dly_rdy_bsc7 => open,
-        rst_seq_done => s_rst_seq_done(1), shared_pll0_clkoutphy_out => open, pll0_clkout0 => open,
-        rst => s_rst(1), clk => s_bitclk_se(1), riu_clk => p_clknet_in.cfgbus_clk40, pll0_locked => s_pll0_locked(1),
-        bg1_pin0_nc => p_adc_hss_aux2_in(1), bg3_pin0_nc => p_adc_hss_aux0_in(1),
+        rst_seq_done => s_rst_seq_done(1), shared_pll0_clkoutphy_out => open, pll0_clkout0 => s_adc_rx_clk_raw(1),
+        rst => s_rst(1), clk => s_bitclk_se(1), riu_clk => p_clknet_in.cfgbus_clk40, pll0_locked => s_pll0_locked(1),        bg1_pin0_nc => p_adc_hss_aux2_in(1), bg3_pin0_nc => p_adc_hss_aux0_in(1),
         gbtx_clk80_21 => p_gbtx_clk80_b67_in.p, data_to_fabric_gbtx_clk80_21 => s_data_gbtx_clk80(1)(3 downto 0),
         bg1_pin9_22 => p_gbtx_clk80_b67_in.n, data_to_fabric_bg1_pin9_22 => open,
         gbtx_clk40_23 => p_gbtx_clk40_b67_in.p, data_to_fabric_gbtx_clk40_23 => s_data_gbtx_clk40(1)(3 downto 0),
@@ -512,12 +554,12 @@ begin
     i_hss_adc_ch3 : hss_adc_ch3
       port map (
         fifo_rd_data_valid => s_data_valid(2),
-        fifo_rd_clk_21 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_22 => p_clknet_in.cfgbus_clk40,
-        fifo_rd_clk_23 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_24 => p_clknet_in.cfgbus_clk40,
-        fifo_rd_clk_28 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_29 => p_clknet_in.cfgbus_clk40,
-        fifo_rd_clk_30 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_31 => p_clknet_in.cfgbus_clk40,
-        fifo_rd_clk_32 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_33 => p_clknet_in.cfgbus_clk40,
-        fifo_rd_clk_51 => p_clknet_in.cfgbus_clk40,
+        fifo_rd_clk_21 => s_adc_rx_clk(2), fifo_rd_clk_22 => s_adc_rx_clk(2),
+        fifo_rd_clk_23 => s_adc_rx_clk(2), fifo_rd_clk_24 => s_adc_rx_clk(2),
+        fifo_rd_clk_28 => s_adc_rx_clk(2), fifo_rd_clk_29 => s_adc_rx_clk(2),
+        fifo_rd_clk_30 => s_adc_rx_clk(2), fifo_rd_clk_31 => s_adc_rx_clk(2),
+        fifo_rd_clk_32 => s_adc_rx_clk(2), fifo_rd_clk_33 => s_adc_rx_clk(2),
+        fifo_rd_clk_51 => s_adc_rx_clk(2),
         fifo_empty_21 => open, fifo_empty_22 => open, fifo_empty_23 => open, fifo_empty_24 => open,
         fifo_empty_28 => open, fifo_empty_29 => open, fifo_empty_30 => open, fifo_empty_31 => open,
         fifo_empty_32 => open, fifo_empty_33 => open, fifo_empty_51 => open,
@@ -526,9 +568,8 @@ begin
         vtc_rdy_bsc6 => open, en_vtc_bsc6 => s_en_vtc(2), vtc_rdy_bsc7 => open, en_vtc_bsc7 => s_en_vtc(2),
         dly_rdy_bsc2 => open, dly_rdy_bsc3 => open, dly_rdy_bsc4 => open, dly_rdy_bsc5 => open,
         dly_rdy_bsc6 => open, dly_rdy_bsc7 => open,
-        rst_seq_done => s_rst_seq_done(2), shared_pll0_clkoutphy_out => open, pll0_clkout0 => open,
-        rst => s_rst(2), clk => s_bitclk_se(2), riu_clk => p_clknet_in.cfgbus_clk40, pll0_locked => s_pll0_locked(2),
-        bg1_pin0_nc => p_adc_hss_aux2_in(2), bg3_pin0_nc => p_adc_hss_aux0_in(2),
+        rst_seq_done => s_rst_seq_done(2), shared_pll0_clkoutphy_out => open, pll0_clkout0 => s_adc_rx_clk_raw(2),
+        rst => s_rst(2), clk => s_bitclk_se(2), riu_clk => p_clknet_in.cfgbus_clk40, pll0_locked => s_pll0_locked(2),        bg1_pin0_nc => p_adc_hss_aux2_in(2), bg3_pin0_nc => p_adc_hss_aux0_in(2),
         gbtx_clk80_21 => p_gbtx_clk80_b66_in.p, data_to_fabric_gbtx_clk80_21 => s_data_gbtx_clk80(2)(3 downto 0),
         bg1_pin9_22 => p_gbtx_clk80_b66_in.n, data_to_fabric_bg1_pin9_22 => open,
         gbtx_clk40_23 => p_gbtx_clk40_b66_in.p, data_to_fabric_gbtx_clk40_23 => s_data_gbtx_clk40(2)(3 downto 0),
@@ -545,12 +586,12 @@ begin
     i_hss_adc_ch2 : hss_adc_ch2
       port map (
         fifo_rd_data_valid => s_data_valid(3),
-        fifo_rd_clk_21 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_22 => p_clknet_in.cfgbus_clk40,
-        fifo_rd_clk_23 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_24 => p_clknet_in.cfgbus_clk40,
-        fifo_rd_clk_28 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_29 => p_clknet_in.cfgbus_clk40,
-        fifo_rd_clk_30 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_31 => p_clknet_in.cfgbus_clk40,
-        fifo_rd_clk_32 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_33 => p_clknet_in.cfgbus_clk40,
-        fifo_rd_clk_51 => p_clknet_in.cfgbus_clk40,
+        fifo_rd_clk_21 => s_adc_rx_clk(3), fifo_rd_clk_22 => s_adc_rx_clk(3),
+        fifo_rd_clk_23 => s_adc_rx_clk(3), fifo_rd_clk_24 => s_adc_rx_clk(3),
+        fifo_rd_clk_28 => s_adc_rx_clk(3), fifo_rd_clk_29 => s_adc_rx_clk(3),
+        fifo_rd_clk_30 => s_adc_rx_clk(3), fifo_rd_clk_31 => s_adc_rx_clk(3),
+        fifo_rd_clk_32 => s_adc_rx_clk(3), fifo_rd_clk_33 => s_adc_rx_clk(3),
+        fifo_rd_clk_51 => s_adc_rx_clk(3),
         fifo_empty_21 => open, fifo_empty_22 => open, fifo_empty_23 => open, fifo_empty_24 => open,
         fifo_empty_28 => open, fifo_empty_29 => open, fifo_empty_30 => open, fifo_empty_31 => open,
         fifo_empty_32 => open, fifo_empty_33 => open, fifo_empty_51 => open,
@@ -559,9 +600,8 @@ begin
         vtc_rdy_bsc6 => open, en_vtc_bsc6 => s_en_vtc(3), vtc_rdy_bsc7 => open, en_vtc_bsc7 => s_en_vtc(3),
         dly_rdy_bsc2 => open, dly_rdy_bsc3 => open, dly_rdy_bsc4 => open, dly_rdy_bsc5 => open,
         dly_rdy_bsc6 => open, dly_rdy_bsc7 => open,
-        rst_seq_done => s_rst_seq_done(3), shared_pll0_clkoutphy_out => open, pll0_clkout0 => open,
-        rst => s_rst(3), clk => s_bitclk_se(3), riu_clk => p_clknet_in.cfgbus_clk40, pll0_locked => s_pll0_locked(3),
-        bg1_pin0_nc => p_adc_hss_aux2_in(3), bg3_pin0_nc => p_adc_hss_aux0_in(3),
+        rst_seq_done => s_rst_seq_done(3), shared_pll0_clkoutphy_out => open, pll0_clkout0 => s_adc_rx_clk_raw(3),
+        rst => s_rst(3), clk => s_bitclk_se(3), riu_clk => p_clknet_in.cfgbus_clk40, pll0_locked => s_pll0_locked(3),        bg1_pin0_nc => p_adc_hss_aux2_in(3), bg3_pin0_nc => p_adc_hss_aux0_in(3),
         gbtx_clk80_21 => p_gbtx_clk80_b47_in.p, data_to_fabric_gbtx_clk80_21 => s_data_gbtx_clk80(3)(3 downto 0),
         bg1_pin9_22 => p_gbtx_clk80_b47_in.n, data_to_fabric_bg1_pin9_22 => open,
         gbtx_clk40_23 => p_gbtx_clk40_b47_in.p, data_to_fabric_gbtx_clk40_23 => s_data_gbtx_clk40(3)(3 downto 0),
@@ -578,12 +618,12 @@ begin
     i_hss_adc_ch1 : hss_adc_ch1
       port map (
         fifo_rd_data_valid => s_data_valid(4),
-        fifo_rd_clk_21 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_22 => p_clknet_in.cfgbus_clk40,
-        fifo_rd_clk_23 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_24 => p_clknet_in.cfgbus_clk40,
-        fifo_rd_clk_28 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_29 => p_clknet_in.cfgbus_clk40,
-        fifo_rd_clk_30 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_31 => p_clknet_in.cfgbus_clk40,
-        fifo_rd_clk_32 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_33 => p_clknet_in.cfgbus_clk40,
-        fifo_rd_clk_51 => p_clknet_in.cfgbus_clk40,
+        fifo_rd_clk_21 => s_adc_rx_clk(4), fifo_rd_clk_22 => s_adc_rx_clk(4),
+        fifo_rd_clk_23 => s_adc_rx_clk(4), fifo_rd_clk_24 => s_adc_rx_clk(4),
+        fifo_rd_clk_28 => s_adc_rx_clk(4), fifo_rd_clk_29 => s_adc_rx_clk(4),
+        fifo_rd_clk_30 => s_adc_rx_clk(4), fifo_rd_clk_31 => s_adc_rx_clk(4),
+        fifo_rd_clk_32 => s_adc_rx_clk(4), fifo_rd_clk_33 => s_adc_rx_clk(4),
+        fifo_rd_clk_51 => s_adc_rx_clk(4),
         fifo_empty_21 => open, fifo_empty_22 => open, fifo_empty_23 => open, fifo_empty_24 => open,
         fifo_empty_28 => open, fifo_empty_29 => open, fifo_empty_30 => open, fifo_empty_31 => open,
         fifo_empty_32 => open, fifo_empty_33 => open, fifo_empty_51 => open,
@@ -592,9 +632,8 @@ begin
         vtc_rdy_bsc6 => open, en_vtc_bsc6 => s_en_vtc(4), vtc_rdy_bsc7 => open, en_vtc_bsc7 => s_en_vtc(4),
         dly_rdy_bsc2 => open, dly_rdy_bsc3 => open, dly_rdy_bsc4 => open, dly_rdy_bsc5 => open,
         dly_rdy_bsc6 => open, dly_rdy_bsc7 => open,
-        rst_seq_done => s_rst_seq_done(4), shared_pll0_clkoutphy_out => open, pll0_clkout0 => open,
-        rst => s_rst(4), clk => s_bitclk_se(4), riu_clk => p_clknet_in.cfgbus_clk40, pll0_locked => s_pll0_locked(4),
-        bg1_pin0_nc => p_adc_hss_aux2_in(4), bg3_pin0_nc => p_adc_hss_aux0_in(4),
+        rst_seq_done => s_rst_seq_done(4), shared_pll0_clkoutphy_out => open, pll0_clkout0 => s_adc_rx_clk_raw(4),
+        rst => s_rst(4), clk => s_bitclk_se(4), riu_clk => p_clknet_in.cfgbus_clk40, pll0_locked => s_pll0_locked(4),        bg1_pin0_nc => p_adc_hss_aux2_in(4), bg3_pin0_nc => p_adc_hss_aux0_in(4),
         gbtx_clk80_21 => p_gbtx_clk80_b46_in.p, data_to_fabric_gbtx_clk80_21 => s_data_gbtx_clk80(4)(3 downto 0),
         bg1_pin9_22 => p_gbtx_clk80_b46_in.n, data_to_fabric_bg1_pin9_22 => open,
         gbtx_clk40_23 => p_gbtx_clk40_b46_in.p, data_to_fabric_gbtx_clk40_23 => s_data_gbtx_clk40(4)(3 downto 0),
@@ -611,12 +650,12 @@ begin
     i_hss_adc_ch0 : hss_adc_ch0
       port map (
         fifo_rd_data_valid => s_data_valid(5),
-        fifo_rd_clk_21 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_22 => p_clknet_in.cfgbus_clk40,
-        fifo_rd_clk_23 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_24 => p_clknet_in.cfgbus_clk40,
-        fifo_rd_clk_28 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_29 => p_clknet_in.cfgbus_clk40,
-        fifo_rd_clk_30 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_31 => p_clknet_in.cfgbus_clk40,
-        fifo_rd_clk_32 => p_clknet_in.cfgbus_clk40, fifo_rd_clk_33 => p_clknet_in.cfgbus_clk40,
-        fifo_rd_clk_51 => p_clknet_in.cfgbus_clk40,
+        fifo_rd_clk_21 => s_adc_rx_clk(5), fifo_rd_clk_22 => s_adc_rx_clk(5),
+        fifo_rd_clk_23 => s_adc_rx_clk(5), fifo_rd_clk_24 => s_adc_rx_clk(5),
+        fifo_rd_clk_28 => s_adc_rx_clk(5), fifo_rd_clk_29 => s_adc_rx_clk(5),
+        fifo_rd_clk_30 => s_adc_rx_clk(5), fifo_rd_clk_31 => s_adc_rx_clk(5),
+        fifo_rd_clk_32 => s_adc_rx_clk(5), fifo_rd_clk_33 => s_adc_rx_clk(5),
+        fifo_rd_clk_51 => s_adc_rx_clk(5),
         fifo_empty_21 => open, fifo_empty_22 => open, fifo_empty_23 => open, fifo_empty_24 => open,
         fifo_empty_28 => open, fifo_empty_29 => open, fifo_empty_30 => open, fifo_empty_31 => open,
         fifo_empty_32 => open, fifo_empty_33 => open, fifo_empty_51 => open,
@@ -625,9 +664,8 @@ begin
         vtc_rdy_bsc6 => open, en_vtc_bsc6 => s_en_vtc(5), vtc_rdy_bsc7 => open, en_vtc_bsc7 => s_en_vtc(5),
         dly_rdy_bsc2 => open, dly_rdy_bsc3 => open, dly_rdy_bsc4 => open, dly_rdy_bsc5 => open,
         dly_rdy_bsc6 => open, dly_rdy_bsc7 => open,
-        rst_seq_done => s_rst_seq_done(5), shared_pll0_clkoutphy_out => open, pll0_clkout0 => open,
-        rst => s_rst(5), clk => s_bitclk_se(5), riu_clk => p_clknet_in.cfgbus_clk40, pll0_locked => s_pll0_locked(5),
-        bg1_pin0_nc => p_adc_hss_aux2_in(5), bg3_pin0_nc => p_adc_hss_aux0_in(5),
+        rst_seq_done => s_rst_seq_done(5), shared_pll0_clkoutphy_out => open, pll0_clkout0 => s_adc_rx_clk_raw(5),
+        rst => s_rst(5), clk => s_bitclk_se(5), riu_clk => p_clknet_in.cfgbus_clk40, pll0_locked => s_pll0_locked(5),        bg1_pin0_nc => p_adc_hss_aux2_in(5), bg3_pin0_nc => p_adc_hss_aux0_in(5),
         gbtx_clk80_21 => p_gbtx_clk80_b44_in.p, data_to_fabric_gbtx_clk80_21 => s_data_gbtx_clk80(5)(3 downto 0),
         bg1_pin9_22 => p_gbtx_clk80_b44_in.n, data_to_fabric_bg1_pin9_22 => open,
         gbtx_clk40_23 => p_gbtx_clk40_b44_in.p, data_to_fabric_gbtx_clk40_23 => s_data_gbtx_clk40(5)(3 downto 0),
@@ -652,6 +690,30 @@ begin
     p_rst_seq_done_out(i)    <= s_rst_seq_done(i);
     p_fifo_data_valid_out(i) <= s_data_valid(i);
   end generate;
+
+  -- Frame-marker alignment (2026-09-10, and revisited same day): p_frame_missalignment_in
+  -- is decoder_iserdese's proc_align_data (db6_adc_interface_decoder_iserdese.vhd)
+  -- reporting whether it currently sees the ADC's known "11111110000000" fc-channel
+  -- marker -- correctly, hand-verified against the raw bit pattern. That FSM re-checks
+  -- every cfgbus_clk40 cycle and doesn't assume any particular starting bit phase, so it
+  -- finds the marker regardless of which of the wizard's possible raw ISERDES power-up
+  -- phases this channel lands on -- no active search/bitslip needed on this side.
+  --
+  -- A closed-loop bitslip search (CONFIG.ENABLE_BITSLIP/ENABLE_DATA_BITSLIP on the
+  -- hss_adc_ch* IPs, pulsing a start_bitslip port) was added and tried on real hardware:
+  -- with ENABLE_DATA_BITSLIP=1, fc locked (consistent with the above -- the search
+  -- wasn't the reason) but hg/lg never settled ("kept bitslipping"); with
+  -- ENABLE_DATA_BITSLIP=0, fc lost lock too. Tracing the actual (unencrypted)
+  -- high_speed_selectio_wiz_v3_6 reference source
+  -- (/tools/Xilinx/.../hdl/high_speed_selectio_wiz_v3_6_rfs.v) showed the RX data-path
+  -- mux always selects the raw, pre-bitslip capture (w_rx_q_int) unless a
+  -- `start_bitslip_sync` signal -- never driven anywhere in that reference file -- says
+  -- otherwise, meaning the "corrected" path likely never engages for a plain RX config
+  -- like this one regardless of these two parameters. Reverted: both IPs back to
+  -- ENABLE_BITSLIP=0 / ENABLE_DATA_BITSLIP=0 (their original values), removing
+  -- start_bitslip/rx_bitslip_sync_done from every component/port map above. Relying
+  -- purely on decoder_iserdese's own per-cycle retry, as the analysis above says is
+  -- sufficient.
 
   p_leds_out <= (others => '0');
 

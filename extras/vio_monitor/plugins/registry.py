@@ -6,6 +6,8 @@ import json
 import os
 from typing import Any, Callable
 
+from plugins.common.probe_config import probe_config_fields, sanitize_probe_updates
+
 PLUGINS_ROOT = os.path.dirname(os.path.abspath(__file__))
 MANIFEST_NAME = "manifest.json"
 _tree_hooks: dict[str, Callable[..., None]] = {}
@@ -16,8 +18,18 @@ def register_tree_hook(plugin_id: str, fn: Callable[..., None]) -> None:
     _tree_hooks[plugin_id] = fn
 
 
-def tree_hooks() -> list[Callable[..., None]]:
-    return list(_tree_hooks.values())
+def tree_hooks(cfg: dict[str, Any] | None = None) -> list[Callable[..., None]]:
+    """Return tree hooks in plugin tab order (config order, then name)."""
+    if not cfg:
+        return list(_tree_hooks.values())
+    ranked = sorted(
+        _tree_hooks.items(),
+        key=lambda item: (
+            plugin_config_order(cfg, plugin_manifest(item[0]) or {"id": item[0], "order": 100}),
+            (plugin_manifest(item[0]) or {}).get("name", item[0]),
+        ),
+    )
+    return [fn for _, fn in ranked]
 
 
 def discover_plugins() -> list[dict[str, Any]]:
@@ -36,8 +48,25 @@ def discover_plugins() -> list[dict[str, Any]]:
         manifest.setdefault("id", name)
         manifest["directory"] = plugin_dir
         plugins.append(manifest)
-    plugins.sort(key=lambda p: (p.get("order", 100), p.get("name", p["id"])))
     return plugins
+
+
+def plugin_config_order(cfg: dict[str, Any], manifest: dict[str, Any]) -> int:
+    """Effective tab order: saved config overrides manifest default."""
+    pid = manifest["id"]
+    entry = cfg.get("plugins", {}).get(pid, {})
+    if "order" in entry:
+        return int(entry["order"])
+    return int(manifest.get("order", 100))
+
+
+def sorted_plugin_manifests(cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    """All discovered plugins sorted by configured order."""
+    plugins = discover_plugins()
+    return sorted(
+        plugins,
+        key=lambda m: (plugin_config_order(cfg, m), m.get("name", m["id"])),
+    )
 
 
 def ensure_plugins_config(cfg: dict[str, Any]) -> dict[str, Any]:
@@ -48,6 +77,10 @@ def ensure_plugins_config(cfg: dict[str, Any]) -> dict[str, Any]:
         entry = plugins_cfg.setdefault(pid, {})
         if "enabled" not in entry:
             entry["enabled"] = manifest.get("default_enabled", True)
+        if "order" not in entry:
+            entry["order"] = manifest.get("order", 100)
+        if "auto_read_on_ready" not in entry:
+            entry["auto_read_on_ready"] = bool(manifest.get("default_auto_read_on_ready", False))
     return cfg
 
 
@@ -63,7 +96,7 @@ def is_plugin_enabled(cfg: dict[str, Any], plugin_id: str) -> bool:
 
 
 def enabled_plugins(cfg: dict[str, Any]) -> list[dict[str, Any]]:
-    return [p for p in discover_plugins() if is_plugin_enabled(cfg, p["id"])]
+    return [p for p in sorted_plugin_manifests(cfg) if is_plugin_enabled(cfg, p["id"])]
 
 
 def plugin_manifest(plugin_id: str) -> dict[str, Any] | None:
@@ -88,15 +121,31 @@ def plugin_asset_path(plugin_id: str, filename: str) -> str | None:
 
 def public_manifest(manifest: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
     assets = manifest.get("assets", {})
-    return {
+    probe_fields = probe_config_fields(manifest, cfg)
+    if "requires_ltx" in manifest:
+        requires_ltx = bool(manifest["requires_ltx"])
+    else:
+        requires_ltx = bool(probe_fields)
+    pub = {
         "id": manifest["id"],
         "name": manifest.get("name", manifest["id"]),
         "description": manifest.get("description", ""),
         "version": manifest.get("version", "1.0.0"),
-        "order": manifest.get("order", 100),
+        "order": plugin_config_order(cfg, manifest),
         "enabled": is_plugin_enabled(cfg, manifest["id"]),
         "requires_target": manifest.get("requires_target", True),
         "requires_device": manifest.get("requires_device", False),
+        "requires_ltx": requires_ltx,
+        "requires_readiness": bool(
+            requires_ltx
+            or manifest.get("requires_target", False)
+        ),
+        "auto_read_on_ready": bool(
+            (cfg.get("plugins") or {}).get(manifest["id"], {}).get(
+                "auto_read_on_ready",
+                manifest.get("default_auto_read_on_ready", False),
+            )
+        ),
         "tree_node_types": manifest.get("tree_node_types", []),
         "assets": {
             "panel": assets.get("panel", "panel.html"),
@@ -105,6 +154,9 @@ def public_manifest(manifest: dict[str, Any], cfg: dict[str, Any]) -> dict[str, 
             "external_scripts": assets.get("external_scripts", []),
         },
     }
+    if probe_fields:
+        pub["probe_config"] = probe_fields
+    return pub
 
 
 def load_plugin_backend(manifest: dict[str, Any]):

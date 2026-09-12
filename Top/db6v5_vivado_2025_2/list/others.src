@@ -17,6 +17,7 @@ src/ip/vivado_2025_2/xadc_debug_ram.xcix
 src/ip/vivado_2025_2/xlx_ku_mgt_ip_gtg_testbeam.xcix
 src/ip/vivado_2025_2/ila_mb_driver.xcix
 src/ip/vivado_2025_2/blk_mem_gbtx_regs.xcix
+src/ip/vivado_2025_2/blk_mem_flash_page.xcix
 src/ip/vivado_2025_2/blk_mem_gbt_sc.xcix
 src/ip/vivado_2025_2/blk_mem_sfp.xcix
 src/ip/vivado_2025_2/counter_binary_32bit.xcix

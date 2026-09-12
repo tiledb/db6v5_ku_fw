@@ -2254,6 +2254,15 @@ type t_mmcm_clk_control_array is array (0 to 1) of t_mmcm_clk_control;
         
         data_phase  : std_logic_vector(1 downto 0);
         data_phase_sync : std_logic_vector(1 downto 0);
+        -- 2026-09-12: toggles every db6_gbt_encoder_formatter.vhd cfgbus_clk40 cycle (hg/lg
+        -- update unconditionally, every cycle, at the GBT frame rate) -- the CDC handshake
+        -- bit db6_gbt_encoder_gearbox.vhd's proc_cdc_capture synchronizes into
+        -- gth_tx_wordclk (240MHz, a clean 6x multiple of cfgbus_clk40, both ultimately
+        -- GBTx-synchronous -- mesochronous, not asynchronous, but still needs an explicit
+        -- handshake since the fixed phase offset between them is unknown/uncalibrated).
+        -- See that file's header comment for why this replaced a naive, unsynchronized
+        -- db6_pipeline_propagator-based crossing.
+        data_toggle : std_logic;
         gbt_cdc_counter : integer range 0 to 3;
         gbt_cdc_counter_array : t_gbt_cdc_counter_array;
         

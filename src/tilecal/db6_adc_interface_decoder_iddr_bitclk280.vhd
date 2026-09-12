@@ -73,30 +73,14 @@ architecture Behavioral of db6_adc_interface_decoder_iddr_bitclk280 is
     signal s_adc_channel_fifo_fc, s_adc_channel_fifo_hg, s_adc_channel_fifo_lg : t_adc_channel_fifo; --t_adc_channel_fifo_cdc;--t_adc_channel_fifo;
     signal s_adc_input_fc_buffer, s_adc_input_fc_cdc_buffer, s_adc_input_lg_cdc_buffer, s_adc_input_lg_buffer, s_adc_input_hg_cdc_buffer, s_adc_input_hg_buffer : t_adc_data; --t_adc_oversample_data_type;--t_adc_data;
 
-    -- p_adc_bitclk_in(v_adc) -> cfgbus_clk40 crossing (see proc_adc_cdc_lock below): a second
-    -- copy of the deserialized word, pipelined for more p_adc_bitclk_in cycles than the "a" tap
-    -- above so its cfgbus_clk40 sampling hazard window can never coincide with tap a's.
-    signal s_adc_input_fc_cdc_buffer_b, s_adc_input_lg_cdc_buffer_b, s_adc_input_hg_cdc_buffer_b : t_adc_data;
-    -- both taps registered into cfgbus_clk40 (the only place the cross-domain hazard exists;
-    -- everything downstream of these is ordinary same-domain synchronous logic)
-    signal s_tap_a_reg_fc, s_tap_a_reg_lg, s_tap_a_reg_hg : t_adc_data;
-    signal s_tap_b_reg_fc, s_tap_b_reg_lg, s_tap_b_reg_hg : t_adc_data;
-    -- '0' = tap a selected, '1' = tap b selected; locked once a tap reads a consistently
-    -- valid fc frame marker, then held fixed (fixed latency, no per-word re-arbitration)
-    signal s_cdc_tap_select, s_cdc_tap_locked : std_logic_vector(5 downto 0) := (others => '0');
-    type t_cdc_lock_counter is array (0 to 5) of integer range 0 to 15;
-    signal s_cdc_lock_counter : t_cdc_lock_counter := (others => 0);
-
-    -- iddr280_clkdiv only: BCR-referenced calibration of the tap-select decision, running
-    -- in the p_adc_bitclkdiv_in(v_adc) domain (see gen_tap_select_iddr280_clkdiv below,
-    -- mirrors db6_clock_interface.vhd's proc_cdc_gen)
-    signal s_bcr_sync0, s_bcr_sync1 : std_logic_vector(5 downto 0) := (others => '0');
-    signal s_bclkdiv_tap_a_fc, s_bclkdiv_tap_b_fc : t_adc_data;
-    signal s_bclkdiv_tap_select, s_bclkdiv_tap_locked : std_logic_vector(5 downto 0) := (others => '0');
-    -- single bit, safe regardless of relative clock rate: select/locked crossed from
-    -- p_adc_bitclkdiv_in into cfgbus_clk40 via an ordinary double-flop synchronizer
-    signal s_tap_select_sync0, s_tap_select_sync1 : std_logic_vector(5 downto 0) := (others => '0');
-    signal s_tap_locked_sync0, s_tap_locked_sync1 : std_logic_vector(5 downto 0) := (others => '0');
+    -- 2026-09-12: p_adc_bitclk_in(v_adc) -> cfgbus_clk40 crossing, replacing the dual-tap
+    -- canary-lock CDC (see proc_cdc_capture below for the full reasoning -- same
+    -- toggle/handshake technique as db6_adc_interface_decoder_iserdese.vhd and
+    -- db6_gbt_encoder_gearbox.vhd). s_data_toggle flips once per committed word (see
+    -- proc_shift_lg_in's "when 1 =>" branch); the two-flop sync + edge-detect below is
+    -- the only thing that actually crosses the clock boundary.
+    signal s_data_toggle : std_logic_vector(5 downto 0) := (others => '0');
+    signal s_toggle_sync0, s_toggle_sync1, s_toggle_sync1_prev : std_logic_vector(5 downto 0) := (others => '0');
     signal s_channel_frame_missalignemt, s_channel_frame_missalignemt_reg, s_channel_frame_missalignemt_buffer_lg, s_channel_frame_missalignemt_buffer_hg , s_channel_frame_missalignemt_buffer_delayed, s_channel_frame_missalignemt_reset : std_logic_vector (5 downto 0) := (others => '1');
     signal s_channel_phase, s_channel_locked,s_channel_missed_locked, s_channel_missed_bit_count : std_logic_vector(5 downto 0);
     type t_cdc_transition is array (0 to 5) of std_logic;
@@ -174,9 +158,6 @@ architecture Behavioral of db6_adc_interface_decoder_iddr_bitclk280 is
     signal s_cdc_reset_in, s_cdc_reset_out : std_logic_vector(5 downto 0);
     signal s_calculated : std_logic_vector(5 downto 0);
     constant c_pipeline_depth : integer := 7;--c_global_pipeline_depth;
-    -- tap b: offset from tap a by 4 p_adc_bitclk_in cycles (~14.3ns of a ~25ns word period,
-    -- i.e. more than half a period) -- see proc_adc_cdc_lock
-    constant c_pipeline_depth_b : integer := c_pipeline_depth + 4;
 
 --debug
 COMPONENT vio_adc_readout_cdc
@@ -296,142 +277,38 @@ gen_adc_channels: for v_adc in 0 to 5 generate
 
         -- p_adc_bitclk_in(v_adc) -> cfgbus_clk40 crossing: the two clocks are the same nominal
         -- frequency but come from independent PLLs with an unknown, fixed (not drifting) phase
-        -- offset. A plain single-register sample of the 14-bit word (as this used to be) can
-        -- land on the ~25ns word-update boundary and capture a bit-incoherent mix of the old
-        -- and new word -- and since the phase offset is fixed, it does that on *every* sample,
-        -- not just rarely, until the next power-up happens to land on a different offset.
-        --
-        -- Fix: register both the tap-a and tap-b copies of the word into cfgbus_clk40 (each
-        -- individually still has that same hazard -- this is the only step where it exists),
-        -- then use fc_data's known-constant "11111110000000" frame marker as a self-checking
-        -- canary on the *already-registered* values: a torn sample won't match it, and tap b's
-        -- hazard window (offset ~14ns from tap a's, more than half the ~25ns period) can never
-        -- coincide with tap a's. Lock onto whichever tap first reads consistently valid and
-        -- hold that choice -- fixed pipeline latency for the life of the lock, no per-word
-        -- re-arbitration, no FIFO. Loss of lock on the selected tap is reported (channel_locked
-        -- below) rather than silently swapping taps mid-stream.
-        -- common to both schemes: register both taps into cfgbus_clk40 (the only place the
-        -- raw p_adc_bitclk_in(v_adc) -> cfgbus_clk40 hazard exists for the data itself)
-        proc_adc_tap_registers : process(p_clknet_in.cfgbus_clk40)
+        -- offset -- mesochronous. Used to be handled with a dual-tap canary lock (each channel
+        -- independently picking between two fixed pipeline depths based on which first read the
+        -- fc marker correctly), which gave a different, data-dependent latency per channel --
+        -- the same class of bug fixed the same way in db6_adc_interface_decoder_iserdese.vhd and
+        -- db6_gbt_encoder_gearbox.vhd. Now that db6_adc_idelay_calibration.vhd (instantiated
+        -- once in db6_mainboard_interface.vhd, outside db7_io_box) sweeps the physical IDELAYE3
+        -- tap chain at startup and centers the sample point in the bit eye -- see that file's
+        -- header -- a single capture point is stable across the whole p_adc_bitclk_in(v_adc)
+        -- cycle, not just half of it, so the crossing only needs to guard the word-boundary
+        -- itself: a conventional toggle/handshake. s_data_toggle flips once per committed word
+        -- (see proc_shift_lg_in's "when 1 =>" branch below); once a toggle transition is
+        -- detected here, the just-committed word has already been stable for a full source
+        -- cycle and can be captured directly -- same fixed latency every time, no per-channel
+        -- tap arbitration, no elastic buffering.
+        proc_cdc_capture : process(p_clknet_in.cfgbus_clk40, s_cdc_reset_in(v_adc))
         begin
-            if rising_edge(p_clknet_in.cfgbus_clk40) then
-                s_tap_a_reg_fc(v_adc) <= s_adc_input_fc_cdc_buffer(v_adc);
-                s_tap_a_reg_lg(v_adc) <= s_adc_input_lg_cdc_buffer(v_adc);
-                s_tap_a_reg_hg(v_adc) <= s_adc_input_hg_cdc_buffer(v_adc);
-                s_tap_b_reg_fc(v_adc) <= s_adc_input_fc_cdc_buffer_b(v_adc);
-                s_tap_b_reg_lg(v_adc) <= s_adc_input_lg_cdc_buffer_b(v_adc);
-                s_tap_b_reg_hg(v_adc) <= s_adc_input_hg_cdc_buffer_b(v_adc);
+            if s_cdc_reset_in(v_adc) = '1' then
+                s_toggle_sync0(v_adc) <= '0';
+                s_toggle_sync1(v_adc) <= '0';
+                s_toggle_sync1_prev(v_adc) <= '0';
+            elsif rising_edge(p_clknet_in.cfgbus_clk40) then
+                s_toggle_sync0(v_adc) <= s_data_toggle(v_adc);
+                s_toggle_sync1(v_adc) <= s_toggle_sync0(v_adc);
+                s_toggle_sync1_prev(v_adc) <= s_toggle_sync1(v_adc);
+
+                if s_toggle_sync1(v_adc) /= s_toggle_sync1_prev(v_adc) then
+                    s_adc_readout.fc_data(v_adc) <= s_adc_input_fc_cdc_buffer(v_adc);
+                    s_adc_readout.lg_data(v_adc) <= s_adc_input_lg_cdc_buffer(v_adc);
+                    s_adc_readout.hg_data(v_adc) <= s_adc_input_hg_cdc_buffer(v_adc);
+                end if;
             end if;
         end process;
-
-        -- iddr280: free-running canary lock straight in cfgbus_clk40 (see the header comment
-        -- above proc_adc_tap_registers for the reasoning). Locks within 16 valid words of reset.
-        gen_tap_select_iddr280 : if g_adc_clocking_scheme = iddr280 generate
-            proc_adc_cdc_lock : process(p_clknet_in.cfgbus_clk40, s_cdc_reset_in(v_adc))
-            begin
-                if s_cdc_reset_in(v_adc) = '1' then
-                    s_cdc_tap_select(v_adc) <= '0';
-                    s_cdc_tap_locked(v_adc) <= '0';
-                    s_cdc_lock_counter(v_adc) <= 0;
-                elsif rising_edge(p_clknet_in.cfgbus_clk40) then
-                    if s_cdc_tap_locked(v_adc) = '0' then
-                        if s_tap_a_reg_fc(v_adc) = "11111110000000" then
-                            if s_cdc_lock_counter(v_adc) = 15 then
-                                s_cdc_tap_select(v_adc) <= '0';
-                                s_cdc_tap_locked(v_adc) <= '1';
-                            else
-                                s_cdc_lock_counter(v_adc) <= s_cdc_lock_counter(v_adc) + 1;
-                            end if;
-                        elsif s_tap_b_reg_fc(v_adc) = "11111110000000" then
-                            if s_cdc_lock_counter(v_adc) = 15 then
-                                s_cdc_tap_select(v_adc) <= '1';
-                                s_cdc_tap_locked(v_adc) <= '1';
-                            else
-                                s_cdc_lock_counter(v_adc) <= s_cdc_lock_counter(v_adc) + 1;
-                            end if;
-                        else
-                            s_cdc_lock_counter(v_adc) <= 0;
-                        end if;
-                    else
-                        -- locked: keep the selected tap; flag loss rather than swapping mid-stream
-                        if ((s_cdc_tap_select(v_adc) = '0' and s_tap_a_reg_fc(v_adc) /= "11111110000000") or
-                            (s_cdc_tap_select(v_adc) = '1' and s_tap_b_reg_fc(v_adc) /= "11111110000000")) then
-                            s_cdc_tap_locked(v_adc) <= '0';
-                            s_cdc_lock_counter(v_adc) <= 0;
-                        end if;
-                    end if;
-                end if;
-            end process;
-        end generate;
-
-        -- iddr280_clkdiv: same dual-tap canary data path, but the tap-select decision is
-        -- calibrated in the p_adc_bitclkdiv_in(v_adc) domain (a true divided sibling of
-        -- p_adc_bitclk_in via BUFGCE_DIV, close to the IOs -- see
-        -- db6_adc_interface_io_iddr_bitclk280.vhd -- so registering bitclk280-domain signals
-        -- here is an ordinary, STA-checked related-clock path, not a blind CDC) and
-        -- re-evaluated only on the cycle after a BCR edge -- tying recalibration cadence to
-        -- the actual accelerator orbit clock, mirroring db6_clock_interface.vhd's
-        -- proc_cdc_gen -- rather than a free-running counter. Only the resulting single-bit
-        -- select/locked decision then needs to cross into cfgbus_clk40, which an ordinary
-        -- double-flop synchronizer handles safely regardless of relative clock rate (unlike
-        -- the multi-bit word itself). Trade-off: since bcr only pulses once per orbit,
-        -- initial lock after reset can take up to one orbit, versus ~16 words for iddr280.
-        gen_tap_select_iddr280_clkdiv : if g_adc_clocking_scheme = iddr280_clkdiv generate
-
-            proc_bclkdiv_tap_registers : process(p_adc_bitclkdiv_in(v_adc))
-            begin
-                if rising_edge(p_adc_bitclkdiv_in(v_adc)) then
-                    s_bclkdiv_tap_a_fc(v_adc) <= s_adc_input_fc_cdc_buffer(v_adc);
-                    s_bclkdiv_tap_b_fc(v_adc) <= s_adc_input_fc_cdc_buffer_b(v_adc);
-                    s_bcr_sync0(v_adc) <= p_clknet_in.bcr.bcr;
-                    s_bcr_sync1(v_adc) <= s_bcr_sync0(v_adc);
-                end if;
-            end process;
-
-            proc_bclkdiv_cdc_lock : process(p_adc_bitclkdiv_in(v_adc), s_cdc_reset_in(v_adc))
-            begin
-                if s_cdc_reset_in(v_adc) = '1' then
-                    s_bclkdiv_tap_select(v_adc) <= '0';
-                    s_bclkdiv_tap_locked(v_adc) <= '0';
-                elsif rising_edge(p_adc_bitclkdiv_in(v_adc)) then
-                    if s_bcr_sync1(v_adc) = '0' and s_bcr_sync0(v_adc) = '1' then -- synchronized bcr rising edge
-                        if s_bclkdiv_tap_locked(v_adc) = '0' then
-                            if s_bclkdiv_tap_a_fc(v_adc) = "11111110000000" then
-                                s_bclkdiv_tap_select(v_adc) <= '0';
-                                s_bclkdiv_tap_locked(v_adc) <= '1';
-                            elsif s_bclkdiv_tap_b_fc(v_adc) = "11111110000000" then
-                                s_bclkdiv_tap_select(v_adc) <= '1';
-                                s_bclkdiv_tap_locked(v_adc) <= '1';
-                            end if;
-                        else
-                            -- locked: keep the selected tap; flag loss rather than swapping mid-stream
-                            if ((s_bclkdiv_tap_select(v_adc) = '0' and s_bclkdiv_tap_a_fc(v_adc) /= "11111110000000") or
-                                (s_bclkdiv_tap_select(v_adc) = '1' and s_bclkdiv_tap_b_fc(v_adc) /= "11111110000000")) then
-                                s_bclkdiv_tap_locked(v_adc) <= '0';
-                            end if;
-                        end if;
-                    end if;
-                end if;
-            end process;
-
-            proc_tap_select_sync : process(p_clknet_in.cfgbus_clk40)
-            begin
-                if rising_edge(p_clknet_in.cfgbus_clk40) then
-                    s_tap_select_sync0(v_adc) <= s_bclkdiv_tap_select(v_adc);
-                    s_tap_select_sync1(v_adc) <= s_tap_select_sync0(v_adc);
-                    s_tap_locked_sync0(v_adc) <= s_bclkdiv_tap_locked(v_adc);
-                    s_tap_locked_sync1(v_adc) <= s_tap_locked_sync0(v_adc);
-                end if;
-            end process;
-
-            s_cdc_tap_select(v_adc) <= s_tap_select_sync1(v_adc);
-            s_cdc_tap_locked(v_adc) <= s_tap_locked_sync1(v_adc);
-
-        end generate;
-
-        s_adc_readout.fc_data(v_adc) <= s_tap_b_reg_fc(v_adc) when s_cdc_tap_select(v_adc) = '1' else s_tap_a_reg_fc(v_adc);
-        s_adc_readout.lg_data(v_adc) <= s_tap_b_reg_lg(v_adc) when s_cdc_tap_select(v_adc) = '1' else s_tap_a_reg_lg(v_adc);
-        s_adc_readout.hg_data(v_adc) <= s_tap_b_reg_hg(v_adc) when s_cdc_tap_select(v_adc) = '1' else s_tap_a_reg_hg(v_adc);
 
         s_cdc_reset_in(v_adc)<= (p_db_reg_rx_in(cfb_strobe_reg)(c_adc_readout_reset_channel_5_bit-v_adc)) or
                           (p_db_reg_rx_in(cfb_strobe_reg)(c_adc_readout_reset_bit)) or
@@ -470,27 +347,6 @@ gen_adc_channels: for v_adc in 0 to 5 generate
                        p_pipeline_in => s_adc_channel_fifo_fc(v_adc).dout,
                        p_pipeline_out => s_adc_input_fc_cdc_buffer(v_adc));--s_adc_readout.fc_data(v_adc));
 
-        -- tap b for proc_adc_cdc_lock (see above): same source, offset pipeline depth
-        i_adc_data_lg_pipeline_b : entity tilecal.db6_pipeline_propagator
-            generic map(    g_pipeline_stages => c_pipeline_depth_b,
-                            g_pipeline_item_lenght => c_adc_bit_number)
-            Port map ( p_clk_in => p_adc_bitclk_in(v_adc),
-                       p_pipeline_in => s_adc_channel_fifo_lg(v_adc).dout,
-                       p_pipeline_out => s_adc_input_lg_cdc_buffer_b(v_adc));
-        i_adc_data_hg_pipeline_b : entity tilecal.db6_pipeline_propagator
-            generic map(    g_pipeline_stages => c_pipeline_depth_b,
-                            g_pipeline_item_lenght => c_adc_bit_number)
-            Port map ( p_clk_in => p_adc_bitclk_in(v_adc),
-                       p_pipeline_in => s_adc_channel_fifo_hg(v_adc).dout,
-                       p_pipeline_out => s_adc_input_hg_cdc_buffer_b(v_adc));
-        i_adc_data_fc_pipeline_b : entity tilecal.db6_pipeline_propagator
-            generic map(    g_pipeline_stages => c_pipeline_depth_b,
-                            g_pipeline_item_lenght => c_adc_bit_number)
-            Port map ( p_clk_in => p_adc_bitclk_in(v_adc),
-                       p_pipeline_in => s_adc_channel_fifo_fc(v_adc).dout,
-                       p_pipeline_out => s_adc_input_fc_cdc_buffer_b(v_adc));
-
-
         s_adc_channel_fifo_fc(v_adc).dout <= s_adc_channel_fifo_fc(v_adc).din;
         s_adc_channel_fifo_lg(v_adc).dout <= s_adc_channel_fifo_lg(v_adc).din;
         s_adc_channel_fifo_hg(v_adc).dout <= s_adc_channel_fifo_hg(v_adc).din;
@@ -523,6 +379,9 @@ gen_adc_channels: for v_adc in 0 to 5 generate
                         s_adc_channel_fifo_lg(v_adc).din<=s_adc_input_lg_buffer(v_adc);
                         s_adc_channel_fifo_hg(v_adc).din<=s_adc_input_hg_buffer(v_adc);
                         s_adc_channel_fifo_fc(v_adc).din<=s_adc_input_fc_buffer(v_adc);
+                        -- see proc_cdc_capture / s_data_toggle declaration above: flips once
+                        -- per committed word, regardless of whether alignment continues below.
+                        s_data_toggle(v_adc) <= not s_data_toggle(v_adc);
 
                         if (p_adc_frameclk_in(v_adc)= "11") then
                             s_sync_bitclkdiv_state_lg(v_adc)<=2;

@@ -1,0 +1,37 @@
+<div class="flash-toolbar">
+  <label>Address <input id="flashAddr" type="text" value="0x01000000" spellcheck="false" /></label>
+  <label>Write byte <input id="flashWdata" type="text" value="0x00" spellcheck="false" /></label>
+  <label>Read bytes
+    <select id="flashByteCount">
+      <option value="4">4</option>
+      <option value="16">16</option>
+      <option value="64">64</option>
+      <option value="256">256</option>
+      <option value="512">512</option>
+      <option value="1024">1024</option>
+      <option value="2048">2048</option>
+      <option value="4096" selected>4096 (4 KB)</option>
+    </select>
+  </label>
+</div>
+<div class="flash-toolbar flash-floor">
+  <label><input id="flashFloorEn" type="checkbox" /> Override write floor</label>
+  <label>Floor <input id="flashFloor" type="text" value="0x00000000" spellcheck="false" /></label>
+</div>
+<div class="flash-actions">
+  <button type="button" data-flash-op="status">Refresh status</button>
+  <button type="button" data-flash-op="read">Read</button>
+  <button type="button" data-flash-op="fast_read">Fast read</button>
+  <button type="button" data-flash-op="write_byte" class="danger">Write byte</button>
+  <button type="button" data-flash-op="erase_sector" class="danger">Sector erase (4KB)</button>
+  <button type="button" data-flash-op="erase_block" class="danger">Block erase (64KB)</button>
+  <button type="button" data-flash-op="rdsr">RDSR</button>
+  <button type="button" data-flash-op="rdid">RDID</button>
+</div>
+<div class="flash-meta">
+  <span id="time-tilecal_flash_driver"></span>
+  <span id="status-tilecal_flash_driver" class="flash-status-hint"></span>
+</div>
+<div id="wrap-tilecal_flash_driver" class="panel-scroll">
+  <p class="empty">Select a device, then run a flash operation.</p>
+</div>

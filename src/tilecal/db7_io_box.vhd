@@ -132,6 +132,10 @@ entity db7_io_box is
         p_adc_pll0_locked_out     : out std_logic_vector(5 downto 0);
         p_adc_rst_seq_done_out    : out std_logic_vector(5 downto 0);
         p_adc_fifo_data_valid_out : out std_logic_vector(5 downto 0);
+        -- g_adc_clocking_scheme=iddr280/iddr280_clkdiv only: IDELAYE3 tap control, driven
+        -- by db6_adc_idelay_calibration.vhd (instantiated in db6_mainboard_interface.vhd,
+        -- outside this io box -- see that entity's header). Was dead code here before.
+        p_adc_idelay_ctrl_in      : in t_adc_readout_control;
 
         -- CFGBUS local -- pad
         p_cfgbus_master_reset_in : in std_logic;
@@ -237,9 +241,11 @@ end db7_io_box;
 
 architecture rtl of db7_io_box is
 
-    -- db6_adc_interface_io_iddr_bitclk280's p_adc_readout_control_in port is dead code
-    -- upstream (never referenced in that file's architecture body) -- give it a legal
-    -- connection without threading the real control record through this boundary.
+    -- 2026-09-12: the iddr280/iddr280_clkdiv instance now gets a real p_adc_idelay_ctrl_in
+    -- (see the entity port above). db6_adc_interface_io_hss's p_adc_readout_control_in
+    -- port is still dead code upstream (RX_DELAY_TYPE=FIXED, no calibration state
+    -- machine for that scheme) -- give it a legal connection without threading a real
+    -- control record through this boundary.
     signal s_adc_readout_control_unused : t_adc_readout_control;
 
     -- GT/MGT: db6_mgt's device-specific in/out records. rx_p/rx_n (in) and tx_p/tx_n
@@ -402,7 +408,7 @@ gen_db6_adc_interface_iddr : if g_adc_clocking_scheme /= hss_wizard generate
             p_adc_hg_data_out         => p_adc_hg_data_out,
             p_adc_pll0_locked_out     => p_adc_pll0_locked_out,
 
-            p_adc_readout_control_in => s_adc_readout_control_unused,
+            p_adc_readout_control_in => p_adc_idelay_ctrl_in,
 
             p_leds_out => open
         );

@@ -47,6 +47,9 @@ if _APP_DIR not in sys.path:
     sys.path.insert(0, _APP_DIR)
 
 from plugins import registry as plugin_registry  # noqa: E402
+from plugins.common.probe_config import missing_probe_names, sanitize_probe_updates  # noqa: E402
+from plugins.common.ltx_probes import parse_ltx_probes  # noqa: E402
+from plugins.common.vio_probes import parse_vio_probe_list, tcl_list_hw_probes  # noqa: E402
 
 # vivado-mcp ships its session manager as a top-level module inside its
 # package directory (not importable as `vivado_mcp.vivado_session`).
@@ -284,7 +287,9 @@ def _load_config():
                 cfg = json.load(f)
         except (json.JSONDecodeError, OSError):
             cfg = {"hw_servers": []}
-    return plugin_registry.ensure_plugins_config(cfg)
+    cfg = plugin_registry.ensure_plugins_config(cfg)
+    _ensure_vivado_installs(cfg)
+    return cfg
 
 
 def _save_config(cfg):
@@ -292,6 +297,30 @@ def _save_config(cfg):
     with open(tmp_path, "w") as f:
         json.dump(cfg, f, indent=2)
     os.replace(tmp_path, CONFIG_PATH)
+
+
+def _vivado_label_from_path(path: str) -> str:
+    matches = _VERSION_RE.findall(path or "")
+    return matches[-1] if matches else os.path.basename(path or "vivado")
+
+
+def _ensure_vivado_installs(cfg: dict) -> list[dict[str, str]]:
+    installs = cfg.get("vivado_installs")
+    if isinstance(installs, list) and installs:
+        return installs
+    found: list[dict[str, str]] = []
+    seen: set[str] = set()
+    saved_path = (cfg.get("vivado_path") or "").strip()
+    if saved_path and os.path.isfile(saved_path):
+        found.append({"label": _vivado_label_from_path(saved_path), "path": saved_path})
+        seen.add(saved_path)
+    for item in _find_all_vivado():
+        path = item.get("path", "")
+        if path and path not in seen:
+            found.append({"label": item.get("version") or _vivado_label_from_path(path), "path": path})
+            seen.add(path)
+    cfg["vivado_installs"] = found
+    return found
 
 
 app = Flask(__name__)
@@ -837,7 +866,8 @@ def _build_hw_tree(vivado_label, server_url, targets, devices, vio_nodes, open_t
                 "part": d.get("part", ""),
                 "children": [],
             }
-            for hook in plugin_registry.tree_hooks():
+            cfg = _load_config()
+            for hook in plugin_registry.tree_hooks(cfg):
                 hook(dnode, d["name"], vio_nodes)
             tnode["children"].append(dnode)
         server_node["children"].append(tnode)
@@ -861,7 +891,65 @@ def handle_runtime_error(e):
 
 @app.route("/api/vivado/versions")
 def api_vivado_versions():
-    return jsonify({"versions": VIVADO_VERSIONS, "current": VIVADO_PATH})
+    cfg = _load_config()
+    installs = cfg.get("vivado_installs") or _ensure_vivado_installs(cfg)
+    return jsonify({
+        "installs": installs,
+        "detected": VIVADO_VERSIONS,
+        "current": VIVADO_PATH,
+    })
+
+
+@app.route("/api/vivado/installs/replace", methods=["POST"])
+def api_vivado_installs_replace():
+    data = request.get_json(silent=True) or {}
+    raw = data.get("installs")
+    if not isinstance(raw, list):
+        return jsonify({"success": False, "error": "installs array required"}), 400
+    installs: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        path = (entry.get("path") or "").strip()
+        if not path or path in seen:
+            continue
+        seen.add(path)
+        label = (entry.get("label") or "").strip() or _vivado_label_from_path(path)
+        installs.append({"label": label, "path": path})
+    with _config_lock:
+        cfg = _load_config()
+        cfg["vivado_installs"] = installs
+        _save_config(cfg)
+    return jsonify({"success": True, "installs": installs})
+
+
+@app.route("/api/vivado/autodetect", methods=["POST"])
+def api_vivado_autodetect():
+    detected = _find_all_vivado()
+    with _config_lock:
+        cfg = _load_config()
+        installs = list(cfg.get("vivado_installs") or [])
+        seen = {item["path"] for item in installs}
+        added = 0
+        for item in detected:
+            path = item.get("path", "")
+            if not path or path in seen:
+                continue
+            installs.append({
+                "label": item.get("version") or _vivado_label_from_path(path),
+                "path": path,
+            })
+            seen.add(path)
+            added += 1
+        cfg["vivado_installs"] = installs
+        _save_config(cfg)
+    return jsonify({
+        "success": True,
+        "added": added,
+        "installs": installs,
+        "detected": detected,
+    })
 
 
 @app.route("/api/vivado/select", methods=["POST"])
@@ -872,6 +960,11 @@ def api_vivado_select():
         return jsonify({"success": False, "error": "path required"}), 400
 
     known_paths = {v["path"] for v in VIVADO_VERSIONS}
+    cfg = _load_config()
+    for item in cfg.get("vivado_installs") or []:
+        path_item = (item.get("path") or "").strip()
+        if path_item:
+            known_paths.add(path_item)
     if path not in known_paths and not os.path.isfile(path):
         return jsonify({"success": False, "error": f"no such vivado executable: {path}"}), 400
 
@@ -910,6 +1003,34 @@ def api_hw_servers_remove():
     url = (data.get("url") or "").strip()
     cfg = _remove_hw_server(url)
     return jsonify({"success": True, "hw_servers": cfg["hw_servers"]})
+
+
+@app.route("/api/hw_servers/replace", methods=["POST"])
+def api_hw_servers_replace():
+    """Replace the saved hw_servers list (from settings UI)."""
+    data = request.get_json(silent=True) or {}
+    raw = data.get("hw_servers")
+    if not isinstance(raw, list):
+        return jsonify({"success": False, "error": "hw_servers array required"}), 400
+    servers: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        url = (entry.get("url") or "").strip()
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        servers.append({
+            "url": url,
+            "name": (entry.get("name") or "").strip(),
+            "added": entry.get("added") or datetime.now().isoformat(timespec="seconds"),
+        })
+    with _config_lock:
+        cfg = _load_config()
+        cfg["hw_servers"] = servers
+        _save_config(cfg)
+    return jsonify({"success": True, "hw_servers": servers})
 
 
 @app.route("/api/hw_servers/connect", methods=["POST"])
@@ -1042,7 +1163,7 @@ def api_plugins_list():
     return jsonify({
         "plugins": [
             plugin_registry.public_manifest(m, cfg)
-            for m in plugin_registry.discover_plugins()
+            for m in plugin_registry.sorted_plugin_manifests(cfg)
         ],
     })
 
@@ -1060,8 +1181,362 @@ def api_plugins_config():
             plugins_cfg.setdefault(plugin_id, {})
             if "enabled" in entry:
                 plugins_cfg[plugin_id]["enabled"] = bool(entry["enabled"])
+            if "order" in entry:
+                try:
+                    plugins_cfg[plugin_id]["order"] = int(entry["order"])
+                except (TypeError, ValueError):
+                    pass
+            if "auto_read_on_ready" in entry:
+                plugins_cfg[plugin_id]["auto_read_on_ready"] = bool(entry["auto_read_on_ready"])
+            if "probes" in entry:
+                probes = sanitize_probe_updates(entry["probes"])
+                if probes:
+                    plugins_cfg[plugin_id]["probes"] = probes
+                elif "probes" in plugins_cfg[plugin_id]:
+                    del plugins_cfg[plugin_id]["probes"]
         _save_config(cfg)
     return jsonify({"success": True, "plugins": cfg.get("plugins", {})})
+
+
+def _resolve_ltx_probe_path() -> str:
+    path = (request.args.get("path") or request.args.get("ltx") or "").strip()
+    if not path:
+        path = (_load_config().get("last_ltx") or "").strip()
+    if not path:
+        return ""
+    return _abs_ltx_path(path)
+
+
+@app.route("/api/sysmon/properties")
+def api_sysmon_properties():
+    """Known hw_sysmon property names (for probe mapping comboboxes)."""
+    from plugins.tilecal_xadc.conversion import sysmon_property_catalog
+
+    return jsonify({"success": True, "properties": sysmon_property_catalog()})
+
+
+@app.route("/api/ltx/probes")
+def api_ltx_probes():
+    """List VIO probe net names from an LTX file (no Vivado connection required)."""
+    ltx_path = _resolve_ltx_probe_path()
+    if not ltx_path:
+        return jsonify({
+            "success": False,
+            "error": "LTX path required (query param path= or set last_ltx in config)",
+            "probes": [],
+        }), 400
+    if not os.path.isfile(ltx_path):
+        return jsonify({
+            "success": False,
+            "error": f"file not found: {ltx_path}",
+            "probes": [],
+        }), 400
+    try:
+        probes = parse_ltx_probes(ltx_path)
+    except json.JSONDecodeError as exc:
+        return jsonify({
+            "success": False,
+            "error": f"invalid LTX JSON: {exc}",
+            "probes": [],
+        }), 400
+    except OSError as exc:
+        return jsonify({"success": False, "error": str(exc), "probes": []}), 400
+    return jsonify({
+        "success": True,
+        "path": ltx_path,
+        "probes": probes,
+        "count": len(probes),
+        "source": "ltx",
+    })
+
+
+def _required_vio_probe_names(pub: dict) -> list[str]:
+    names: list[str] = []
+    for field in pub.get("probe_config") or []:
+        if field.get("kind") not in (None, "", "vio_name"):
+            continue
+        val = (field.get("value") or "").strip()
+        if not val:
+            continue
+        names.append(val)
+    return names
+
+
+def _live_hw_probe_names(device: str) -> set[str]:
+    blocked = _require_open_target()
+    if blocked or not device:
+        return set()
+    with _lock:
+        result = _run(tcl_list_hw_probes(device), timeout_override=30)
+    if not result.success:
+        return set()
+    return {p["name"] for p in parse_vio_probe_list(result.output, _parse_rows)}
+
+
+def _hw_session_state(cfg: dict) -> dict:
+    """Live Vivado Hardware Manager connection state."""
+    if not session.is_running:
+        return {
+            "vivado_running": False,
+            "connected": False,
+            "target_open": False,
+        }
+    with _lock:
+        servers_result = _run("get_hw_servers")
+    server_lines = _parse_hw_servers(servers_result.output)
+    connected = servers_result.success and bool(server_lines)
+    last_target = (cfg.get("last_target") or "").strip()
+    target_open = False
+    if connected and last_target:
+        with _lock:
+            targets_result = _run(_tcl_list_targets())
+        targets = _parse_targets(targets_result.output)
+        target_open = last_target in targets
+    return {
+        "vivado_running": True,
+        "connected": connected,
+        "target_open": target_open,
+    }
+
+
+def _plugin_hw_readiness(
+    pub: dict,
+    hw_state: dict,
+    device: str,
+) -> dict | None:
+    """Return an error readiness dict, or None if hardware prerequisites are met."""
+    if not pub.get("requires_target"):
+        return None
+    if not hw_state["vivado_running"]:
+        return {
+            "state": "no_vivado",
+            "missing": [],
+            "message": "Vivado Tcl session not running",
+        }
+    if not hw_state["connected"]:
+        return {
+            "state": "not_connected",
+            "missing": [],
+            "message": "Hardware Manager not connected — connect to hw_server",
+        }
+    if not hw_state["target_open"]:
+        return {
+            "state": "no_target",
+            "missing": [],
+            "message": "No hardware target open — open a target in the tree",
+        }
+    if pub.get("requires_device") and not device:
+        return {
+            "state": "no_device",
+            "missing": [],
+            "message": "No device selected — pick a device in the hardware tree",
+        }
+    return None
+
+
+def _plugin_ltx_readiness(
+    pub: dict,
+    plugin_id: str,
+    device: str,
+    ltx_loaded: bool,
+    ltx_names: set[str],
+    live_names: set[str],
+) -> dict | None:
+    """Return an error readiness dict, or None if LTX / live probe checks pass."""
+    if not pub.get("requires_ltx"):
+        return None
+    required = _required_vio_probe_names(pub)
+
+    if not ltx_loaded:
+        return {
+            "state": "no_ltx",
+            "missing": [],
+            "message": "No LTX file selected — pick a probes file in the toolbar",
+        }
+
+    if required:
+        missing_ltx = missing_probe_names(required, ltx_names)
+        if missing_ltx:
+            shown = missing_ltx[:12]
+            extra = f" (+{len(missing_ltx) - 12} more)" if len(missing_ltx) > 12 else ""
+            return {
+                "state": "missing_ltx",
+                "missing": missing_ltx,
+                "message": "Not in LTX: " + ", ".join(shown) + extra,
+            }
+    elif not ltx_names:
+        return {
+            "state": "missing_ltx",
+            "missing": [],
+            "message": "LTX file contains no VIO probes",
+        }
+
+    needs_device = bool(pub.get("requires_device") or required or plugin_id == "vio")
+    if needs_device and not device:
+        return {
+            "state": "no_device",
+            "missing": required,
+            "message": "Connect and select a device, then load LTX to hardware",
+        }
+
+    if needs_device:
+        if not live_names:
+            return {
+                "state": "not_readable",
+                "missing": required,
+                "message": "No readable hw_probe values — open target and load LTX to device",
+            }
+        if required:
+            missing_live = missing_probe_names(required, live_names)
+            if missing_live:
+                shown = missing_live[:12]
+                extra = f" (+{len(missing_live) - 12} more)" if len(missing_live) > 12 else ""
+                return {
+                    "state": "not_readable",
+                    "missing": missing_live,
+                    "message": "Not readable on device: " + ", ".join(shown) + extra,
+                }
+    return None
+
+
+@app.route("/api/plugins/ltx_check")
+def api_plugins_ltx_check():
+    """Validate hardware connection, LTX, and live hw_probe availability for plugins."""
+    ltx_path = _resolve_ltx_probe_path()
+    device = request.args.get("device", "").strip()
+    cfg = _load_config()
+    plugins_out: dict[str, dict] = {}
+
+    hw_state = _hw_session_state(cfg)
+    ltx_loaded = bool(ltx_path and os.path.isfile(ltx_path))
+    ltx_names: set[str] = set()
+    if ltx_loaded:
+        try:
+            ltx_names = {p["name"] for p in parse_ltx_probes(ltx_path)}
+        except (json.JSONDecodeError, OSError) as exc:
+            return jsonify({
+                "success": False,
+                "error": str(exc),
+                "ltx_loaded": False,
+                "plugins": {},
+            }), 400
+
+    live_names: set[str] = set()
+    if device and hw_state["target_open"]:
+        live_names = _live_hw_probe_names(device)
+
+    for manifest in plugin_registry.sorted_plugin_manifests(cfg):
+        pub = plugin_registry.public_manifest(manifest, cfg)
+        if not pub.get("requires_readiness"):
+            continue
+        plugin_id = manifest["id"]
+
+        hw_err = _plugin_hw_readiness(pub, hw_state, device)
+        if hw_err:
+            plugins_out[plugin_id] = hw_err
+            continue
+
+        ltx_err = _plugin_ltx_readiness(
+            pub, plugin_id, device, ltx_loaded, ltx_names, live_names,
+        )
+        if ltx_err:
+            plugins_out[plugin_id] = ltx_err
+            continue
+
+        plugins_out[plugin_id] = {
+            "state": "ok",
+            "missing": [],
+            "message": "",
+        }
+
+    return jsonify({
+        "success": True,
+        "ltx_loaded": ltx_loaded,
+        "path": ltx_path or "",
+        "device": device,
+        "hw_state": hw_state,
+        "plugins": plugins_out,
+    })
+
+
+@app.route("/api/vio/probes")
+def api_vio_probes():
+    """List hw_probe names on the open device (live Vivado; optional LTX merge)."""
+    device = request.args.get("device", "").strip()
+    ltx_path = _resolve_ltx_probe_path()
+    ltx_probes: list[dict[str, str]] = []
+    if ltx_path and os.path.isfile(ltx_path):
+        try:
+            ltx_probes = parse_ltx_probes(ltx_path)
+        except (json.JSONDecodeError, OSError):
+            ltx_probes = []
+
+    if not device:
+        if ltx_probes:
+            return jsonify({
+                "success": True,
+                "probes": ltx_probes,
+                "count": len(ltx_probes),
+                "source": "ltx",
+                "path": ltx_path,
+            })
+        return jsonify({"success": False, "error": "device required"}), 400
+
+    blocked = _require_open_target()
+    if blocked:
+        if ltx_probes:
+            return jsonify({
+                "success": True,
+                "probes": ltx_probes,
+                "count": len(ltx_probes),
+                "source": "ltx",
+                "path": ltx_path,
+            })
+        return blocked
+
+    with _lock:
+        result = _run(tcl_list_hw_probes(device), timeout_override=60)
+    live_probes = parse_vio_probe_list(result.output, _parse_rows)
+    if ltx_probes:
+        by_name = {p["name"]: p for p in ltx_probes}
+        for p in live_probes:
+            by_name[p["name"]] = p
+        merged = list(by_name.values())
+        return jsonify({
+            "success": result.success,
+            "device": device,
+            "probes": merged,
+            "count": len(merged),
+            "source": "ltx+live",
+            "path": ltx_path,
+        })
+    return jsonify({
+        "success": result.success,
+        "device": device,
+        "probes": live_probes,
+        "count": len(live_probes),
+        "source": "live",
+    })
+
+
+@app.route("/api/plugins/<plugin_id>/probes", methods=["POST"])
+def api_plugin_probe_config(plugin_id):
+    """Save VIO probe name mapping for one plugin."""
+    manifest = plugin_registry.plugin_manifest(plugin_id)
+    if not manifest:
+        return jsonify({"success": False, "error": "unknown plugin"}), 404
+    data = request.get_json(silent=True) or {}
+    probes = sanitize_probe_updates(data.get("probes"))
+    with _config_lock:
+        cfg = _load_config()
+        plugins_cfg = cfg.setdefault("plugins", {})
+        entry = plugins_cfg.setdefault(plugin_id, {})
+        if probes:
+            entry["probes"] = probes
+        elif "probes" in entry:
+            del entry["probes"]
+        _save_config(cfg)
+    return jsonify({"success": True, "plugin": plugin_id, "probes": probes})
 
 
 @app.route("/plugins/<plugin_id>/assets/<path:filename>")

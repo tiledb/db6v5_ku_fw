@@ -1,0 +1,15 @@
+<div class="monitor-bar">
+  <label>Addr max
+    <select id="sfpI2cMaxAddr">
+      <option value="15">0x0–0xF (16)</option>
+      <option value="63">0x0–0x3F (64)</option>
+      <option value="127" selected>0x0–0x7F (128)</option>
+    </select>
+  </label>
+  <button type="button" data-refresh="tilecal_sfp_i2c">Scan registers</button>
+  <span id="time-tilecal_sfp_i2c"></span>
+  <span id="status-tilecal_sfp_i2c" class="sfp-i2c-status"></span>
+</div>
+<div id="wrap-tilecal_sfp_i2c" class="panel-scroll">
+  <p class="empty">Select a device and scan to read SFP+ I2C block-RAM registers.</p>
+</div>

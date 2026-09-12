@@ -1,0 +1,107 @@
+.sfp-status-hint {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: .72rem;
+  color: var(--accent2);
+  white-space: nowrap;
+}
+
+.sfp-status-hint.warn { color: var(--warn); }
+
+.sfp-legend {
+  font-size: .72rem;
+  color: var(--muted);
+  margin-bottom: .45rem;
+  line-height: 1.4;
+}
+
+table.sfp-ddm td.num,
+table.sfp-ddm th.num {
+  font-family: var(--mono);
+  text-align: right;
+  white-space: nowrap;
+}
+
+table.sfp-ddm td.probe-name {
+  font-family: var(--mono);
+  font-size: .68rem;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+table.sfp-ddm tr.missing td {
+  color: var(--muted);
+}
+
+table.sfp-ddm tr.val-changed td.value-col {
+  animation: flash .5s ease;
+}
+
+.sfp-unmatched {
+  margin-top: .65rem;
+  font-size: .72rem;
+  color: var(--muted);
+}
+
+.sfp-unmatched summary {
+  cursor: pointer;
+  color: var(--warn);
+}
+
+.sfp-split {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: .55rem;
+  overflow: hidden;
+}
+
+.sfp-table-panel {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.sfp-plots-panel {
+  width: 44%;
+  min-width: 300px;
+  max-width: 520px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: .45rem;
+  min-height: 0;
+}
+
+.sfp-plot-box {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: .4rem .5rem .35rem;
+}
+
+.sfp-plot-box h3 {
+  font-size: .72rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  margin-bottom: .2rem;
+  flex-shrink: 0;
+}
+
+.sfp-plot-box.temp h3 { color: var(--warn); }
+.sfp-plot-box.volt h3 { color: var(--accent2); }
+.sfp-plot-box.current h3 { color: #3ecf8e; }
+
+.sfp-canvas-wrap {
+  flex: 1;
+  min-height: 80px;
+  position: relative;
+}
+
+.sfp-table-panel table.data { margin-bottom: .25rem; }

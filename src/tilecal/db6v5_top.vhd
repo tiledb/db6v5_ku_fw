@@ -767,13 +767,23 @@ i_db6_clock_interface : entity tilecal.db6_clock_interface
 i_db6_mainboard_interface : entity tilecal.db6_mainboard_interface
       generic map(
         -- iddr280 | iddr280_clkdiv | hss_wizard (must match i_db7_io_box below)
-        g_adc_clocking_scheme => iddr280,
+        -- 2026-09-12: switched to iddr280_clkdiv to test -- hss_wizard kept showing
+        -- per-channel bitslip on live ADC data even after fixing the raw-domain CDC and
+        -- the GBT encoder gearbox CDC; trying the IDDRE1-based datapath instead, which
+        -- doesn't go through the SelectIO Wizard/ISERDES3 path at all.
+        g_adc_clocking_scheme => iddr280_clkdiv,
         -- mb boundary-scan (sample) feature kill switch: false because triggering
         -- any jtag instruction change freezes this altera companion fpga's firmware
         -- until reset (confirmed via the ir-only bisection test mode). flip to true
         -- only once that's understood/fixed on the altera side, or for a
         -- mainboard/firmware revision confirmed not to have the issue.
-        g_enable_mb_boundary_scan => false
+        g_enable_mb_boundary_scan => false,
+        -- 2026-09-11: hss_wizard bring-up -- manual ADC SPI-register control (see
+        -- vio_adc_config in db6_mainboard_interface.vhd) to force a known LTC2264-12 test
+        -- pattern and check nibble alignment against ila_adc_nibble, independent of live
+        -- analog input. Off by default (g_vio_adc_config's own default is 0, matching
+        -- g_vio_adc_readout) -- explicitly on here only for this bring-up build.
+        g_vio_adc_config => 1
         )
       Port map(
         p_master_reset_in => s_master_reset,
@@ -830,7 +840,7 @@ i_db7_io_box : entity tilecal.db7_io_box
         g_num_gth_links    => g_num_gth_links,
         g_num_gth_ref_clks => g_num_gth_ref_clks,
         -- iddr280 | iddr280_clkdiv | hss_wizard (must match i_db6_mainboard_interface above)
-        g_adc_clocking_scheme => iddr280
+        g_adc_clocking_scheme => iddr280_clkdiv
     )
     port map (
         p_clknet_in    => s_clknet,
@@ -875,6 +885,7 @@ i_db7_io_box : entity tilecal.db7_io_box
         p_adc_lg_data_out          => s_adc_lg_data,
         p_adc_hg_data_out          => s_adc_hg_data,
         p_adc_pll0_locked_out      => s_adc_pll0_locked,
+        p_adc_idelay_ctrl_in       => s_mb_interface.adc_readout_control,
         p_adc_frame_missalignment_in => s_adc_frame_missalignment_iserdese,
         p_adc_ctrl_reset_from_sm_out => s_adc_ctrl_reset_from_sm_iserdese,
         p_adc_frameclk_iserdese_out  => s_adc_frameclk_iserdese,

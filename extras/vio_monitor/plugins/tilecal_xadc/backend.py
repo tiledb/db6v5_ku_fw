@@ -3,6 +3,7 @@ from flask import Blueprint, jsonify, request
 
 from plugins.common.sysmon import parse_sysmon, tcl_dump_sysmon
 from plugins.common.vio_live import parse_live_xadc_probes, tcl_read_live_xadc_probes
+from plugins.common.probe_config import plugin_probes, split_plugin_probes
 from plugins.registry import register_tree_hook
 from plugins.tilecal_xadc.conversion import (
     build_channels,
@@ -18,9 +19,13 @@ def register(app, ctx, manifest):
     lock = ctx["lock"]
     parse_rows = ctx["parse_rows"]
 
+    load_config = ctx["load_config"]
+
     @bp.route("/data")
     def api_tilecal_xadc_data():
         device = request.args.get("device", "").strip() or None
+        all_probes = plugin_probes(manifest, load_config())
+        vio_probes, ch_props = split_plugin_probes(all_probes)
         readings = []
         sysmon_ok = True
         vio_ok = True
@@ -34,13 +39,13 @@ def register(app, ctx, manifest):
 
         if device:
             with lock:
-                vio_result = run(tcl_read_live_xadc_probes(device), timeout_override=15)
+                vio_result = run(tcl_read_live_xadc_probes(device, vio_probes), timeout_override=15)
             vio_ok = vio_result.success
             addr_text, val_text = parse_live_xadc_probes(vio_result.output, parse_rows)
             live_addr = _parse_raw(addr_text)
             live_raw = _parse_raw(val_text)
 
-        raw_by_addr, sources = sysmon_to_raw_by_addr(readings)
+        raw_by_addr, sources = sysmon_to_raw_by_addr(readings, ch_props)
         live_scan = merge_vio_scan(
             raw_by_addr, sources, live_addr, live_raw, "vio_live",
         )

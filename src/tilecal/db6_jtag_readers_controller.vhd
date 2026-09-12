@@ -24,6 +24,10 @@ entity db6_jtag_readers_controller is
         -- so never hold both a q0/q1 pair of p_enable_in and p_enable_boundary_scan_in
         -- high at the same time.
         p_enable_boundary_scan_in : in  t_mb_std_logic;
+        -- bisection test mode: see p_start_boundary_scan_ir_only_in on
+        -- db6_altera_jtag_driver.vhd
+        p_enable_boundary_scan_ir_only_in : in t_mb_std_logic;
+        p_ir_only_done_out        : out t_mb_std_logic;
         p_boundary_scan_out       : out t_mb_boundary_scan_array;
         p_boundary_scan_done_out  : out t_mb_std_logic;
         p_bs_rx_register_in       : in  t_sfp_reg_addr_array;
@@ -47,6 +51,7 @@ architecture rtl of db6_jtag_readers_controller is
 
     signal s_boundary_scan : t_mb_boundary_scan_array;
     signal s_boundary_scan_done_raw : t_mb_std_logic;
+    signal s_ir_only_done_raw : t_mb_std_logic;
 
 begin
 
@@ -58,6 +63,7 @@ begin
             p_clk_in       => p_clk_in,
             p_start_in     => p_enable_in.q0,
             p_start_boundary_scan_in => p_enable_boundary_scan_in.q0,
+            p_start_boundary_scan_ir_only_in => p_enable_boundary_scan_ir_only_in.q0,
             p_jtag_tck_out => p_jtag_tck_out.q0,
             p_jtag_tms_out => p_jtag_tms_out.q0,
             p_jtag_tdi_out => p_jtag_tdi_out.q0,
@@ -69,7 +75,8 @@ begin
             p_boundary_scan_mem_out  => s_boundary_scan(0).mem,
             p_bs_rx_register_in      => p_bs_rx_register_in(0),
             p_bs_tx_register_out     => p_bs_tx_register_out(0),
-            p_boundary_scan_done_out => s_boundary_scan_done_raw.q0
+            p_boundary_scan_done_out => s_boundary_scan_done_raw.q0,
+            p_ir_only_done_out       => s_ir_only_done_raw.q0
         );
 
     i_db6_altera_jtag_driver_q1 : entity tilecal.db6_altera_jtag_driver
@@ -80,6 +87,7 @@ begin
             p_clk_in       => p_clk_in,
             p_start_in     => p_enable_in.q1,
             p_start_boundary_scan_in => p_enable_boundary_scan_in.q1,
+            p_start_boundary_scan_ir_only_in => p_enable_boundary_scan_ir_only_in.q1,
             p_jtag_tck_out => p_jtag_tck_out.q1,
             p_jtag_tms_out => p_jtag_tms_out.q1,
             p_jtag_tdi_out => p_jtag_tdi_out.q1,
@@ -91,7 +99,8 @@ begin
             p_boundary_scan_mem_out  => s_boundary_scan(1).mem,
             p_bs_rx_register_in      => p_bs_rx_register_in(1),
             p_bs_tx_register_out     => p_bs_tx_register_out(1),
-            p_boundary_scan_done_out => s_boundary_scan_done_raw.q1
+            p_boundary_scan_done_out => s_boundary_scan_done_raw.q1,
+            p_ir_only_done_out       => s_ir_only_done_raw.q1
         );
 
     process(p_clk_in)
@@ -111,5 +120,6 @@ begin
 
     p_boundary_scan_out      <= s_boundary_scan;
     p_boundary_scan_done_out <= s_boundary_scan_done_raw;
+    p_ir_only_done_out       <= s_ir_only_done_raw;
 
 end architecture;

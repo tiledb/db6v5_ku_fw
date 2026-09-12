@@ -138,8 +138,19 @@ s_sfp_rx_register(1) <= p_db_reg_rx_in(cfb_sfp_reg_address)(14 downto 8) or p_sf
 
 
 i_db6_gbt_gth_interface : entity tilecal.db6_gbt_gth_interface
-   generic map (   
+   generic map (
         g_num_gth_links                => g_num_gth_links,         --! num_links: number of links instantiated by the core (altera: up to 6, xilinx: up to 4)
+        -- 2026-09-12: was relying on the entity's own default (0, gen_multiple_gbt_encoder
+        -- -- two fully independent per-link encoder+CDC chains, one per GTH link's own
+        -- independent, asynchronous gth_tx_wordclk). Switched on explicitly: the two
+        -- links' word clocks are genuinely unrelated clock domains (each is that GTH
+        -- channel's own TXOUTCLK), so two independently-resynchronized encoders can never
+        -- fully guarantee bit-identical output at every instant -- a system requirement
+        -- here (see db6_gbt_encoder_gearbox.vhd's 2026-09-12 CDC fix). gen_simple_gbt_encoder
+        -- encodes once, in a single clock domain, and combinationally duplicates that one
+        -- register's value to both links -- bit-identical by construction, no independent
+        -- re-encoding, no double CDC risk.
+        g_enable_simple_gbt_encoder    => 1,
     -- hog
         GLOBAL_DATE => GLOBAL_DATE, -- 32 bit Date of last commit when the project was modified. Format: ddmmyyyy (hex with decimal digits, no digit greater than 9 is used)
         GLOBAL_TIME => GLOBAL_TIME, -- 32 bit Time of last commit when the project was modified. Format: 00HHMMSS (hex with decimal digits, no digit greater than 9 is used)

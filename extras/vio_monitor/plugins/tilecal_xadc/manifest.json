@@ -7,7 +7,26 @@
   "order": 25,
   "requires_target": true,
   "requires_device": false,
+  "requires_ltx": false,
   "tree_node_types": ["tilecal_xadc"],
+  "probe_defaults": {
+    "xadc_channel_voltage": "s_system_management_interface[xadc_channel_voltage]",
+    "xadc_channel": "s_system_management_interface[xadc_channel]",
+    "xadc_voltage_legacy": "probe_in98",
+    "xadc_channel_legacy": "probe_in97"
+  },
+  "probe_labels": {
+    "xadc_channel_voltage": "xadc_channel_voltage",
+    "xadc_channel": "xadc_channel",
+    "xadc_voltage_legacy": "probe_in98 (legacy)",
+    "xadc_channel_legacy": "probe_in97 (legacy)"
+  },
+  "probe_hints": {
+    "xadc_channel_voltage": "Live-scan raw voltage code",
+    "xadc_channel": "Live-scan channel address",
+    "xadc_voltage_legacy": "Fallback if probes use probe_in98",
+    "xadc_channel_legacy": "Fallback if probes use probe_in97"
+  },
   "assets": {
     "panel": "panel.html",
     "script": "plugin.js",

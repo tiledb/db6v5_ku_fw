@@ -21,6 +21,10 @@ entity db6_altera_jtag_driver is
         ----------------------------------------------------------------
         p_start_in                 : in  std_logic; -- idcode read (unchanged, legacy behaviour)
         p_start_boundary_scan_in   : in  std_logic; -- sample + full boundary-register capture
+        -- bisection test mode: shifts the sample opcode into the ir (update-ir ->
+        -- run-test/idle) then stops, never touching the dr -- used to isolate
+        -- whether loading the instruction alone freezes the altera companion fpga
+        p_start_boundary_scan_ir_only_in : in std_logic;
 
         ----------------------------------------------------------------
         -- JTAG
@@ -49,7 +53,8 @@ entity db6_altera_jtag_driver is
         p_boundary_scan_mem_out : out t_blk_mem_sfp;
         p_bs_rx_register_in     : in  std_logic_vector(6 downto 0);
         p_bs_tx_register_out    : out std_logic_vector(7 downto 0);
-        p_boundary_scan_done_out : out std_logic
+        p_boundary_scan_done_out : out std_logic;
+        p_ir_only_done_out       : out std_logic
     );
 end entity;
 
@@ -99,6 +104,7 @@ architecture rtl of db6_altera_jtag_driver is
 
     signal s_state          : t_state := ST_IDLE;
     signal s_boundary_scan_mode : std_logic := '0'; -- latched in ST_IDLE, selects the ST_RESET_5 branch
+    signal s_boundary_scan_ir_only_mode : std_logic := '0'; -- latched in ST_IDLE, makes ST_BS_UPDATE_IR return to ST_DONE instead of continuing to the dr shift
 
     --------------------------------------------------------------------
     -- JTAG outputs
@@ -157,6 +163,7 @@ architecture rtl of db6_altera_jtag_driver is
     signal s_msel         : std_logic_vector(2 downto 0) := (others => '0');
     signal s_clk_present  : std_logic_vector(6 downto 0) := (others => '0');
     signal s_boundary_scan_done : std_logic := '0';
+    signal s_ir_only_done : std_logic := '0';
 
     signal s_blk_mem_bs : t_blk_mem_sfp;
 
@@ -190,6 +197,7 @@ begin
     p_msel_out               <= s_msel;
     p_clk_present_out        <= s_clk_present;
     p_boundary_scan_done_out <= s_boundary_scan_done;
+    p_ir_only_done_out       <= s_ir_only_done;
 
     --------------------------------------------------------------------
     -- Boundary-scan capture block ram: port a is written during the
@@ -271,14 +279,21 @@ begin
 
                             s_done <= '0';
                             s_boundary_scan_done <= '0';
+                            s_ir_only_done <= '0';
                             s_tms  <= '1';
                             s_tdi  <= '0';
 
                             if p_start_in = '1' then
                                 s_boundary_scan_mode <= '0';
+                                s_boundary_scan_ir_only_mode <= '0';
                                 s_state <= ST_RESET_0;
                             elsif p_start_boundary_scan_in = '1' then
                                 s_boundary_scan_mode <= '1';
+                                s_boundary_scan_ir_only_mode <= '0';
+                                s_state <= ST_RESET_0;
+                            elsif p_start_boundary_scan_ir_only_in = '1' then
+                                s_boundary_scan_mode <= '1';
+                                s_boundary_scan_ir_only_mode <= '1';
                                 s_state <= ST_RESET_0;
                             end if;
 
@@ -413,7 +428,13 @@ begin
                         when ST_BS_UPDATE_IR =>
                             -- Update-IR -> Run-Test/Idle
                             s_tms   <= '0';
-                            s_state <= ST_BS_GOTO_DRSCAN2;
+                            if s_boundary_scan_ir_only_mode = '1' then
+                                -- bisection test mode: stop here, never touch the dr
+                                s_ir_only_done <= '1';
+                                s_state <= ST_DONE;
+                            else
+                                s_state <= ST_BS_GOTO_DRSCAN2;
+                            end if;
 
                         ----------------------------------------------------------------
                         -- Boundary-scan path: Run-Test/Idle -> Select-DR-Scan ->
@@ -498,9 +519,10 @@ begin
                             s_tms <= '0';
                             s_tdi <= '0';
 
-                            if p_start_in = '0' and p_start_boundary_scan_in = '0' then
+                            if p_start_in = '0' and p_start_boundary_scan_in = '0' and p_start_boundary_scan_ir_only_in = '0' then
                                 s_done  <= '0';
                                 s_boundary_scan_done <= '0';
+                                s_ir_only_done <= '0';
                                 s_state <= ST_IDLE;
                             end if;
 

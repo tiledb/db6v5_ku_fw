@@ -1,0 +1,38 @@
+<div class="monitor-bar">
+  <label>Sample
+    <select id="pollRate-sfp_ddm" data-poll-rate="sfp_ddm">
+      <option value="off" selected>Off</option>
+      <option value="0">0s (continuous)</option>
+      <option value="1">1s</option>
+      <option value="2">2s</option>
+      <option value="3">3s</option>
+      <option value="4">4s</option>
+      <option value="5">5s</option>
+      <option value="10">10s</option>
+    </select>
+  </label>
+  <button type="button" data-refresh="sfp_ddm">Refresh</button>
+  <span id="time-sfp_ddm"></span>
+  <span id="status-sfp_ddm" class="sfp-status-hint"></span>
+</div>
+<div id="sfpBody" class="sfp-split">
+  <div id="wrap-sfp_ddm" class="sfp-table-panel">
+    <div id="sfp-table-wrap">
+      <p class="empty">Connect and open a target to read SFP+ DDM probes.</p>
+    </div>
+  </div>
+  <div id="sfpPlotsWrap" class="sfp-plots-panel">
+    <div class="sfp-plot-box temp">
+      <h3>Temperature</h3>
+      <div class="sfp-canvas-wrap"><canvas id="sfpTempChart"></canvas></div>
+    </div>
+    <div class="sfp-plot-box volt">
+      <h3>Voltage</h3>
+      <div class="sfp-canvas-wrap"><canvas id="sfpVoltChart"></canvas></div>
+    </div>
+    <div class="sfp-plot-box current">
+      <h3>Current</h3>
+      <div class="sfp-canvas-wrap"><canvas id="sfpCurrentChart"></canvas></div>
+    </div>
+  </div>
+</div>

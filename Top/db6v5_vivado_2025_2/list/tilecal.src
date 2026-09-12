@@ -7,6 +7,7 @@ src/tilecal/db6v5_top.vhd top=db6v5_top 93
 src/tilecal/db6_c2v_interpreter.vhd 93
 src/tilecal/db6_adc_config_driver.vhd
 src/tilecal/db6_adc_interface.vhd
+src/tilecal/db6_adc_idelay_calibration.vhd
 src/tilecal/db6_adc_interface_decoder_iddr.vhd
 src/tilecal/db6_adc_interface_decoder_iddr_bitclk240.vhd
 src/tilecal/db6_adc_interface_decoder_iddr_bitclk280.vhd
@@ -23,6 +24,7 @@ src/tilecal/db6_cfgbus_interface_decoder_iddr_wrapper.vhd
 src/tilecal/db6_cfgbus_interface_io_iddr.vhd
 src/tilecal/db6_cht8305c_interface.vhd
 src/tilecal/db7_io_box.vhd
+src/tilecal/db7_is25lp256_driver.vhd
 src/tilecal/db6_cis_driver_cdc.vhd
 src/tilecal/db6_cis_driver_cdc_oddr.vhd
 src/tilecal/db6_cis_driver_hss.vhd

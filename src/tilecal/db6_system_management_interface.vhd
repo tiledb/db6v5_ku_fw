@@ -51,6 +51,11 @@ entity db6_system_management_interface is
     -- trigger from the top-level debug vio, ORed with this module's own master reset
     p_dna_reset_in : in std_logic;
 
+    -- db7_is25lp256_driver (config flash): plain-logic STARTUPE3 interface; the
+    -- STARTUPE3 primitive itself lives in db7_io_box, reached through db6v5_top.
+    p_flash_control_out : out t_is25lp256_control;
+    p_flash_control_in  : in  t_is25lp256_control;
+
     --output
     p_system_management_interface_out : out t_system_management_interface; 
     
@@ -153,6 +158,11 @@ signal s_xadc_clk40 : std_logic;
 signal s_dna_read_out : std_logic_vector(95 downto 0);
 signal s_dna_done_out : std_logic;
 
+signal s_flash_status : std_logic_vector(31 downto 0);
+signal s_flash_rdata  : std_logic_vector(31 downto 0);
+signal s_flash_page_ram_readback : std_logic_vector(15 downto 0);
+signal s_flash_fifo_status       : std_logic_vector(7 downto 0);
+
 begin
 
 i_db6_ku_dna : entity tilecal.db6_ku_dna
@@ -165,6 +175,24 @@ i_db6_ku_dna : entity tilecal.db6_ku_dna
 
 p_system_management_interface_out.ku_dna      <= s_dna_read_out;
 p_system_management_interface_out.ku_dna_done <= s_dna_done_out;
+
+i_db7_is25lp256_driver : entity tilecal.db7_is25lp256_driver
+    port map (
+        p_clknet_in         => p_clknet_in,
+        p_master_reset_in   => p_master_reset_in,
+        p_db_reg_rx_in       => p_db_reg_rx_in,
+        p_flash_control_out => p_flash_control_out,
+        p_flash_control_in  => p_flash_control_in,
+        p_status_out         => s_flash_status,
+        p_rdata_out          => s_flash_rdata,
+        p_page_ram_readback_out => s_flash_page_ram_readback,
+        p_fifo_status_out       => s_flash_fifo_status
+    );
+
+p_system_management_interface_out.flash_status <= s_flash_status;
+p_system_management_interface_out.flash_rdata  <= s_flash_rdata;
+p_system_management_interface_out.flash_page_ram_readback <= s_flash_page_ram_readback;
+p_system_management_interface_out.flash_fifo_status       <= s_flash_fifo_status;
 
 
 -- BUFGMUX: Global Clock Mux Buffer

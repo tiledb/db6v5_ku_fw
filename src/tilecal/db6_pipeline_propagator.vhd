@@ -44,6 +44,13 @@ end db6_pipeline_propagator;
 architecture Behavioral of db6_pipeline_propagator is
 type t_pipeline is array (0 to g_pipeline_stages-1) of std_logic_vector(g_pipeline_item_lenght-1 downto 0);
 signal s_pipeline : t_pipeline;
+-- (2026-09-10: tried g_shreg_extract="no" here to force discrete FFs instead of
+-- packed SRLs, hoping to shave the picosecond-scale intrinsic SRL-shift-in delay
+-- causing a marginal setup violation on the ADC fc/hg/lg pipelines' stage-0 capture
+-- from IDDRE1 -- see db6_adc_interface_io_iddr_bitclk280.vhd. Measured result: WNS
+-- went from -0.013ns/2 failing endpoints to -0.181ns/19 failing endpoints -- the SRL
+-- packing was helping, not hurting. Reverted; do not retry this without first
+-- understanding why SRL packing wins here before assuming a discrete FF would.)
 begin
 
     gen_0_pipeline_stages: if g_pipeline_stages = 0 generate

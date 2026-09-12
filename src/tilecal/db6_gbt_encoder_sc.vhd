@@ -242,6 +242,15 @@ s_db_reg_tx_in(stb_gbtx_config_readback)(16 downto 9)  <= p_gbtx_interface_in.gb
 s_db_reg_tx_in(stb_gbtx_config_readback)(31 downto 17) <= (others => '0');
 --s_db_reg_tx_in(stb_db_cfbstrobe) <= s_db_reg_rx_in(cfb_strobe_reg);
 s_db_reg_tx_in(stb_db_debug) <= s_db_reg_rx_in(cfb_db_debug);
+s_db_reg_tx_in(stb_flash_status) <= p_system_management_interface_in.flash_status;
+s_db_reg_tx_in(stb_flash_rdata)  <= p_system_management_interface_in.flash_rdata;
+-- page-read buffer readback: bits15:0=flash_page_ram_readback (bits7:0=echoed
+-- address, bits15:8=byte value -- see db7_is25lp256_driver.vhd)
+s_db_reg_tx_in(stb_flash_page_ram_readback)(15 downto 0) <= p_system_management_interface_in.flash_page_ram_readback;
+s_db_reg_tx_in(stb_flash_page_ram_readback)(31 downto 16) <= (others => '0');
+-- write fifo status: bits7:0=flash_fifo_status (bits5:0=count, bit6=full, bit7=empty)
+s_db_reg_tx_in(stb_flash_fifo_status)(7 downto 0) <= p_system_management_interface_in.flash_fifo_status;
+s_db_reg_tx_in(stb_flash_fifo_status)(31 downto 8) <= (others => '0');
 s_db_reg_tx_in(stb_db_fwversion) <= c_fw_version;-- x"EDEDEDED";
 s_db_reg_tx_in(stb_pgood_reg)(c_number_of_pgood_channels downto 0) <= p_system_management_interface_in.p_good;
 s_db_reg_tx_in(stb_pgood_reg)(31 downto 28) <= p_clknet_in.md_number;

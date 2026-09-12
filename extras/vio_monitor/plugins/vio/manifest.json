@@ -7,6 +7,7 @@
   "order": 10,
   "requires_target": true,
   "requires_device": false,
+  "requires_ltx": true,
   "tree_node_types": ["vio"],
   "assets": {
     "panel": "panel.html",

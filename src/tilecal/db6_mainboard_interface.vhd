@@ -37,6 +37,24 @@ use tilecal.db6_design_package.all;
 entity db6_mainboard_interface is
   generic (
             g_vio_adc_readout : natural :=0;
+            -- 2026-09-11: manual ADC SPI-register control for bring-up/debug (see LTC2264-12
+            -- datasheet Table 4, "Serial Programming Mode Register Map"). Drives the
+            -- previously-inert s_adc_register_config_from_readout path (see
+            -- gen_vio_adc_config below) -- does not touch the existing configbus/JTAG path
+            -- (s_adc_register_config_from_configbus), which stays live and unaffected when
+            -- this is disabled or when its own mode probe is left at '0'.
+            g_vio_adc_config : natural :=0;
+            g_ila_adc_readout : natural :=1;
+            -- 2026-09-11: hss_wizard bring-up debug only. ila_adc_readout above is clocked
+            -- by p_clknet_in.refclk40 (40MHz) but the frame-alignment FSM in
+            -- db6_adc_interface_decoder_iserdese runs on p_adc_bitclkdiv_in (~140MHz) --
+            -- too slow to see individual nibble transitions or correlate them with the
+            -- FSM's raw per-cycle behavior. This ILA is clocked by channel 0's own
+            -- p_adc_bitclkdiv_in and captures the raw pre-decode nibble stream directly,
+            -- to determine empirically whether/where the true marker phase lands instead
+            -- of guessing comparison constants blindly (see decoder file's revision
+            -- history for the two failed guesses this is meant to replace).
+            g_ila_adc_nibble : natural :=1;
             g_adc_clocking_scheme : t_adc_clocking_scheme := iddr280;
             g_bitclk        : integer := 280;
             -- compile-time kill switch for the whole mb boundary-scan (sample)
@@ -161,6 +179,16 @@ signal s_adc_readout_control, s_adc_readout_control_out : t_adc_readout_control:
 );
 signal s_adc_readout : t_adc_readout;
 signal s_cis_interface : t_cis_interface;
+
+-- 2026-09-12: db6_adc_idelay_calibration's outputs (see that entity's header) --
+-- drives s_adc_readout_control's fc/lg/hg idelay_count/load/en_vtc fields, both for
+-- i_db6_adc_interface_iddr below and (via p_mb_interface_out.adc_readout_control,
+-- already exported at the bottom of this architecture) for db7_io_box's IDELAYE3
+-- primitives, which used to have no real driver for these fields at all.
+signal s_adc_idelay_fc_count, s_adc_idelay_lg_count, s_adc_idelay_hg_count, s_adc_idelay_calibration_tap : t_idelay_count;
+signal s_adc_idelay_fc_load, s_adc_idelay_lg_load, s_adc_idelay_hg_load : std_logic_vector(5 downto 0);
+signal s_adc_idelay_fc_en_vtc, s_adc_idelay_lg_en_vtc, s_adc_idelay_hg_en_vtc : std_logic_vector(5 downto 0);
+signal s_adc_idelay_calibration_done, s_adc_idelay_calibration_failed : std_logic_vector(5 downto 0);
 --attribute keep of s_adc_readout_control, s_adc_readout : signal is "TRUE";
 --attribute dont_touch of s_adc_readout_control, s_adc_readout : signal is "TRUE";
 
@@ -177,6 +205,11 @@ signal s_mb_config_trigger_out : std_logic;
 
 --adc_config
 signal s_adc_register_config_from_configbus, s_adc_register_config_from_readout : t_adc_register_config := c_adc_register_init_config_14_bit;
+-- g_vio_adc_config only: raw manual A3/A4 entry (used when s_test_pattern_enable='0') and
+-- the structured test-pattern convenience fields (used when ='1') -- see gen_vio_adc_config.
+signal s_adc_config_vio_reg3_raw, s_adc_config_vio_reg4_raw : std_logic_vector(7 downto 0) := (others => '0');
+signal s_test_pattern_enable : std_logic := '0';
+signal s_test_pattern_value : std_logic_vector(13 downto 0) := (others => '0');
 
 --attribute keep of s_adc_register_config_from_configbus, s_adc_register_config_from_readout : signal is "TRUE";
 
@@ -266,6 +299,112 @@ END COMPONENT;
 signal s_adc_config_reset : std_logic;
 signal s_adc_config_leds, s_db6_adc_interface_leds, a_db6_mainboard_driver_leds : std_logic_vector(3 downto 0);
 
+-- hss_wizard nibble-level debug (see g_ila_adc_nibble above): channel 0 only, raw
+-- pre-decode frameclk/hg/lg nibbles plus the decoder's own locked/missalignment/fc_data
+-- outputs, all in channel 0's own p_adc_bitclkdiv_in domain.
+COMPONENT ila_adc_nibble
+
+PORT (
+	clk : IN STD_LOGIC;
+
+	probe0 : IN STD_LOGIC_VECTOR(3 DOWNTO 0);
+	probe1 : IN STD_LOGIC_VECTOR(3 DOWNTO 0);
+	probe2 : IN STD_LOGIC_VECTOR(3 DOWNTO 0);
+	probe3 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
+	probe4 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
+	probe5 : IN STD_LOGIC_VECTOR(13 DOWNTO 0)
+  );
+END COMPONENT;
+
+-- manual ADC SPI-register control (see g_vio_adc_config above). Register byte layout per
+-- LTC2264-12 datasheet Table 4:
+--   adc_registers(0) = A0  Reset Register                (bit7 = RESET, self-clearing)
+--   adc_registers(1) = A1  Format and Power-Down Register (DCSOFF/RAND/TWOSCOMP/SLEEP/NAP)
+--   adc_registers(2) = A2  Output Mode Register           (ILVDS/TERMON/OUTOFF/OUTMODE)
+--   adc_registers(3) = A3  Test Pattern MSB Register      (bit7 OUTTEST, bits5:0 = TP13:TP8)
+--   adc_registers(4) = A4  Test Pattern LSB Register      (bits7:0 = TP7:TP0)
+-- probe_out7/8 give raw manual control of A3/A4 (used when test_pattern_enable=0); when
+-- test_pattern_enable=1, A3/A4 are instead computed from test_pattern_value (see
+-- gen_vio_adc_config's combinational overrides below), packing OUTTEST=1 and the 14-bit
+-- pattern into TP13:TP8/TP7:TP0 automatically.
+COMPONENT vio_adc_config
+  PORT (
+    clk : IN STD_LOGIC;
+    probe_in0 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
+    probe_in1 : IN STD_LOGIC_VECTOR(3 DOWNTO 0);
+    probe_in2 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
+    probe_in3 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
+    probe_out0 : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
+    probe_out1 : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
+    probe_out2 : OUT STD_LOGIC_VECTOR(2 DOWNTO 0);
+    probe_out3 : OUT STD_LOGIC_VECTOR(1 DOWNTO 0);
+    probe_out4 : OUT STD_LOGIC_VECTOR(7 DOWNTO 0);
+    probe_out5 : OUT STD_LOGIC_VECTOR(7 DOWNTO 0);
+    probe_out6 : OUT STD_LOGIC_VECTOR(7 DOWNTO 0);
+    probe_out7 : OUT STD_LOGIC_VECTOR(7 DOWNTO 0);
+    probe_out8 : OUT STD_LOGIC_VECTOR(7 DOWNTO 0);
+    probe_out9 : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
+    probe_out10 : OUT STD_LOGIC_VECTOR(13 DOWNTO 0)
+  );
+END COMPONENT;
+
+COMPONENT ila_adc_readout
+
+PORT (
+	clk : IN STD_LOGIC;
+
+
+
+	probe0 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
+	probe1 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
+	probe2 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
+	probe3 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
+	probe4 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
+	probe5 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
+	probe6 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
+	probe7 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
+	probe8 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
+	probe9 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
+	probe10 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
+	probe11 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
+	probe12 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
+	probe13 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
+	probe14 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
+	probe15 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
+	probe16 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
+	probe17 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
+	probe18 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
+	probe19 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
+	probe20 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
+	probe21 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
+	probe22 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
+	probe23 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
+	probe24 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
+	probe25 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
+	probe26 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
+	probe27 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
+	probe28 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
+	probe29 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
+	probe30 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
+	probe31 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
+	probe32 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
+	probe33 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
+	probe34 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
+	probe35 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
+	probe36 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
+	probe37 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
+	probe38 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
+	probe39 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
+	probe40 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
+	probe41 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
+	probe42 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
+	probe43 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
+	probe44 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
+	probe45 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
+	probe46 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
+	probe47 : IN STD_LOGIC_VECTOR(0 DOWNTO 0)
+);
+END COMPONENT  ;
 
 COMPONENT vio_adc_readout
   PORT (
@@ -575,25 +714,41 @@ end generate;
 --        s_adc_readout_control.hg_idelay_en_vtc(5)<=p_db_reg_rx_in(adc_readout_idelay3_hg_5)(10);
 --        s_adc_readout_control.fc_idelay_en_vtc(5)<=p_db_reg_rx_in(adc_readout_idelay3_fc_5)(10);
 
-        s_adc_readout_control.lg_idelay_en_vtc(0)<= '1';
-        s_adc_readout_control.hg_idelay_en_vtc(0)<= '1';
-        s_adc_readout_control.fc_idelay_en_vtc(0)<= '1';
-        s_adc_readout_control.lg_idelay_en_vtc(1)<= '1';
-        s_adc_readout_control.hg_idelay_en_vtc(1)<= '1';
-        s_adc_readout_control.fc_idelay_en_vtc(1)<= '1';
-        s_adc_readout_control.lg_idelay_en_vtc(2)<= '1';
-        s_adc_readout_control.hg_idelay_en_vtc(2)<= '1';
-        s_adc_readout_control.fc_idelay_en_vtc(2)<= '1';
-        s_adc_readout_control.lg_idelay_en_vtc(3)<= '1';
-        s_adc_readout_control.hg_idelay_en_vtc(3)<= '1';
-        s_adc_readout_control.fc_idelay_en_vtc(3)<= '1';
-        s_adc_readout_control.lg_idelay_en_vtc(4)<= '1';
-        s_adc_readout_control.hg_idelay_en_vtc(4)<= '1';
-        s_adc_readout_control.fc_idelay_en_vtc(4)<= '1';
-        s_adc_readout_control.lg_idelay_en_vtc(5)<= '1';
-        s_adc_readout_control.hg_idelay_en_vtc(5)<= '1';
-        s_adc_readout_control.fc_idelay_en_vtc(5)<= '1';
-        
+        -- 2026-09-12: driven by i_db6_adc_idelay_calibration below (was hardwired '1' /
+        -- all-zero count / no load, i.e. these fields never actually moved the IDELAYE3
+        -- taps before -- see that instantiation's header for the full design).
+        s_adc_readout_control.lg_idelay_en_vtc <= s_adc_idelay_lg_en_vtc;
+        s_adc_readout_control.hg_idelay_en_vtc <= s_adc_idelay_hg_en_vtc;
+        s_adc_readout_control.fc_idelay_en_vtc <= s_adc_idelay_fc_en_vtc;
+        s_adc_readout_control.lg_idelay_load <= s_adc_idelay_lg_load;
+        s_adc_readout_control.hg_idelay_load <= s_adc_idelay_hg_load;
+        s_adc_readout_control.fc_idelay_load <= s_adc_idelay_fc_load;
+        s_adc_readout_control.lg_idelay_count <= s_adc_idelay_lg_count;
+        s_adc_readout_control.hg_idelay_count <= s_adc_idelay_hg_count;
+        s_adc_readout_control.fc_idelay_count <= s_adc_idelay_fc_count;
+
+        i_db6_adc_idelay_calibration : entity tilecal.db6_adc_idelay_calibration
+            port map (
+                p_master_reset_in   => s_reset_adc_interface,
+                p_clknet_in         => p_clknet_in,
+                p_adc_bitclk_in     => p_adc_bitclk_in,
+                p_start_in          => s_adc_readout_control.adc_config_done,
+                p_channel_locked_in => s_adc_readout.channel_locked,
+                p_fc_idelay_count_out  => s_adc_idelay_fc_count,
+                p_fc_idelay_load_out   => s_adc_idelay_fc_load,
+                p_fc_idelay_en_vtc_out => s_adc_idelay_fc_en_vtc,
+                p_lg_idelay_count_out  => s_adc_idelay_lg_count,
+                p_lg_idelay_load_out   => s_adc_idelay_lg_load,
+                p_lg_idelay_en_vtc_out => s_adc_idelay_lg_en_vtc,
+                p_hg_idelay_count_out  => s_adc_idelay_hg_count,
+                p_hg_idelay_load_out   => s_adc_idelay_hg_load,
+                p_hg_idelay_en_vtc_out => s_adc_idelay_hg_en_vtc,
+                p_calibration_done_out   => s_adc_idelay_calibration_done,
+                p_calibration_failed_out => s_adc_idelay_calibration_failed,
+                p_calibration_tap_out    => s_adc_idelay_calibration_tap
+            );
+
+
 --        s_adc_readout_control.lg_bitslip(0)<=p_db_reg_rx_in(adc_readout_idelay3_lg_0)(14 downto 11);
 --        s_adc_readout_control.hg_bitslip(0)<=p_db_reg_rx_in(adc_readout_idelay3_hg_0)(14 downto 11);
 --        s_adc_readout_control.lg_bitslip(1)<=p_db_reg_rx_in(adc_readout_idelay3_lg_1)(14 downto 11);
@@ -816,7 +971,18 @@ s_adc_register_config_from_configbus.adc_registers(4) <= p_db_reg_rx_in(cfb_loop
 s_adc_register_config_from_configbus.mode <= p_db_reg_rx_in(cfb_db_debug)(c_db_debug_mb_adc_config_mode);
 s_adc_register_config_from_configbus.trigger_mb_adc_config <= p_db_reg_rx_in(cfb_db_debug)(c_db_debug_mb_adc_config_trigger);
 
-s_adc_register_config_from_readout <= s_adc_readout.mb_adc_config_control;
+-- s_adc_register_config_from_readout used to be a plain pass-through of
+-- s_adc_readout.mb_adc_config_control, a field nothing ever writes (db6_adc_interface's
+-- decoders only ever leave it at its aggregate init value) -- i.e. this path was
+-- permanently inert (mode='0', so db6_adc_config_driver always took the configbus branch
+-- below). gen_vio_adc_config now drives it instead, giving the VIO a genuine, previously-
+-- unused control path with no effect on the configbus/JTAG path above: that path is
+-- untouched, and db6_adc_config_driver's own mode mux (p_adc_register_config_from_readout_in.mode)
+-- still decides which one wins, exactly as before.
+gen_vio_adc_config_default : if g_vio_adc_config = 0 generate
+    s_adc_register_config_from_readout <= s_adc_readout.mb_adc_config_control;
+end generate;
+
 s_adc_config_reset <= p_master_reset_in(c_adc_config_reset_bit) or p_db_reg_rx_in(cfb_strobe_reg)(c_adc_config_reset_bit);
 
 i_db6_adc_config_driver  : entity tilecal.db6_adc_config_driver 
@@ -867,6 +1033,85 @@ i_db6_adc_config_driver  : entity tilecal.db6_adc_config_driver
 --    probe_out10(0) => p_mb_interface_out.mb_reset.q0,
 --    probe_out11(0) => p_mb_interface_out.mb_reset.q1
 --  );
+
+
+
+gen_ila_adc_readout : if g_ila_adc_readout = 1 generate
+
+    i_ila_adc_readout : ila_adc_readout
+    PORT MAP (
+        clk => p_clknet_in.refclk40,
+    
+
+
+        probe0 => s_adc_readout.lg_data(5),
+        probe1 => s_adc_readout.hg_data(5),
+        probe2 => s_adc_readout.fc_data(5),
+        probe3 => s_adc_readout.lg_data(4),
+        probe4 => s_adc_readout.hg_data(4),
+        probe5 => s_adc_readout.fc_data(4),
+        probe6 => s_adc_readout.lg_data(3),
+        probe7 => s_adc_readout.hg_data(3),
+        probe8 => s_adc_readout.fc_data(3),
+        probe9 => s_adc_readout.lg_data(2),
+        probe10 => s_adc_readout.hg_data(2),
+        probe11 => s_adc_readout.fc_data(2),
+        probe12 => s_adc_readout.lg_data(1),
+        probe13 => s_adc_readout.hg_data(1),
+        probe14 => s_adc_readout.fc_data(1),
+        probe15 => s_adc_readout.lg_data(0),
+        probe16 => s_adc_readout.hg_data(0),
+        probe17 => s_adc_readout.fc_data(0),
+     
+        probe18(0) => s_adc_readout.channel_locked(5),
+        probe19(0) => s_adc_readout.channel_locked(4),
+        probe20(0) => s_adc_readout.channel_locked(3), 
+        probe21(0) => s_adc_readout.channel_locked(2), 
+        probe22(0) => s_adc_readout.channel_locked(1),
+        probe23(0) => s_adc_readout.channel_locked(0),
+        probe24(0) => s_adc_readout.channel_missed_locked(05),
+        probe25(0) => s_adc_readout.channel_missed_locked(4), 
+        probe26(0) => s_adc_readout.channel_missed_locked(3), 
+        probe27(0) => s_adc_readout.channel_missed_locked(2), 
+        probe28(0) => s_adc_readout.channel_missed_locked(1), 
+        probe29(0) => s_adc_readout.channel_missed_locked(0), 
+        probe30(0) => s_adc_readout.channel_frame_missalignemt(5), 
+        probe31(0) => s_adc_readout.channel_frame_missalignemt(4), 
+        probe32(0) => s_adc_readout.channel_frame_missalignemt(3), 
+        probe33(0) => s_adc_readout.channel_frame_missalignemt(2), 
+        probe34(0) => s_adc_readout.channel_frame_missalignemt(1), 
+        probe35(0) => s_adc_readout.channel_frame_missalignemt(0), 
+        probe36(0) => s_adc_readout.channel_phase_offset(5), 
+        probe37(0) => s_adc_readout.channel_phase_offset(4), 
+        probe38(0) => s_adc_readout.channel_phase_offset(3), 
+        probe39(0) => s_adc_readout.channel_phase_offset(2), 
+        probe40(0) => s_adc_readout.channel_phase_offset(1), 
+        probe41(0) => s_adc_readout.channel_phase_offset(0), 
+        probe42(0) => '0', 
+        probe43(0) => '0', 
+        probe44(0) => '0', 
+        probe45(0) => '0', 
+        probe46(0) => '0',
+        probe47(0) => '0'
+    );
+end generate;
+
+-- see g_ila_adc_nibble above
+gen_ila_adc_nibble : if g_ila_adc_nibble = 1 and g_adc_clocking_scheme = hss_wizard generate
+
+    i_ila_adc_nibble : ila_adc_nibble
+    PORT MAP (
+        clk => p_adc_bitclkdiv_in(0),
+
+        probe0 => p_adc_frameclk_iserdese_in(0)(3 downto 0),
+        probe1 => p_adc_hg_data_iserdese_in(0)(3 downto 0),
+        probe2 => p_adc_lg_data_iserdese_in(0)(3 downto 0),
+        probe3(0) => s_adc_readout.channel_locked(0),
+        probe4(0) => s_adc_readout.channel_frame_missalignemt(0),
+        probe5 => s_adc_readout.fc_data(0)
+    );
+
+end generate;
 
 gen_vio_adc_readout : if g_vio_adc_readout = 1 generate
 
@@ -985,8 +1230,43 @@ gen_vio_adc_readout : if g_vio_adc_readout = 1 generate
         probe_out0(0) => s_reset_adc_interface_from_vio
       );
 end generate;
+
+-- see g_vio_adc_config above
+gen_vio_adc_config : if g_vio_adc_config = 1 generate
+
+    -- OUTTEST=1, bits5:0=TP13:TP8, bit6 don't-care (tied 0); TP7:TP0 = pattern(7:0) directly
+    -- (LTC2264-12 datasheet Table 4, Registers A3/A4). Raw manual bytes otherwise.
+    s_adc_register_config_from_readout.adc_registers(3) <=
+        '1' & '0' & s_test_pattern_value(13 downto 8) when s_test_pattern_enable = '1' else
+        s_adc_config_vio_reg3_raw;
+    s_adc_register_config_from_readout.adc_registers(4) <=
+        s_test_pattern_value(7 downto 0) when s_test_pattern_enable = '1' else
+        s_adc_config_vio_reg4_raw;
+
+    i_vio_adc_config : vio_adc_config
+      PORT MAP (
+        clk => p_clknet_in.cfgbus_clk40,
+
+        probe_in0(0) => s_adc_readout_control.adc_config_done,
+        probe_in1 => s_adc_config_leds,
+        probe_in2 => s_adc_register_config_from_readout.adc_registers(3),
+        probe_in3 => s_adc_register_config_from_readout.adc_registers(4),
+
+        probe_out0(0) => s_adc_register_config_from_readout.mode,
+        probe_out1(0) => s_adc_register_config_from_readout.trigger_mb_adc_config,
+        probe_out2 => s_adc_register_config_from_readout.mb_fpga_select,
+        probe_out3 => s_adc_register_config_from_readout.mb_pmt_select,
+        probe_out4 => s_adc_register_config_from_readout.adc_registers(0),
+        probe_out5 => s_adc_register_config_from_readout.adc_registers(1),
+        probe_out6 => s_adc_register_config_from_readout.adc_registers(2),
+        probe_out7 => s_adc_config_vio_reg3_raw,
+        probe_out8 => s_adc_config_vio_reg4_raw,
+        probe_out9(0) => s_test_pattern_enable,
+        probe_out10 => s_test_pattern_value
+      );
+end generate;
 --------------------------------------------------------------------------------------------------------------------------
---pattern test! 
+--pattern test!
 
 --i_vio_adc_readout_pattern_test : vio_adc_readout_pattern_test
 --  PORT MAP (

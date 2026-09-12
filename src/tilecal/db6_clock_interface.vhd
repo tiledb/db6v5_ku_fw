@@ -826,7 +826,7 @@ s_clknet_out.cfgbus_clk40_local <= p_cfgbus_clk40_local_in;
         s_counter_binary_s.load <= '0';
         s_counter_binary_s.l <= (others=> '0');
         
-        proc_clk_khz : process(s_clknet_out.osc_clk40)
+        proc_clk_1hz : process(s_clknet_out.osc_clk40)
         begin
             if rising_edge(s_clknet_out.osc_clk40) then
             
@@ -869,6 +869,10 @@ s_clknet_out.cis_enable                           <= p_clknet_debug_control_in.c
 s_clknet_out.cis_gain                             <= p_clknet_debug_control_in.cis_gain;
 s_clknet_out.cis_bcid_charge                      <= p_clknet_debug_control_in.cis_bcid_charge;
 s_clknet_out.cis_bcid_discharge                   <= p_clknet_debug_control_in.cis_bcid_discharge;
+s_clknet_out.flash_manual_address                 <= p_clknet_debug_control_in.flash_manual_address;
+s_clknet_out.flash_manual_command                 <= p_clknet_debug_control_in.flash_manual_command;
+s_clknet_out.flash_manual_write_floor_enable      <= p_clknet_debug_control_in.flash_manual_write_floor_enable;
+s_clknet_out.flash_manual_write_floor             <= p_clknet_debug_control_in.flash_manual_write_floor;
 
 -- status the top-level vio_clknet_status can't reach any other way (not part of
 -- t_db_clknet/t_db_clkin).

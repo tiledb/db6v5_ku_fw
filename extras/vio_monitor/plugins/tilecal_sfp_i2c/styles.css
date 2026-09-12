@@ -1,0 +1,40 @@
+.sfp-i2c-status {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: .72rem;
+  color: var(--accent2);
+  white-space: nowrap;
+}
+
+.sfp-i2c-status.warn { color: var(--warn); }
+
+.sfp-i2c-legend {
+  font-size: .72rem;
+  color: var(--muted);
+  margin-bottom: .45rem;
+  line-height: 1.4;
+}
+
+table.sfp-i2c-reg td.num {
+  font-family: var(--mono);
+  text-align: right;
+  white-space: nowrap;
+}
+
+table.sfp-i2c-reg tr.nonzero td.num {
+  color: var(--accent2);
+}
+
+.sfp-i2c-probes {
+  font-family: var(--mono);
+  font-size: .68rem;
+  color: var(--muted);
+  margin-bottom: .45rem;
+  line-height: 1.45;
+}
+
+.sfp-i2c-errors {
+  color: var(--warn);
+  font-size: .75rem;
+  margin-bottom: .45rem;
+}

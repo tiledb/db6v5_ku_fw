@@ -60,6 +60,27 @@ architecture Behavioral of db6_gbt_encoder_gearbox is
 
     constant c_pipeline_depth : integer := 2;
 
+    -- 2026-09-12: CDC into p_clknet_in.gth_tx_wordclk(g_ch_number) (240MHz -- a clean 6x
+    -- multiple of cfgbus_clk40, both ultimately GBTx-synchronous, but with an unknown,
+    -- uncalibrated fixed phase offset between them: mesochronous, not the same clock, and
+    -- not safe to sample directly). Replaces i_hg_pipeline/i_lg_pipeline, which used to
+    -- clock a plain db6_pipeline_propagator (just a shift register, no synchronization
+    -- safety at all) entirely off gth_tx_wordclk while its input came straight from
+    -- cfgbus_clk40 -- a naive, unsynchronized multi-bit crossing with no protection
+    -- whatsoever, invisible with a static test pattern (unchanging data can't visibly
+    -- tear) but producing torn/incoherent hg/lg words with live, continuously-changing
+    -- ADC data. Fixed the same way as db6_adc_interface_decoder_iserdese.vhd's
+    -- proc_cdc_capture: only the single-bit p_gbt_encoder_interface_in.data_toggle
+    -- (toggled every cfgbus_clk40 cycle in db6_gbt_encoder_formatter.vhd, alongside the
+    -- hg/lg update) is actually sampled across the clock boundary, through a conventional
+    -- 2-flop synchronizer (safe for one bit; a torn read just glitches cleanly to old or
+    -- new). gth_tx_wordclk's 6x headroom over cfgbus_clk40 means every single toggle
+    -- transition is reliably caught before the next one arrives, so once a transition is
+    -- detected the hg/lg data (updated on the exact same cfgbus_clk40 edge as the toggle)
+    -- has already been stable for a full source cycle and can be captured directly and
+    -- safely -- same fixed latency every time, no elastic buffering.
+    signal s_toggle_sync0, s_toggle_sync1, s_toggle_sync1_prev : std_logic := '0';
+
 begin
     p_gbt_encoder_interface_out.gbt_tx_data_out.lg <= s_gbt_encoder_interface.gbt_tx_data_out.lg;--p_gbt_encoder_interface_in.gbt_tx_data_out.lg;
     p_gbt_encoder_interface_out.gbt_tx_data_out.hg <= s_gbt_encoder_interface.gbt_tx_data_out.lg;--p_gbt_encoder_interface_in.gbt_tx_data_out.hg;
@@ -74,21 +95,24 @@ begin
     s_gbt_encoder_interface.gbt_tx_data_out.lg <= s_gbt_encoder_interface_buffer.gbt_tx_data_out.lg; --p_gbt_encoder_interface_in.gbt_tx_data_out.lg;
     s_gbt_encoder_interface.gbt_tx_data_out.hg <= s_gbt_encoder_interface_buffer.gbt_tx_data_out.hg; --p_gbt_encoder_interface_in.gbt_tx_data_out.hg;
 
-    i_hg_pipeline : entity tilecal.db6_pipeline_propagator
-    generic map(    g_pipeline_stages => 3,
-                    g_pipeline_item_lenght => 116)
-    Port map ( p_clk_in => p_clknet_in.gth_tx_wordclk(g_ch_number),
-               p_pipeline_in => p_gbt_encoder_interface_in.gbt_tx_data_out.hg,
-               p_pipeline_out => s_gbt_encoder_interface_buffer.gbt_tx_data_out.hg);
+    -- see s_toggle_sync0 declaration above for the full design reasoning. No explicit
+    -- reset (matching proc_db_data_sync just below, and this file's p_master_reset_in
+    -- port, which nothing in this architecture uses): the three sync flops' :='0' initial
+    -- values start them equal, so no spurious edge is ever detected at power-up -- the
+    -- synchronizer is inherently self-starting.
+    proc_cdc_capture : process(p_clknet_in.gth_tx_wordclk(g_ch_number))
+    begin
+        if rising_edge(p_clknet_in.gth_tx_wordclk(g_ch_number)) then
+            s_toggle_sync0 <= p_gbt_encoder_interface_in.data_toggle;
+            s_toggle_sync1 <= s_toggle_sync0;
+            s_toggle_sync1_prev <= s_toggle_sync1;
 
-    i_lg_pipeline : entity tilecal.db6_pipeline_propagator
-    generic map(    g_pipeline_stages => 3,
-                    g_pipeline_item_lenght => 116)
-    Port map ( p_clk_in => p_clknet_in.gth_tx_wordclk(g_ch_number),
-               p_pipeline_in => p_gbt_encoder_interface_in.gbt_tx_data_out.lg,
-               p_pipeline_out => s_gbt_encoder_interface_buffer.gbt_tx_data_out.lg);
-    
-       
+            if s_toggle_sync1 /= s_toggle_sync1_prev then
+                s_gbt_encoder_interface_buffer.gbt_tx_data_out.hg <= p_gbt_encoder_interface_in.gbt_tx_data_out.hg;
+                s_gbt_encoder_interface_buffer.gbt_tx_data_out.lg <= p_gbt_encoder_interface_in.gbt_tx_data_out.lg;
+            end if;
+        end if;
+    end process;
 
     proc_db_data_sync : process(p_clknet_in.gth_tx_wordclk(g_ch_number))--(p_clknet_in.gth_tx_wordclk(g_ch_number), s_cdc_reset_out)--p_clknet_in.gth_tx_frameclk(g_ch_number))
     begin

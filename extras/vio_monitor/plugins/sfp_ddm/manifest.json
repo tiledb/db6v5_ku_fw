@@ -1,0 +1,20 @@
+{
+  "id": "sfp_ddm",
+  "name": "TileCal DB SFP+ DDM",
+  "description": "TileCal SFF-8472 A2h digital diagnostics for both SFP+ modules via VIO",
+  "version": "1.0.0",
+  "default_enabled": true,
+  "order": 30,
+  "requires_target": true,
+  "requires_device": false,
+  "tree_node_types": ["sfp_ddm"],
+  "assets": {
+    "panel": "panel.html",
+    "script": "plugin.js",
+    "styles": ["styles.css"],
+    "external_scripts": [
+      "https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js",
+      "https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"
+    ]
+  }
+}

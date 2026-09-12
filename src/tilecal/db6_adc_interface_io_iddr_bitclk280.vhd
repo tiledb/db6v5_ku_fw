@@ -267,7 +267,7 @@ gen_adc_channels: for v_adc in 0 to 5 generate
                 cascade => "none", -- cascade setting (none, master, slave_end, slave_middle)
                 delay_format => "count", -- units of the delay_value (time, count)
                 delay_src => "idatain", -- delay input (idatain, datain)
-                delay_type => "fixed", -- set the type of tap delay line (fixed, var_load, variable)
+                delay_type => "var_load", -- var_load: LOAD jumps straight to cntvaluein, driven by db6_adc_idelay_calibration.vhd via p_adc_readout_control_in (was "fixed")
                 delay_value => g_common_delay_value_lg(v_adc), -- input delay value setting
                 is_clk_inverted => '0', -- optional inversion for clk
                 is_rst_inverted => '0', -- optional inversion for rst
@@ -303,7 +303,7 @@ gen_adc_channels: for v_adc in 0 to 5 generate
                 cascade => "none", -- cascade setting (none, master, slave_end, slave_middle)
                 delay_format => "count", -- units of the delay_value (time, count)
                 delay_src => "idatain", -- delay input (idatain, datain)
-                delay_type => "fixed", -- set the type of tap delay line (fixed, var_load, variable)
+                delay_type => "var_load", -- var_load: LOAD jumps straight to cntvaluein, driven by db6_adc_idelay_calibration.vhd via p_adc_readout_control_in (was "fixed")
                 delay_value => g_common_delay_value_hg(v_adc), -- input delay value setting
                 is_clk_inverted => '0', -- optional inversion for clk
                 is_rst_inverted => '0', -- optional inversion for rst
@@ -340,7 +340,7 @@ gen_adc_channels: for v_adc in 0 to 5 generate
                 cascade => "none", -- cascade setting (none, master, slave_end, slave_middle)
                 delay_format => "count", -- units of the delay_value (time, count)
                 delay_src => "idatain", -- delay input (idatain, datain)
-                delay_type => "fixed", -- set the type of tap delay line (fixed, var_load, variable)
+                delay_type => "var_load", -- var_load: LOAD jumps straight to cntvaluein, driven by db6_adc_idelay_calibration.vhd via p_adc_readout_control_in (was "fixed")
                 delay_value => g_common_delay_value_fc(v_adc), -- input delay value setting
                 is_clk_inverted => '0', -- optional inversion for clk
                 is_rst_inverted => '0', -- optional inversion for rst
@@ -455,22 +455,28 @@ gen_adc_channels: for v_adc in 0 to 5 generate
     s_lg_iserdes_ctrl_reset(v_adc) <= '0';-- or (p_db_reg_rx_in(cfb_strobe_reg)(c_adc_readout_reset_bit));
     s_hg_iserdes_ctrl_reset(v_adc) <= '0';-- or (p_db_reg_rx_in(cfb_strobe_reg)(c_adc_readout_reset_bit));
     
+    -- 2026-09-12: p_adc_readout_control_in's idelay fields used to be dead code (see
+    -- db7_io_box.vhd's s_adc_readout_control_unused); now driven for real by
+    -- db6_adc_idelay_calibration.vhd (instantiated once in db6_mainboard_interface.vhd,
+    -- outside db7_io_box -- see that file's header), which owns the whole startup
+    -- tap-sweep/lock/freeze sequence. rst stays tied '0': var_load mode's LOAD pulse
+    -- fully determines the tap on its own, no reset dependency.
     s_fc_idelay_ctrl_reset_from_sm(v_adc) <= '0';
     s_lg_idelay_ctrl_reset_from_sm(v_adc) <= '0';
     s_hg_idelay_ctrl_reset_from_sm(v_adc) <= '0';
-    
-    s_fc_idelay_ctrl_load_from_sm(v_adc) <= '0'; --p_adc_readout_control_in.fc_idelay_load(v_adc);
-    s_fc_idelay_ctrl_en_vtc_from_sm(v_adc) <= '1'; --p_adc_readout_control_in.fc_idelay_en_vtc(v_adc);
-    s_fc_idelay_count_in_from_sm(v_adc) <= (others => '0'); --p_adc_readout_control_in.fc_idelay_count(v_adc);
-    
-    s_hg_idelay_ctrl_load_from_sm(v_adc) <= '0'; --p_adc_readout_control_in.hg_idelay_load(v_adc);
-    s_hg_idelay_ctrl_en_vtc_from_sm(v_adc) <= '1'; --p_adc_readout_control_in.hg_idelay_en_vtc(v_adc);
-    
-    s_lg_idelay_ctrl_load_from_sm(v_adc) <= '0'; --p_adc_readout_control_in.hg_idelay_load(v_adc);
-    s_lg_idelay_ctrl_en_vtc_from_sm(v_adc) <= '1'; -- p_adc_readout_control_in.hg_idelay_en_vtc(v_adc);
-    
-    s_lg_idelay_count_in_from_sm(v_adc) <= 0; --to_integer(unsigned(p_adc_readout_control_in.lg_idelay_count(v_adc)));
-    s_hg_idelay_count_in_from_sm(v_adc) <= 0; -- to_integer(unsigned(p_adc_readout_control_in.hg_idelay_count(v_adc)));
+
+    s_fc_idelay_ctrl_load_from_sm(v_adc) <= p_adc_readout_control_in.fc_idelay_load(v_adc);
+    s_fc_idelay_ctrl_en_vtc_from_sm(v_adc) <= p_adc_readout_control_in.fc_idelay_en_vtc(v_adc);
+    s_fc_idelay_count_in_from_sm(v_adc) <= p_adc_readout_control_in.fc_idelay_count(v_adc);
+
+    s_hg_idelay_ctrl_load_from_sm(v_adc) <= p_adc_readout_control_in.hg_idelay_load(v_adc);
+    s_hg_idelay_ctrl_en_vtc_from_sm(v_adc) <= p_adc_readout_control_in.hg_idelay_en_vtc(v_adc);
+
+    s_lg_idelay_ctrl_load_from_sm(v_adc) <= p_adc_readout_control_in.lg_idelay_load(v_adc);
+    s_lg_idelay_ctrl_en_vtc_from_sm(v_adc) <= p_adc_readout_control_in.lg_idelay_en_vtc(v_adc);
+
+    s_lg_idelay_count_in_from_sm(v_adc) <= to_integer(unsigned(p_adc_readout_control_in.lg_idelay_count(v_adc)));
+    s_hg_idelay_count_in_from_sm(v_adc) <= to_integer(unsigned(p_adc_readout_control_in.hg_idelay_count(v_adc)));
 
 
     s_bufgce_div_ctrl_reset_async(v_adc)<=p_master_reset_in or (p_db_reg_rx_in(cfb_strobe_reg)(c_adc_readout_reset_bit)) or (p_db_reg_rx_in(cfb_strobe_reg)(c_adc_readout_reset_channel_0_bit+v_adc));
