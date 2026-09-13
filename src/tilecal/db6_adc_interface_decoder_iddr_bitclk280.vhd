@@ -56,10 +56,17 @@ entity db6_adc_interface_decoder_iddr_bitclk280 is
         -- per-channel pll_adc_channel lock, generated in db6_adc_interface_io_iddr_bitclk280
         -- (not here -- a PLL can't be triplicated; see that file's p_adc_pll0_locked_out)
         p_adc_pll0_locked_in : in std_logic_vector(5 downto 0) := (others => '0');
+        -- db6_adc_idelay_calibration's result, generated once in db6_adc_interface.vhd
+        -- (outside any TMR replication -- it drives one physical IDELAYE3 per pin, see
+        -- that entity's header) and fanned identically into every TMR copy of this
+        -- decoder, same as p_adc_readout_control_in already is.
+        p_calibration_tap_in    : in t_idelay_count := (others => (others => '0'));
+        p_calibration_done_in   : in std_logic_vector(5 downto 0) := (others => '0');
+        p_calibration_failed_in : in std_logic_vector(5 downto 0) := (others => '0');
 
         --control
         p_adc_readout_control_in : in t_adc_readout_control;
-        
+
         --output
         p_adc_readout_out       : out t_adc_readout;
         
@@ -109,6 +116,8 @@ architecture Behavioral of db6_adc_interface_decoder_iddr_bitclk280 is
             channel_locked => (others=>'0'),
             channel_missed_locked => (others=>'0'),
             channel_clk280_locked => (others=>'0'),
+            channel_idelay_calibration_done => (others=>'0'),
+            channel_idelay_calibration_failed => (others=>'0'),
             channel_clk280_stopped => (others=>'0'),
             channel_valid_fc_frame_counter => (others =>(others=>'0')),
             channel_invalid_fc_frame_counter => (others =>(others=>'0')),
@@ -187,6 +196,15 @@ END COMPONENT;
 begin
 
 p_adc_readout_out <= s_adc_readout;
+
+-- see p_calibration_tap_in declaration above: the calibration engine already produces
+-- one chosen tap shared by fc/lg/hg per channel (see db6_adc_idelay_calibration.vhd's
+-- header), so all three fields take the same value.
+s_adc_readout.fc_idelay_count <= p_calibration_tap_in;
+s_adc_readout.lg_idelay_count <= p_calibration_tap_in;
+s_adc_readout.hg_idelay_count <= p_calibration_tap_in;
+s_adc_readout.channel_idelay_calibration_done <= p_calibration_done_in;
+s_adc_readout.channel_idelay_calibration_failed <= p_calibration_failed_in;
 
 gen_adc_channels: for v_adc in 0 to 5 generate
 

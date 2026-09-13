@@ -1,18 +1,18 @@
 {
   "id": "tilecal_sfp_i2c",
   "name": "TileCal DB SFP+ I2C",
-  "description": "Scan SFP+ block-RAM registers via s_sfp_reg_address_vio and s_sfp_ku_mgt.sfp_tx_register",
-  "version": "1.0.0",
+  "description": "Scan SFP+ block-RAM via s_vio_dbg_sfp_addr_out_q* / s_vio_dbg_sfp_shadow_q* (cfb_sfp_reg_address / stb_sfp_reg_readback)",
+  "version": "1.1.0",
   "default_enabled": true,
   "order": 35,
   "requires_target": true,
   "requires_device": true,
   "tree_node_types": ["tilecal_sfp_i2c"],
   "probe_defaults": {
-    "addr_probe_0": "s_sfp_reg_address_vio[0]",
-    "addr_probe_1": "s_sfp_reg_address_vio[1]",
-    "data_probe_0": "s_sfp_ku_mgt[sfp_tx_register][0]",
-    "data_probe_1": "s_sfp_ku_mgt[sfp_tx_register][1]"
+    "addr_probe_0": "s_vio_dbg_sfp_addr_out_q0",
+    "addr_probe_1": "s_vio_dbg_sfp_addr_out_q1",
+    "data_probe_0": "s_vio_dbg_sfp_shadow_q0",
+    "data_probe_1": "s_vio_dbg_sfp_shadow_q1"
   },
   "probe_labels": {
     "addr_probe_0": "SFP+ 0 address (output)",
@@ -21,10 +21,10 @@
     "data_probe_1": "SFP+ 1 readback (input)"
   },
   "probe_hints": {
-    "addr_probe_0": "s_sfp_reg_address_vio[0]",
-    "addr_probe_1": "s_sfp_reg_address_vio[1]",
-    "data_probe_0": "s_sfp_ku_mgt[sfp_tx_register][0]",
-    "data_probe_1": "s_sfp_ku_mgt[sfp_tx_register][1]"
+    "addr_probe_0": "s_vio_dbg_sfp_addr_out_q0 · cfb_sfp_reg_address bits 6:0",
+    "addr_probe_1": "s_vio_dbg_sfp_addr_out_q1 · cfb_sfp_reg_address bits 14:8",
+    "data_probe_0": "s_vio_dbg_sfp_shadow_q0 · stb_sfp_reg_readback bits 23:16",
+    "data_probe_1": "s_vio_dbg_sfp_shadow_q1 · stb_sfp_reg_readback bits 31:24"
   },
   "assets": {
     "panel": "panel.html",

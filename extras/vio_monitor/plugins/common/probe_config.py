@@ -3,14 +3,33 @@
 from __future__ import annotations
 
 import fnmatch
+import re
 from typing import Any
 
+from plugins.common.ltx_probes import activate_ltx, aliases_for_name
+from plugins.common.db6_hw_map import (
+    DDM_CLASSIFY_PATTERNS,
+    DDM_FIELDS,
+    FLASH_PROBES,
+    XADC_LIVE_PROBES,
+    ddm_all_names,
+    ddm_ltx_name,
+    flash_probe_names,
+    probe_aliases,
+    sfp_i2c_addr_names,
+    sfp_i2c_data_names,
+    xadc_live_names,
+)
 from plugins.tilecal_xadc.conversion import (
     ADDRESSES,
     LABELS,
     default_sysmon_property,
     tilecal_xadc_channel_probe_key,
 )
+
+
+_NUMERIC_SLICE_RE = re.compile(r"(?:\[\d+(?::\d+)?\])+$")
+_TCL_RE_SPECIAL = frozenset(r"\.^$*+?()[]{}|")
 
 
 def _tcl_glob(pattern: str) -> str:
@@ -22,6 +41,10 @@ def _tcl_glob(pattern: str) -> str:
         else:
             out.append(ch)
     return "".join(out)
+
+
+def _tcl_regexp_escape(text: str) -> str:
+    return "".join("\\" + ch if ch in _TCL_RE_SPECIAL else ch for ch in text)
 
 
 def tcl_string_match(pattern: str, var: str = "$__pname") -> str:
@@ -39,12 +62,25 @@ def tcl_probe_eq(name: str, var: str = "$__n") -> str:
 
 
 def tcl_probe_match(name: str, var: str = "$__n") -> str:
-    """Match configured probe: exact VIO name, or Tcl glob if * / ? present."""
+    """Match configured probe: exact VIO name, numeric bus suffix, or glob."""
     if not name:
         return "0"
     if "*" in name or "?" in name:
         return tcl_string_match(name, var)
-    return tcl_probe_eq(name, var)
+    eq = tcl_probe_eq(name, var)
+    # Live NAME is often net[15:0] / probe_in58[15:0] while config stores the bus.
+    regexp = r"^" + _tcl_regexp_escape(name) + r"(\[[0-9]+(:[0-9]+)?\])*$"
+    return f"({eq} || [regexp -- {{{regexp}}} {var}])"
+
+
+def tcl_probe_match_any(names: list[str], var: str = "$__n") -> str:
+    """OR of tcl_probe_match for LTX + legacy aliases."""
+    parts = [tcl_probe_match(n, var) for n in names if n]
+    if not parts:
+        return "0"
+    if len(parts) == 1:
+        return parts[0]
+    return "(" + " || ".join(parts) + ")"
 
 
 def probe_name_leaf(name: str) -> str:
@@ -62,30 +98,93 @@ def normalize_probe_name(name: str) -> str:
     return name.replace("[", ".").replace("]", "").replace("/", ".").lower()
 
 
-def probe_name_available(required: str, names: set[str]) -> bool:
-    """True if required probe pattern matches any name in the pool."""
-    if not required or not names:
+def names_refer_to_same_probe(required: str, candidate: str) -> bool:
+    """True if *candidate* is *required* or a numeric bus/bit suffix of it."""
+    if not required or not candidate:
         return False
+    if required == candidate:
+        return True
+    if candidate.startswith(required) and _NUMERIC_SLICE_RE.fullmatch(candidate[len(required):]):
+        return True
+    if required.startswith(candidate) and re.fullmatch(r"\[\d+:\d+\]", required[len(candidate):]):
+        return True
+    return normalize_probe_name(required) == normalize_probe_name(candidate)
+
+
+def _expand_probe_aliases(required: str) -> list[str]:
+    names: list[str] = []
+    for alias in probe_aliases(required) or [required]:
+        if alias and alias not in names:
+            names.append(alias)
+        for extra in aliases_for_name(alias):
+            if extra and extra not in names:
+                names.append(extra)
+    return names
+
+
+def _name_in_pool(required: str, names: set[str]) -> bool:
     if required in names:
         return True
     if "*" in required or "?" in required:
         return any(fnmatch.fnmatchcase(n, required) for n in names)
-    norm_req = normalize_probe_name(required)
-    leaf = probe_name_leaf(required)
-    parent = required.split("[", 1)[0] if "[" in required else (
-        required.rsplit(".", 1)[0] if "." in required else ""
-    )
-    norm_parent = normalize_probe_name(parent) if parent else ""
     for candidate in names:
-        if candidate == required:
+        if names_refer_to_same_probe(required, candidate):
             return True
-        norm_candidate = normalize_probe_name(candidate)
-        if norm_candidate == norm_req:
-            return True
-        if leaf and probe_name_leaf(candidate) == leaf:
-            if not norm_parent or norm_parent in norm_candidate:
-                return True
     return False
+
+
+def probe_name_available(required: str, names: set[str]) -> bool:
+    """True if required probe (or a known LTX/legacy/pin alias) matches the pool."""
+    if not required or not names:
+        return False
+    for alias in _expand_probe_aliases(required):
+        if _name_in_pool(alias, names):
+            return True
+    return False
+
+
+def find_matching_probe_name(required: str, names) -> str | None:
+    """Return the pool name that matches *required*, preferring bus-level names."""
+    hits = find_matching_probe_names(required, names)
+    return hits[0] if hits else None
+
+
+def find_matching_probe_names(required: str, names) -> list[str]:
+    """All pool names that match *required*, bus-level first, bit slices last."""
+    if not required:
+        return []
+    pool = list(names)
+    hits: list[str] = []
+    for alias in _expand_probe_aliases(required):
+        for candidate in pool:
+            if names_refer_to_same_probe(alias, candidate) or (
+                "*" in alias and fnmatch.fnmatchcase(candidate, alias)
+            ):
+                if candidate not in hits:
+                    hits.append(candidate)
+    if not hits:
+        return []
+
+    parents = _expand_probe_aliases(required)
+    non_bit_children = [
+        hit for hit in hits
+        if not any(re.fullmatch(re.escape(parent) + r"\[\d+\]", hit) for parent in parents)
+    ]
+    if non_bit_children:
+        hits = non_bit_children
+
+    def _rank(name: str) -> tuple[int, int, str]:
+        # Prefer exact / bus-range over single-bit slices.
+        if name == required:
+            return (0, 0, name)
+        if re.search(r"\[\d+:\d+\]$", name):
+            return (1, 0, name)
+        if re.search(r"\[\d+\]$", name):
+            return (3, 0, name)
+        return (2, 0, name)
+
+    hits.sort(key=_rank)
+    return hits
 
 
 def missing_probe_names(required: list[str], names: set[str]) -> list[str]:
@@ -93,11 +192,9 @@ def missing_probe_names(required: list[str], names: set[str]) -> list[str]:
 
 
 def _sfp_ddm_probe_defaults() -> tuple[dict[str, str], dict[str, str], dict[str, str], dict[str, str]]:
-    """Per-side per-field DDM VIO probe keys."""
-    from plugins.sfp_ddm.conversion import FIELD_DEFS
-
+    """Per-side per-field DDM VIO probe keys (s_vio_dbg_ddm_* / stb_sfp_ddm_*)."""
     defaults: dict[str, str] = {
-        "ddm_classify_pattern": "*s_sfp_interface*ddm*",
+        "ddm_classify_pattern": DDM_CLASSIFY_PATTERNS[0],
     }
     labels: dict[str, str] = {
         "ddm_classify_pattern": "Auto-classify fallback pattern",
@@ -110,11 +207,14 @@ def _sfp_ddm_probe_defaults() -> tuple[dict[str, str], dict[str, str], dict[str,
     }
     for side in (0, 1):
         group = f"SFP+ {side}"
-        for field in FIELD_DEFS:
+        for field in DDM_FIELDS:
             key = f"ddm_{side}_{field['id']}"
-            defaults[key] = f"s_sfp_interface[ddm][{side}][{field['index']}]"
+            defaults[key] = ddm_ltx_name(field["id"], side)
             labels[key] = field["label"]
-            hints[key] = field["spec"]
+            hints[key] = (
+                f"{field['spec']} · {field['stb']} @ 0x{field['stb_addr']:03X} "
+                f"(aliases: {', '.join(ddm_all_names(field['id'], side)[1:])})"
+            )
             groups[key] = group
     return defaults, labels, hints, groups
 
@@ -136,7 +236,7 @@ def parse_ddm_probe_key(key: str) -> tuple[int, str] | None:
 def split_sfp_ddm_probes(probes: dict[str, str]) -> tuple[dict[tuple[int, str], str], str]:
     """Return explicit (side, field_id) -> probe name map and classify pattern."""
     explicit: dict[tuple[int, str], str] = {}
-    pattern = "*s_sfp_interface*ddm*"
+    pattern = DDM_CLASSIFY_PATTERNS[0]
     for key, value in probes.items():
         if key == "ddm_classify_pattern":
             if value:
@@ -183,6 +283,8 @@ def probe_config_fields(manifest: dict[str, Any], cfg: dict[str, Any]) -> list[d
         for key in (manifest.get("probe_defaults") or {}):
             kinds.setdefault(key, "vio_name")
             groups.setdefault(key, "Live VIO scan")
+            if key in XADC_LIVE_PROBES or key.endswith("_legacy"):
+                kinds[key] = "vio_name_optional"
 
     if manifest.get("id") == "sfp_ddm":
         ddm_defaults, ddm_labels, ddm_hints, ddm_groups = _sfp_ddm_probe_defaults()
@@ -214,6 +316,8 @@ def probe_config_fields(manifest: dict[str, Any], cfg: dict[str, Any]) -> list[d
             "default": default,
             "kind": kinds.get(key, "vio_name"),
             "group": groups.get(key, ""),
+            "optional": kinds.get(key, "vio_name") in ("glob_pattern", "vio_name_optional")
+            or bool((XADC_LIVE_PROBES.get(key) or {}).get("optional")),
         })
     fields.sort(key=lambda f: (group_rank.get(f.get("group") or "", 99), f["key"]))
     return fields
@@ -244,7 +348,33 @@ def split_plugin_probes(probes: dict[str, str]) -> tuple[dict[str, str], dict[in
 
 def plugin_probes(manifest: dict[str, Any], cfg: dict[str, Any]) -> dict[str, str]:
     """Resolved probe name map for a plugin."""
+    activate_ltx((cfg or {}).get("last_ltx"))
     return {f["key"]: f["value"] for f in probe_config_fields(manifest, cfg)}
+
+
+def plugin_probe_match_names(key: str, configured: str) -> list[str]:
+    """Configured name plus known LTX/legacy/pin aliases for Tcl matching."""
+    names: list[str] = []
+    for name in [configured, *probe_aliases(configured)]:
+        if name and name not in names:
+            names.append(name)
+    extra: list[str] = []
+    if key in FLASH_PROBES:
+        extra = flash_probe_names(key)
+    elif key.startswith("addr_probe_"):
+        extra = sfp_i2c_addr_names(int(key[-1]))
+    elif key.startswith("data_probe_"):
+        extra = sfp_i2c_data_names(int(key[-1]))
+    elif key in XADC_LIVE_PROBES:
+        extra = xadc_live_names(key)
+    for name in extra:
+        if name and name not in names:
+            names.append(name)
+    for name in list(names):
+        for alias in aliases_for_name(name):
+            if alias and alias not in names:
+                names.append(alias)
+    return names
 
 
 def sanitize_probe_updates(raw: dict | None) -> dict[str, str]:

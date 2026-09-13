@@ -18,14 +18,14 @@
   "probe_labels": {
     "xadc_channel_voltage": "xadc_channel_voltage",
     "xadc_channel": "xadc_channel",
-    "xadc_voltage_legacy": "probe_in98 (legacy)",
-    "xadc_channel_legacy": "probe_in97 (legacy)"
+    "xadc_voltage_legacy": "probe_in98 (legacy, not in vio_db_debug)",
+    "xadc_channel_legacy": "probe_in97 (legacy, not in vio_db_debug)"
   },
   "probe_hints": {
-    "xadc_channel_voltage": "Live-scan raw voltage code",
-    "xadc_channel": "Live-scan channel address",
-    "xadc_voltage_legacy": "Fallback if probes use probe_in98",
-    "xadc_channel_legacy": "Fallback if probes use probe_in97"
+    "xadc_channel_voltage": "Live-scan raw voltage code (optional; dropped from 2026-09-12 LTX)",
+    "xadc_channel": "Live-scan channel address (optional; dropped from 2026-09-12 LTX)",
+    "xadc_voltage_legacy": "Fallback if older LTX still uses probe_in98",
+    "xadc_channel_legacy": "Fallback if older LTX still uses probe_in97"
   },
   "assets": {
     "panel": "panel.html",

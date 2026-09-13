@@ -1,7 +1,8 @@
 """TileCal DB SFP+ I2C register scan plugin."""
 from flask import Blueprint, jsonify, request
 
-from plugins.common.probe_config import plugin_probes, tcl_probe_match
+from plugins.common.db6_hw_map import SFP_I2C, sfp_i2c_addr_names, sfp_i2c_data_names
+from plugins.common.probe_config import plugin_probes, plugin_probe_match_names, tcl_probe_match, tcl_probe_match_any
 from plugins.registry import register_tree_hook
 from plugins.tilecal_sfp_i2c.conversion import (
     build_register_table,
@@ -35,20 +36,20 @@ def _side_scan_tcl(side: str, addr_var: str, data_var: str, avio_var: str, dvio_
 
 
 def tcl_scan_sfp_i2c(device: str, max_addr: int = 127, probes=None) -> str:
-    """Cycle s_sfp_reg_address_vio outputs and read sfp_tx_register inputs."""
+    """Cycle s_vio_dbg_sfp_addr_out_q* outputs and read s_vio_dbg_sfp_shadow_q* inputs."""
     probes = probes or {}
     max_addr = max(0, min(int(max_addr), 127))
 
-    addr0_pat = _side_probe(probes, "addr_probe_0", "addr_probe", "s_sfp_reg_address_vio[0]")
-    addr1_pat = _side_probe(probes, "addr_probe_1", "addr_probe", "s_sfp_reg_address_vio[1]")
-    data0_pat = _side_probe(probes, "data_probe_0", "data_probe", "s_sfp_ku_mgt[sfp_tx_register][0]")
-    data1_pat = _side_probe(probes, "data_probe_1", "data_probe", "s_sfp_ku_mgt[sfp_tx_register][1]")
+    addr0_pat = _side_probe(probes, "addr_probe_0", "addr_probe", SFP_I2C["addr_out"][0])
+    addr1_pat = _side_probe(probes, "addr_probe_1", "addr_probe", SFP_I2C["addr_out"][1])
+    data0_pat = _side_probe(probes, "data_probe_0", "data_probe", SFP_I2C["data_in"][0])
+    data1_pat = _side_probe(probes, "data_probe_1", "data_probe", SFP_I2C["data_in"][1])
     exclude_pat = probes.get("exclude_probe", "")
 
-    addr0_match = tcl_probe_match(addr0_pat)
-    addr1_match = tcl_probe_match(addr1_pat)
-    data0_match = tcl_probe_match(data0_pat)
-    data1_match = tcl_probe_match(data1_pat)
+    addr0_match = tcl_probe_match_any(plugin_probe_match_names("addr_probe_0", addr0_pat) or sfp_i2c_addr_names(0))
+    addr1_match = tcl_probe_match_any(plugin_probe_match_names("addr_probe_1", addr1_pat) or sfp_i2c_addr_names(1))
+    data0_match = tcl_probe_match_any(plugin_probe_match_names("data_probe_0", data0_pat) or sfp_i2c_data_names(0))
+    data1_match = tcl_probe_match_any(plugin_probe_match_names("data_probe_1", data1_pat) or sfp_i2c_data_names(1))
     exclude_match = tcl_probe_match(exclude_pat) if exclude_pat else "0"
 
     exclude_line = f'if {{{exclude_match}}} {{ continue }} ; ' if exclude_pat else ''

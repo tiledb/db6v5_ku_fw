@@ -8,6 +8,7 @@ src/tilecal/db6_c2v_interpreter.vhd 93
 src/tilecal/db6_adc_config_driver.vhd
 src/tilecal/db6_adc_interface.vhd
 src/tilecal/db6_adc_idelay_calibration.vhd
+src/tilecal/db6_data_readout_debug.vhd
 src/tilecal/db6_adc_interface_decoder_iddr.vhd
 src/tilecal/db6_adc_interface_decoder_iddr_bitclk240.vhd
 src/tilecal/db6_adc_interface_decoder_iddr_bitclk280.vhd

@@ -1,4 +1,4 @@
-"""SFF-8472 A2h DDM decode helpers for s_sfp_interface.ddm VIO probes."""
+"""SFF-8472 A2h DDM decode helpers for s_vio_dbg_ddm_* / stb_sfp_ddm_* probes."""
 
 from __future__ import annotations
 
@@ -7,75 +7,20 @@ import math
 import re
 from typing import Any
 
-# Field order matches c_sfp_* in db6_design_package.vhd
-FIELD_DEFS: list[dict[str, Any]] = [
-    {
-        "id": "temperature",
-        "label": "Temperature",
-        "index": 0,
-        "kind": "signed_temp",
-        "unit": "°C",
-        "spec": "16-bit signed, LSB = 1/256 °C",
-    },
-    {
-        "id": "vcc",
-        "label": "Supply voltage",
-        "index": 1,
-        "kind": "unsigned_scale",
-        "scale": 100e-6,
-        "unit": "V",
-        "spec": "16-bit unsigned, LSB = 100 µV",
-    },
-    {
-        "id": "tx_bias_current",
-        "label": "TX bias current",
-        "index": 2,
-        "kind": "unsigned_scale",
-        "scale": 2e-6,
-        "unit": "A",
-        "display_unit": "µA",
-        "display_scale": 1e6,
-        "spec": "16-bit unsigned, LSB = 2 µA",
-    },
-    {
-        "id": "tx_power",
-        "label": "TX output power",
-        "index": 3,
-        "kind": "optical_power",
-        "scale": 0.1e-6,
-        "unit": "mW",
-        "spec": "16-bit unsigned, LSB = 0.1 µW",
-    },
-    {
-        "id": "rx_power",
-        "label": "RX optical power",
-        "index": 4,
-        "kind": "optical_power",
-        "scale": 0.1e-6,
-        "unit": "mW",
-        "spec": "16-bit unsigned, LSB = 0.1 µW",
-    },
-    {
-        "id": "laser_temperature",
-        "label": "Laser temperature",
-        "index": 5,
-        "kind": "signed_temp",
-        "unit": "°C",
-        "spec": "16-bit signed, LSB = 1/256 °C (DWDM optional)",
-    },
-    {
-        "id": "tec_current",
-        "label": "TEC current",
-        "index": 6,
-        "kind": "signed_scale",
-        "scale": 0.1,
-        "unit": "mA",
-        "spec": "16-bit signed, LSB = 0.1 mA (+ = cooling)",
-    },
-]
+from plugins.common.db6_hw_map import (
+    DDM_BY_ID,
+    DDM_BY_INDEX,
+    DDM_CLASSIFY_PATTERNS,
+    DDM_FIELDS,
+    DDM_TOKEN_TO_ID,
+    ddm_all_names,
+)
+from plugins.common.probe_config import find_matching_probe_name
 
-FIELD_BY_ID = {f["id"]: f for f in FIELD_DEFS}
-FIELD_BY_INDEX = {f["index"]: f for f in FIELD_DEFS}
+# Field order matches c_sfp_* in db6_design_package.vhd
+FIELD_DEFS: list[dict[str, Any]] = DDM_FIELDS
+FIELD_BY_ID = DDM_BY_ID
+FIELD_BY_INDEX = DDM_BY_INDEX
 
 
 def _parse_raw(value) -> int | None:
@@ -182,11 +127,32 @@ def decode_ddm(field_id: str, raw: int | None) -> dict[str, Any]:
     }
 
 
-def classify_probe(name: str, ddm_pattern: str = "*s_sfp_interface*ddm*") -> tuple[int, str] | None:
+def classify_probe(name: str, ddm_pattern: str = DDM_CLASSIFY_PATTERNS[0]) -> tuple[int, str] | None:
     """Map a VIO probe name to (side, field_id)."""
-    if not fnmatch.fnmatch(name, ddm_pattern):
+    if not name:
         return None
+
     n = name.lower()
+    # Bit slices of s_vio_dbg_ddm_*_qN are not the 16-bit bus.
+    if re.search(r"s_vio_dbg_ddm_[a-z]+_q[01]\[\d+\]$", n):
+        return None
+
+    # LTX / legacy / pin-range names from db6_hw_map + current LTX
+    for field in DDM_FIELDS:
+        for side in (0, 1):
+            for alias in ddm_all_names(field["id"], side):
+                if find_matching_probe_name(alias, (name,)):
+                    return side, field["id"]
+
+    m = re.search(r"s_vio_dbg_ddm_([a-z]+)_q([01])", n)
+    if m:
+        field_id = DDM_TOKEN_TO_ID.get(m.group(1))
+        if field_id:
+            return int(m.group(2)), field_id
+
+    patterns = [ddm_pattern, *DDM_CLASSIFY_PATTERNS] if ddm_pattern else list(DDM_CLASSIFY_PATTERNS)
+    if not any(fnmatch.fnmatch(name, pat) for pat in patterns if pat):
+        return None
 
     side = None
     field_id = None
@@ -207,32 +173,31 @@ def classify_probe(name: str, ddm_pattern: str = "*s_sfp_interface*ddm*") -> tup
                 field_id = FIELD_BY_INDEX[int(m.group(2))]["id"]
             else:
                 m = re.search(r"ddm[\[\(_\.]*([01])", n)
-            if m:
-                side = int(m.group(1))
+                if m:
+                    side = int(m.group(1))
 
-            # Match longest / most specific field names first.
-            keyword_fields = [
-                "laser_temperature",
-                "tx_bias_current",
-                "tx_power",
-                "rx_power",
-                "tec_current",
-                "temperature",
-                "vcc",
-            ]
-            for fid in keyword_fields:
-                if fid in n or f"c_sfp_{fid}" in n:
-                    field_id = fid
-                    break
-                if fid == "temperature" and "temp" in n and "laser" not in n:
-                    field_id = fid
-                    break
-                if fid == "tx_bias_current" and "bias" in n:
-                    field_id = fid
-                    break
-                if fid == "tec_current" and "tec" in n:
-                    field_id = fid
-                    break
+                keyword_fields = [
+                    "laser_temperature",
+                    "tx_bias_current",
+                    "tx_power",
+                    "rx_power",
+                    "tec_current",
+                    "temperature",
+                    "vcc",
+                ]
+                for fid in keyword_fields:
+                    if fid in n or f"c_sfp_{fid}" in n:
+                        field_id = fid
+                        break
+                    if fid == "temperature" and "temp" in n and "laser" not in n:
+                        field_id = fid
+                        break
+                    if fid == "tx_bias_current" and "bias" in n:
+                        field_id = fid
+                        break
+                    if fid == "tec_current" and "tec" in n:
+                        field_id = fid
+                        break
 
     if side is None or field_id is None or field_id not in FIELD_BY_ID:
         return None
@@ -241,7 +206,7 @@ def classify_probe(name: str, ddm_pattern: str = "*s_sfp_interface*ddm*") -> tup
 
 def build_ddm_table(
     probe_rows: list[dict],
-    ddm_pattern: str = "*s_sfp_interface*ddm*",
+    ddm_pattern: str = DDM_CLASSIFY_PATTERNS[0],
     explicit_probes: dict[tuple[int, str], str] | None = None,
 ) -> dict[str, Any]:
     """Build side×field table from SFPDDM probe rows."""
@@ -257,7 +222,15 @@ def build_ddm_table(
     for (side, field_id), probe_name in explicit_probes.items():
         if field_id not in FIELD_BY_ID:
             continue
-        row = row_by_name.get(probe_name)
+        match_name = find_matching_probe_name(probe_name, row_by_name.keys())
+        if match_name is None:
+            for alias in ddm_all_names(field_id, side):
+                match_name = find_matching_probe_name(alias, row_by_name.keys())
+                if match_name is not None:
+                    break
+        row = row_by_name.get(match_name) if match_name else None
+        if row is not None:
+            probe_name = match_name
         if row is None:
             continue
         raw = _parse_raw(row.get("value"))
@@ -300,6 +273,8 @@ def build_ddm_table(
             "field_id": field["id"],
             "label": field["label"],
             "spec": field["spec"],
+            "stb": field.get("stb"),
+            "stb_addr": field.get("stb_addr"),
             "sides": {},
         }
         for side in (0, 1):

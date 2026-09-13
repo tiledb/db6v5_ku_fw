@@ -1,17 +1,24 @@
 """Minimal VIO probe read — does not refresh_hw_device or refresh_hw_vio."""
 
-from plugins.common.probe_config import tcl_probe_match
+from plugins.common.db6_hw_map import XADC_LIVE_PROBES
+from plugins.common.probe_config import plugin_probe_match_names, tcl_probe_match, tcl_probe_match_any
 
 
 def tcl_read_live_xadc_probes(device, probes=None):
     """Read live xadc channel address + raw code from VIO (no full VIO refresh)."""
     probes = probes or {}
-    vol_name = probes.get("xadc_channel_voltage", "")
-    ch_name = probes.get("xadc_channel", "")
-    vol_legacy = probes.get("xadc_voltage_legacy", "")
-    ch_legacy = probes.get("xadc_channel_legacy", "")
-    vol_match = tcl_probe_match(vol_name)
-    ch_match = tcl_probe_match(ch_name)
+    vol_names = plugin_probe_match_names(
+        "xadc_channel_voltage",
+        probes.get("xadc_channel_voltage") or XADC_LIVE_PROBES["xadc_channel_voltage"]["ltx"],
+    )
+    ch_names = plugin_probe_match_names(
+        "xadc_channel",
+        probes.get("xadc_channel") or XADC_LIVE_PROBES["xadc_channel"]["ltx"],
+    )
+    vol_legacy = probes.get("xadc_voltage_legacy") or ""
+    ch_legacy = probes.get("xadc_channel_legacy") or ""
+    vol_match = tcl_probe_match_any(vol_names)
+    ch_match = tcl_probe_match_any(ch_names)
     vol_legacy_match = tcl_probe_match(vol_legacy)
     ch_legacy_match = tcl_probe_match(ch_legacy)
     return (

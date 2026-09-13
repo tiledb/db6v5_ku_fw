@@ -62,7 +62,11 @@ entity db6_clock_interface is
     -- vio_clknet_status now lives in db6v5_top: status it can't get anywhere else, and
     -- the debug knobs it used to drive as internal signals when it lived in this module.
     p_clknet_debug_status_out  : out t_clknet_debug_status;
-    p_clknet_debug_control_in  : in  t_clknet_debug_control;
+    -- 2026-09-12: t_clknet_debug_control (flat grab-bag) replaced by t_debug_control
+    -- (grouped per module, e.g. .clknet/.adc_readout/.adc_config/.cis/.flash -- see
+    -- db6_design_package.vhd); this port is still a straight pass-through into
+    -- t_db_clknet's own flat fields below, so nothing downstream of s_clknet_out changed.
+    p_clknet_debug_control_in  : in  t_debug_control;
     -- manual vio-driven force of the altera companion fpga reset -- moved out of
     -- t_clknet_debug_control into its own dedicated port for consistency with
     -- t_mb_interface.mb_reset (see db6_mainboard_interface.vhd), which mirrors the
@@ -539,7 +543,7 @@ s_clknet_out.gth_refclk_local <= p_gth_refclk_local_in;
     proc_cdc_reset : process(s_clknet_out.cfgbus_clk40)
     begin
         if rising_edge(s_clknet_out.cfgbus_clk40) then
-            s_cdc_reset_in <= (p_master_reset_in) or (not s_mmcm_gtg_refclk.locked_out) or (not s_clkin_in.sfp_ku_mgt.gtwiz_reset_tx_done_out(0)) or (p_clknet_debug_control_in.reset_clknet);
+            s_cdc_reset_in <= (p_master_reset_in) or (not s_mmcm_gtg_refclk.locked_out) or (not s_clkin_in.sfp_ku_mgt.gtwiz_reset_tx_done_out(0)) or (p_clknet_debug_control_in.clknet.reset_clknet);
         end if;
     end process;
 
@@ -833,7 +837,9 @@ s_clknet_out.cfgbus_clk40_local <= p_cfgbus_clk40_local_in;
                 if s_counter_binary_s.q = x"1312D00" then
                     s_clknet_out.clk_1hz <= not s_clknet_out.clk_1hz; -- x"2625A00"
                     s_counter_binary_s.sclr <= '1';
-                    s_running_time_s<=std_logic_vector(unsigned(s_running_time_s)+1);
+                    if  s_clknet_out.clk_1hz = '1' then
+                        s_running_time_s<=std_logic_vector(unsigned(s_running_time_s)+1);
+                    end if;
 --                    s_clknet_out.clk_1khz <= not s_clknet_out.clk_1khz;
                 else        
                     s_counter_binary_s.sclr <= '0';
@@ -859,20 +865,21 @@ s_clkin_in <= p_clkin_in;
 -- t_clknet_debug_control), now sourced from the top-level instance instead.
 s_reset_mb <= p_mb_reset_vio_in;
 
-s_clknet_out.skip_main_sm                         <= p_clknet_debug_control_in.skip_main_sm;
-s_clknet_out.force_gtx_i2c_config                 <= p_clknet_debug_control_in.force_gtx_i2c_config;
-s_clknet_out.gbt_cdc_gearbox_phase                <= p_clknet_debug_control_in.gbt_cdc_gearbox_phase;
-s_clknet_out.adc_readout_high_threshold           <= p_clknet_debug_control_in.adc_readout_high_threshold;
-s_clknet_out.adc_readout_low_threshold            <= p_clknet_debug_control_in.adc_readout_low_threshold;
-s_clknet_out.adc_readout_threshold_select_channel <= p_clknet_debug_control_in.adc_readout_threshold_select_channel;
-s_clknet_out.cis_enable                           <= p_clknet_debug_control_in.cis_enable;
-s_clknet_out.cis_gain                             <= p_clknet_debug_control_in.cis_gain;
-s_clknet_out.cis_bcid_charge                      <= p_clknet_debug_control_in.cis_bcid_charge;
-s_clknet_out.cis_bcid_discharge                   <= p_clknet_debug_control_in.cis_bcid_discharge;
-s_clknet_out.flash_manual_address                 <= p_clknet_debug_control_in.flash_manual_address;
-s_clknet_out.flash_manual_command                 <= p_clknet_debug_control_in.flash_manual_command;
-s_clknet_out.flash_manual_write_floor_enable      <= p_clknet_debug_control_in.flash_manual_write_floor_enable;
-s_clknet_out.flash_manual_write_floor             <= p_clknet_debug_control_in.flash_manual_write_floor;
+s_clknet_out.skip_main_sm                         <= p_clknet_debug_control_in.clknet.skip_main_sm;
+s_clknet_out.force_gtx_i2c_config                 <= p_clknet_debug_control_in.clknet.force_gtx_i2c_config;
+s_clknet_out.gbt_cdc_gearbox_phase                <= p_clknet_debug_control_in.clknet.gbt_cdc_gearbox_phase;
+s_clknet_out.adc_readout_high_threshold           <= p_clknet_debug_control_in.adc_readout.high_threshold;
+s_clknet_out.adc_readout_low_threshold            <= p_clknet_debug_control_in.adc_readout.low_threshold;
+s_clknet_out.adc_readout_threshold_select_channel <= p_clknet_debug_control_in.adc_readout.threshold_select_channel;
+s_clknet_out.adc_config                           <= p_clknet_debug_control_in.adc_config;
+s_clknet_out.cis_enable                           <= p_clknet_debug_control_in.cis.enable;
+s_clknet_out.cis_gain                             <= p_clknet_debug_control_in.cis.gain;
+s_clknet_out.cis_bcid_charge                      <= p_clknet_debug_control_in.cis.bcid_charge;
+s_clknet_out.cis_bcid_discharge                   <= p_clknet_debug_control_in.cis.bcid_discharge;
+s_clknet_out.flash_manual_address                 <= p_clknet_debug_control_in.flash.manual_address;
+s_clknet_out.flash_manual_command                 <= p_clknet_debug_control_in.flash.manual_command;
+s_clknet_out.flash_manual_write_floor_enable      <= p_clknet_debug_control_in.flash.manual_write_floor_enable;
+s_clknet_out.flash_manual_write_floor             <= p_clknet_debug_control_in.flash.manual_write_floor;
 
 -- status the top-level vio_clknet_status can't reach any other way (not part of
 -- t_db_clknet/t_db_clkin).

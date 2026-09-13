@@ -99,6 +99,8 @@ architecture Behavioral of db6_adc_interface_decoder_iddr_bitclk240 is
             channel_locked => (others=>'0'),
             channel_missed_locked => (others=>'0'),
             channel_clk280_locked => (others=>'0'),
+            channel_idelay_calibration_done => (others=>'0'),
+            channel_idelay_calibration_failed => (others=>'0'),
             channel_clk280_stopped => (others=>'0'),
             channel_valid_fc_frame_counter => (others =>(others=>'0')),
             channel_invalid_fc_frame_counter => (others =>(others=>'0')),

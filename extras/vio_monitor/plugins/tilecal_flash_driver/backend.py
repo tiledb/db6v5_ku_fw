@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from flask import Blueprint, jsonify, request
 
-from plugins.common.probe_config import plugin_probes, tcl_probe_match
+from plugins.common.probe_config import plugin_probes, plugin_probe_match_names, tcl_probe_match_any
 from plugins.registry import register_tree_hook
 from plugins.tilecal_flash_driver.conversion import (
     OP_BLOCK_ERASE,
@@ -59,16 +59,25 @@ def _tcl_pulse(opcode: int, *, wdata: int = 0, length_sel: int = 0, timeout_ms: 
 
 
 def _tcl_discover(probes: dict) -> str:
-    addr_m = tcl_probe_match(_probe(probes, "address_probe", "s_clknet_debug_control[flash_manual_address]"))
-    cmd_m = tcl_probe_match(_probe(probes, "command_probe", "s_clknet_debug_control[flash_manual_command]"))
-    fl_en_m = tcl_probe_match(
-        _probe(probes, "floor_enable_probe", "s_clknet_debug_control[flash_manual_write_floor_enable]")
-    )
-    floor_m = tcl_probe_match(
-        _probe(probes, "floor_probe", "s_clknet_debug_control[flash_manual_write_floor]")
-    )
-    status_m = tcl_probe_match(_probe(probes, "status_probe", "s_system_management_interface[flash_status]"))
-    rdata_m = tcl_probe_match(_probe(probes, "rdata_probe", "s_system_management_interface[flash_rdata]"))
+    addr_m = tcl_probe_match_any(plugin_probe_match_names(
+        "address_probe", _probe(probes, "address_probe", "s_clknet_debug_control[flash][manual_address]")
+    ))
+    cmd_m = tcl_probe_match_any(plugin_probe_match_names(
+        "command_probe", _probe(probes, "command_probe", "s_clknet_debug_control[flash][manual_command]")
+    ))
+    fl_en_m = tcl_probe_match_any(plugin_probe_match_names(
+        "floor_enable_probe",
+        _probe(probes, "floor_enable_probe", "s_clknet_debug_control[flash][manual_write_floor_enable]"),
+    ))
+    floor_m = tcl_probe_match_any(plugin_probe_match_names(
+        "floor_probe", _probe(probes, "floor_probe", "s_clknet_debug_control[flash][manual_write_floor]")
+    ))
+    status_m = tcl_probe_match_any(plugin_probe_match_names(
+        "status_probe", _probe(probes, "status_probe", "s_vio_dbg_flash_status")
+    ))
+    rdata_m = tcl_probe_match_any(plugin_probe_match_names(
+        "rdata_probe", _probe(probes, "rdata_probe", "s_vio_dbg_flash_rdata")
+    ))
 
     return (
         'set __addr_p "" ; set __cmd_p "" ; set __floor_en_p "" ; set __floor_p "" ; '

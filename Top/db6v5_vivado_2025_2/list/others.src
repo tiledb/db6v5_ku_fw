@@ -11,7 +11,7 @@ src/ip/vivado_2025_2/mmcm_gtg_refclk.xcix
 src/ip/vivado_2025_2/pll_osc_clk.xcix
 src/ip/vivado_2025_2/system_management.xcix
 src/ip/vivado_2025_2/vio_adc_readout.xcix
-src/ip/vivado_2025_2/vio_clknet_status.xcix
+src/ip/vivado_2025_2/vio_db_debug.xcix
 src/ip/vivado_2025_2/vio_hog.xcix
 src/ip/vivado_2025_2/xadc_debug_ram.xcix
 src/ip/vivado_2025_2/xlx_ku_mgt_ip_gtg_testbeam.xcix
@@ -50,7 +50,7 @@ src/ip/vivado_2025_2/system_management.xcix
 src/ip/vivado_2025_2/vio_adc_readout.xcix
 src/ip/vivado_2025_2/vio_cht8305c.xcix
 src/ip/vivado_2025_2/vio_cis_interface_hss_io.xcix
-src/ip/vivado_2025_2/vio_clknet_status.xcix
+src/ip/vivado_2025_2/vio_db_debug.xcix
 src/ip/vivado_2025_2/vio_hog.xcix
 src/ip/vivado_2025_2/vio_sfp_i2c_interface.xcix
 src/ip/vivado_2025_2/xadc_debug_ram.xcix

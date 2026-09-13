@@ -1,0 +1,17 @@
+<div class="monitor-bar">
+  <button type="button" data-refresh="vio_match">Refresh</button>
+  <span id="time-vio_match"></span>
+  <label class="vio-match-search">Filter
+    <input type="search" id="vio-match-q" placeholder="pin, net, live name…" autocomplete="off">
+  </label>
+  <span id="vio-match-filters" class="vio-match-filters">
+    <button type="button" data-match-filter="all" class="active">All</button>
+    <button type="button" data-match-filter="matched">Matched</button>
+    <button type="button" data-match-filter="unmatched">LTX only</button>
+    <button type="button" data-match-filter="jtag_only">JTAG only</button>
+  </span>
+</div>
+<div id="vio-match-summary" class="vio-match-summary"></div>
+<div id="wrap-vio_match" class="panel-scroll">
+  <p class="empty">Refresh to compare the selected LTX file with live hw_probe names on the JTAG device.</p>
+</div>

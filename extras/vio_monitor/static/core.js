@@ -155,6 +155,7 @@ function getLtxPath() {
   const cfg = window.INITIAL_CONFIG || {};
   return (cfg.last_ltx || '').trim();
 }
+HWMonitor.getLtxPath = getLtxPath;
 
 function pluginCanAutoRun(pluginId) {
   const meta = HWMonitor.pluginMeta.find(p => p.id === pluginId);
@@ -560,7 +561,8 @@ async function renderProbeConfigModal() {
     : '';
   if (hint) {
     hint.innerHTML = 'LTX <code>' + esc(ltxPath) + '</code> — ' +
-      vioProbeCatalog.length + ' probes' + liveNote + '. Pick the exact VIO name for each parameter.';
+      vioProbeCatalog.length + ' probes' + liveNote +
+      '. HDL nets, VIO pin names, and bus ranges all match.';
   }
   if (!probeConfigFields.length) {
     body.innerHTML = '<p class="empty">This plugin has no probe parameters.</p>';

@@ -351,7 +351,7 @@ def sysmon_to_raw_by_addr(
 
 
 def vio_xadc_snapshot(vios: dict) -> tuple[int | None, int | None, str | None]:
-    """Extract live scan address + raw code from vio_clknet_status probe_in97/98."""
+    """Extract live scan address + raw code from optional xADC VIO probes."""
     addr_raw = None
     value_raw = None
     vio_name = None

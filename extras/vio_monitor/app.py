@@ -48,7 +48,7 @@ if _APP_DIR not in sys.path:
 
 from plugins import registry as plugin_registry  # noqa: E402
 from plugins.common.probe_config import missing_probe_names, sanitize_probe_updates  # noqa: E402
-from plugins.common.ltx_probes import parse_ltx_probes  # noqa: E402
+from plugins.common.ltx_probes import activate_ltx, parse_ltx_probes  # noqa: E402
 from plugins.common.vio_probes import parse_vio_probe_list, tcl_list_hw_probes  # noqa: E402
 
 # vivado-mcp ships its session manager as a top-level module inside its
@@ -1255,6 +1255,8 @@ def _required_vio_probe_names(pub: dict) -> list[str]:
     for field in pub.get("probe_config") or []:
         if field.get("kind") not in (None, "", "vio_name"):
             continue
+        if field.get("optional"):
+            continue
         val = (field.get("value") or "").strip()
         if not val:
             continue
@@ -1412,6 +1414,7 @@ def api_plugins_ltx_check():
     ltx_names: set[str] = set()
     if ltx_loaded:
         try:
+            activate_ltx(ltx_path)
             ltx_names = {p["name"] for p in parse_ltx_probes(ltx_path)}
         except (json.JSONDecodeError, OSError) as exc:
             return jsonify({

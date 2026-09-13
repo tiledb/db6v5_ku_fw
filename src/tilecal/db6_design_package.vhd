@@ -841,6 +841,12 @@ end record;
         channel_missed_locked : std_logic_vector(5 downto 0);
         channel_clk280_stopped :  std_logic_vector(5 downto 0);
         channel_clk280_locked :  std_logic_vector(5 downto 0);
+        -- 2026-09-12: db6_adc_idelay_calibration's startup tap-sweep status (see that
+        -- entity's header). fc_idelay_count/lg_idelay_count/hg_idelay_count below
+        -- already existed (previously always zero/unused) -- the calibration engine
+        -- now drives all three with its single chosen-tap-per-channel result.
+        channel_idelay_calibration_done : std_logic_vector(5 downto 0);
+        channel_idelay_calibration_failed : std_logic_vector(5 downto 0);
         channel_valid_fc_frame_counter : t_channel_counter;
         channel_invalid_fc_frame_counter : t_channel_counter;
         channel_valid_divclk_frame_counter : t_channel_counter;
@@ -1127,7 +1133,7 @@ end record;
 	type t_gbt_reg_addr_type is array (natural range <>) of integer;
 
 --gbttx registers
-    constant c_number_of_gbttx_regs : integer := 50+1;--14+1;-- 21 + 1;
+    constant c_number_of_gbttx_regs : integer := 42+1;--14+1;-- 21 + 1;
     type t_db_reg_tx is array (integer range 0 to c_number_of_gbttx_regs-1) of std_logic_vector(31 downto 0);
     type t_db_reg_tx_lut is array (integer range 0 to c_number_of_gbttx_regs-1) of std_logic_vector(15 downto 0);
     
@@ -1160,67 +1166,72 @@ end record;
 
     constant stb_global_date  : integer := 15+1;-- 32 bit date of last commit when the project was modified. format: ddmmyyyy (hex with decimal digits, no digit greater than 9 is used)
     constant stb_global_time : integer := 16+1; -- 32 bit time of last commit when the project was modified. format: 00hhmmss (hex with decimal digits, no digit greater than 9 is used)
-    constant stb_global_ver : integer := 17+1; -- 32 bit last version tag when the project was modified. the version of the form m.m.p is encoded in hexadecimal as mmmmpppp
-    constant stb_global_sha : integer := 18+1; -- 32 bit git hash (sha) of the last commit when the project was modified.
-    constant stb_top_ver : integer := 19+1; -- 32 bit top directory version, containing the hog.conf file and other files. the version of the form m.m.p is encoded in hexadecimal as mmmmpppp
-    constant stb_top_sha : integer := 20+1; -- 32 bit top directory version, containing the hog.conf file and other files.
-    constant stb_con_ver : integer := 21+1; -- 32 bit the version of the constraint files. the version of the form m.m.p is encoded in hexadecimal as mmmmpppp
-    constant stb_con_sha : integer := 22+1; -- 32 bit the git commit hash (sha) of the constraint files.
-    constant stb_hog_ver : integer := 23+1; -- 32 bit hog submodule version. the version of the form m.m.p is encoded in hexadecimal as mmmmpppp
-    constant stb_hog_sha : integer := 24+1; -- 32 bit hog submodule git commit hash (sha).
-    constant stb_xml_ver : integer := 25+1; -- 32 bit (optional) ipbus xml version. the version of the form m.m.p is encoded in hexadecimal as mmmmpppp
-    constant stb_xml_sha : integer := 26+1; -- 32 bit (optional) ipbus xml git commit hash (sha).
-    constant stb_dna_2 : integer := 27+1;
-    constant stb_dna_1 : integer := 28+1;
-    constant stb_dna_0 : integer := 29+1;
-    constant stb_running_time_status : integer := 30+1;
-    constant stb_integrator_status : integer := 31+1;
-    constant stb_mb_jtag_id_q0 : integer := 32+1;
-    constant stb_mb_jtag_id_q1 : integer := 33+1;
+    -- 2026-09-12: removed stb_global_ver/sha, stb_top_ver/sha, stb_con_ver/sha,
+    -- stb_hog_ver/sha (all Hog build-info, redundant with global_date/time for this
+    -- design) and stb_xml_ver/sha (already fully dead -- their only driver in
+    -- db6_gbt_encoder_sc.vhd was commented out). c_db_reg_tx_lut below keeps every
+    -- surviving register's hex bus address exactly as it was; only the internal
+    -- t_db_reg_tx array position of everything from stb_dna_2 onward shifted down by
+    -- 10 to close the gap.
+    constant stb_dna_2 : integer := 17+1;
+    constant stb_dna_1 : integer := 18+1;
+    constant stb_dna_0 : integer := 19+1;
+    constant stb_running_time_status : integer := 20+1;
+    constant stb_integrator_status : integer := 21+1;
+    constant stb_mb_jtag_id_q0 : integer := 22+1;
+    constant stb_mb_jtag_id_q1 : integer := 23+1;
     -- sfp+ reg block ram port b readback (see cfb_sfp_reg_address): bits 6:0/14:8 echo the
     -- commanded per-side address, bits 23:16/31:24 carry the resulting read value
-    constant stb_sfp_reg_readback : integer := 34+1;
+    constant stb_sfp_reg_readback : integer := 24+1;
 
     -- sff-8472 A2h ddm fields (see t_sfp_regs / c_sfp_* above): each register packs both
     -- sfp sides into one 32-bit word, side 0 in bits 15:0, side 1 in bits 31:16.
-    constant stb_sfp_ddm_temperature       : integer := 35+1;
-    constant stb_sfp_ddm_vcc               : integer := 36+1;
-    constant stb_sfp_ddm_tx_bias_current   : integer := 37+1;
-    constant stb_sfp_ddm_tx_power          : integer := 38+1;
-    constant stb_sfp_ddm_rx_power          : integer := 39+1;
-    constant stb_sfp_ddm_laser_temperature : integer := 40+1;
-    constant stb_sfp_ddm_tec_current       : integer := 41+1;
+    constant stb_sfp_ddm_temperature       : integer := 25+1;
+    constant stb_sfp_ddm_vcc               : integer := 26+1;
+    constant stb_sfp_ddm_tx_bias_current   : integer := 27+1;
+    constant stb_sfp_ddm_tx_power          : integer := 28+1;
+    constant stb_sfp_ddm_rx_power          : integer := 29+1;
+    constant stb_sfp_ddm_laser_temperature : integer := 30+1;
+    constant stb_sfp_ddm_tec_current       : integer := 31+1;
 
     -- mainboard companion fpga boundary-scan (sample) status, both sides packed:
     -- bits 2:0/5:3=msel q0/q1, 12:6/19:13=clk_present q0/q1, 20/21=done q0/q1
-    constant stb_mb_boundary_scan_status : integer := 42+1;
+    constant stb_mb_boundary_scan_status : integer := 32+1;
     -- boundary-scan ram port b readback: mirrors stb_sfp_reg_readback exactly
     -- (bits 6:0/14:8 echo the commanded per-side address, 23:16/31:24 carry the byte)
-    constant stb_mb_boundary_scan_reg_readback : integer := 43+1;
+    constant stb_mb_boundary_scan_reg_readback : integer := 33+1;
     -- gbtx register readback ram port b readback: bits 8:0 echo the commanded
     -- address, bits 16:9 carry the resulting read byte (single gbtx, no per-side split)
-    constant stb_gbtx_reg_readback : integer := 44+1;
+    constant stb_gbtx_reg_readback : integer := 34+1;
     -- gbtx write/config ram shadow readback: same address (bits 8:0) as
     -- stb_gbtx_reg_readback above, bits 16:9 carry the originally-intended write
     -- value at that address instead of the actual i2c readback value -- lets one
     -- address compare "intended" vs "actual" gbtx register content
-    constant stb_gbtx_config_readback : integer := 45+1;
+    constant stb_gbtx_config_readback : integer := 35+1;
 
     -- db7_is25lp256_driver status/read-data readback (see db7_is25lp256_driver.vhd):
     -- bit0=busy, bit1=done, bit15=write_blocked (see cfb_flash_write_floor),
     -- bits9:2=last RDSR status byte, bits19:16=echoed opcode
-    constant stb_flash_status : integer := 46+1;
+    constant stb_flash_status : integer := 36+1;
     -- last read data (READ/FAST_READ/RDID): value right-justified in the low
     -- (length_sel+1)*8 bits (RDID always reads 3 bytes), MSB-first -- e.g. for a
     -- 2-byte read, byte0 lands in bits15:8 and byte1 in bits7:0; any bits above
     -- the requested byte count read 0
-    constant stb_flash_rdata  : integer := 47+1;
+    constant stb_flash_rdata  : integer := 37+1;
     -- flash page-buffer ram (see t_blk_mem_flash_page / cfb_flash_page_ram_address)
     -- port b readback: bits7:0 echo the commanded address, bits15:8 carry the byte
-    constant stb_flash_page_ram_readback : integer := 48+1;
+    constant stb_flash_page_ram_readback : integer := 38+1;
     -- flash write fifo status (see cfb_flash_fifo_addr/cfb_flash_fifo_push):
     -- bits5:0=fill count (0-32), bit6=full, bit7=empty
-    constant stb_flash_fifo_status : integer := 49+1;
+    constant stb_flash_fifo_status : integer := 39+1;
+
+    -- 2026-09-12: stb_sem (above) is completely full (16 status bits + 16-bit truncated
+    -- correctable_errors) -- db6_sem_interpreter.vhd's other three 32-bit counters and
+    -- the fatal-error flag had no db_reg_tx exposure at all before this. Truncated the
+    -- same way stb_sem already truncates correctable_errors, since a 16-bit wraparound
+    -- on an error *count* is an acceptable trade avoiding a 3rd/4th register.
+    constant stb_sem_error_counters : integer := 40+1;   -- bits15:0=total_errors(15:0), bits31:16=uncorrectable_errors(15:0)
+    constant stb_sem_injected_errors : integer := 41+1;  -- bits30:0=injected_errors(30:0), bit31=sem_fatal_error
 
 constant c_db_reg_tx_lut : t_db_reg_tx_lut := (
     x"0" & x"001", --stb_mb,
@@ -1252,16 +1263,11 @@ constant c_db_reg_tx_lut : t_db_reg_tx_lut := (
     
     x"0" & x"100", -- stb_global_date  : integer := 15;-- 32 bit date of last commit when the project was modified. format: ddmmyyyy (hex with decimal digits, no digit greater than 9 is used)
     x"0" & x"101", -- stb_global_time : integer := 16; -- 32 bit time of last commit when the project was modified. format: 00hhmmss (hex with decimal digits, no digit greater than 9 is used)
-    x"0" & x"102", -- stb_global_ver : integer := 17; -- 32 bit last version tag when the project was modified. the version of the form m.m.p is encoded in hexadecimal as mmmmpppp
-    x"0" & x"103", -- stb_global_sha : integer := 18; -- 32 bit git hash (sha) of the last commit when the project was modified.
-    x"0" & x"104", -- stb_top_ver : integer := 19; -- 32 bit top directory version, containing the hog.conf file and other files. the version of the form m.m.p is encoded in hexadecimal as mmmmpppp
-    x"0" & x"105", -- stb_top_sha : integer := 20; -- 32 bit top directory version, containing the hog.conf file and other files.
-    x"0" & x"106", -- stb_con_ver : integer := 21; -- 32 bit the version of the constraint files. the version of the form m.m.p is encoded in hexadecimal as mmmmpppp
-    x"0" & x"107", -- stb_con_sha : integer := 22; -- 32 bit the git commit hash (sha) of the constraint files.
-    x"0" & x"108", -- stb_hog_ver : integer := 23; -- 32 bit hog submodule version. the version of the form m.m.p is encoded in hexadecimal as mmmmpppp
-    x"0" & x"109", -- stb_hog_sha : integer := 24; -- 32 bit hog submodule git commit hash (sha).
-    x"0" & x"10A", -- stb_xml_ver : integer := 25; -- 32 bit (optional) ipbus xml version. the version of the form m.m.p is encoded in hexadecimal as mmmmpppp
-    x"0" & x"10B", -- stb_xml_sha : integer := 26; -- 32 bit (optional) ipbus xml git commit hash (sha).
+    -- 2026-09-12: stb_global_ver/sha (0x102/0x103), stb_top_ver/sha (0x104/0x105),
+    -- stb_con_ver/sha (0x106/0x107), stb_hog_ver/sha (0x108/0x109) and stb_xml_ver/sha
+    -- (0x10A/0x10B) removed -- see the stb_* constant block above. Those five address
+    -- pairs are simply unassigned now; every surviving register below keeps its exact
+    -- original hex address (only its internal array position moved).
     x"0" & x"10C", --stb_dna_2
     x"0" & x"10D", --stb_dna_1
     x"0" & x"10E", --stb_dna_0
@@ -1284,7 +1290,9 @@ constant c_db_reg_tx_lut : t_db_reg_tx_lut := (
     x"0" & x"34d", --stb_flash_status
     x"0" & x"34e", --stb_flash_rdata
     x"0" & x"34f", --stb_flash_page_ram_readback
-    x"0" & x"350"  --stb_flash_fifo_status
+    x"0" & x"350", --stb_flash_fifo_status
+    x"0" & x"102", --stb_sem_error_counters (reuses an address freed by the Hog register removal above)
+    x"0" & x"103"  --stb_sem_injected_errors (reuses an address freed by the Hog register removal above)
     );
 
 
@@ -1864,6 +1872,28 @@ type t_mmcm_clk_control_array is array (0 to 1) of t_mmcm_clk_control;
         cddcreq_in :std_logic;
     end record;
 
+    -- 2026-09-12: revives db6_mainboard_interface.vhd's disabled vio_adc_config controls
+    -- (previously only reachable via g_vio_adc_config=>1, which nothing in the active
+    -- build ever set -- a second, separate, never-instantiated VIO core). Now driven
+    -- from vio_db_debug directly instead; see db6_mainboard_interface.vhd for the
+    -- register semantics (LTC2264-12 A0-A4) and the test_pattern_enable mux. Declared
+    -- here (ahead of t_db_clknet, which embeds it as its .adc_config field) rather than
+    -- alongside the other t_debug_control_* sub-records further down, since VHDL types
+    -- must be declared before use.
+    type t_debug_control_adc_config is record
+        mode                  : std_logic;
+        trigger_mb_adc_config : std_logic;
+        mb_fpga_select        : std_logic_vector(2 downto 0);
+        mb_pmt_select         : std_logic_vector(1 downto 0);
+        adc_register_0        : std_logic_vector(7 downto 0);
+        adc_register_1        : std_logic_vector(7 downto 0);
+        adc_register_2        : std_logic_vector(7 downto 0);
+        adc_register_3_raw    : std_logic_vector(7 downto 0);
+        adc_register_4_raw    : std_logic_vector(7 downto 0);
+        test_pattern_enable   : std_logic;
+        test_pattern_value    : std_logic_vector(13 downto 0);
+    end record;
+
     type t_db_clknet is record
         --debug
         gbt_cdc_gearbox_phase : std_logic_vector(1 downto 0);
@@ -1888,6 +1918,8 @@ type t_mmcm_clk_control_array is array (0 to 1) of t_mmcm_clk_control;
         -- by actually replacing it, OR-ing could only ever raise it)
         flash_manual_write_floor_enable : std_logic;
         flash_manual_write_floor        : std_logic_vector(31 downto 0);
+        -- 2026-09-12: revived vio_adc_config controls, see t_debug_control_adc_config
+        adc_config : t_debug_control_adc_config;
 
         --configuration
         db_side : std_logic_vector(0 downto 0);
@@ -2056,27 +2088,100 @@ type t_mmcm_clk_control_array is array (0 to 1) of t_mmcm_clk_control;
         cdc_reset_array       : std_logic_vector(1 downto 0);
     end record;
 
-    type t_clknet_debug_control is record
-        -- reset_mb moved to t_mb_interface.mb_reset for consistency (see
-        -- db6_mainboard_interface.vhd / db6_clock_interface.vhd)
-        reset_clknet                         : std_logic;
-        skip_main_sm                         : std_logic;
-        force_gtx_i2c_config                 : std_logic;
-        gbt_cdc_gearbox_phase                : std_logic_vector(1 downto 0);
-        adc_readout_high_threshold           : std_logic_vector(11 downto 0);
-        adc_readout_low_threshold            : std_logic_vector(11 downto 0);
-        adc_readout_threshold_select_channel : std_logic_vector(2 downto 0);
-        cis_enable                           : std_logic;
-        cis_gain                             : std_logic;
-        cis_bcid_charge                      : std_logic_vector(11 downto 0);
-        cis_bcid_discharge                   : std_logic_vector(11 downto 0);
-        -- db7_is25lp256_driver manual override, from vio_clknet_status probe_out15
-        -- (97 bits: [96:65]=address, [64:33]=command, [32]=write_floor_enable,
-        -- [31:0]=write_floor -- see db6v5_top.vhd)
-        flash_manual_address                 : std_logic_vector(31 downto 0);
-        flash_manual_command                 : std_logic_vector(31 downto 0);
-        flash_manual_write_floor_enable       : std_logic;
-        flash_manual_write_floor              : std_logic_vector(31 downto 0);
+    -- 2026-09-12: t_clknet_debug_control replaced by t_debug_control, grouped one
+    -- sub-record per module instead of one flat grab-bag (most of which was never
+    -- actually about clknet -- adc_readout/cis/flash are relayed straight through
+    -- db6_clock_interface.vhd into t_db_clknet's own flat fields, unchanged, purely
+    -- so every existing consumer of e.g. p_clknet_in.adc_readout_high_threshold
+    -- keeps working without modification; only the *staging* type used for wiring
+    -- vio_db_debug in db6v5_top.vhd is reorganized here). reset_mb/mb_reset lives in
+    -- t_mb_interface instead (see db6_mainboard_interface.vhd's p_mb_interface_in).
+    type t_debug_control_clknet is record
+        reset_clknet          : std_logic;
+        skip_main_sm          : std_logic;
+        force_gtx_i2c_config  : std_logic;
+        -- kept for structural completeness; permanently inert since no vio_db_debug
+        -- probe drives it anymore (removed per direct request -- see that vio's header)
+        gbt_cdc_gearbox_phase : std_logic_vector(1 downto 0);
+    end record;
+
+    type t_debug_control_adc_readout is record
+        high_threshold           : std_logic_vector(11 downto 0);
+        low_threshold            : std_logic_vector(11 downto 0);
+        threshold_select_channel : std_logic_vector(2 downto 0);
+    end record;
+
+    type t_debug_control_cis is record
+        enable         : std_logic;
+        gain           : std_logic;
+        bcid_charge    : std_logic_vector(11 downto 0);
+        bcid_discharge : std_logic_vector(11 downto 0);
+    end record;
+
+    -- db7_is25lp256_driver manual override, from vio_db_debug's flash_manual_access
+    -- probe (97 bits: [96:65]=address, [64:33]=command, [32]=write_floor_enable,
+    -- [31:0]=write_floor -- see db6v5_top.vhd)
+    type t_debug_control_flash is record
+        manual_address            : std_logic_vector(31 downto 0);
+        manual_command            : std_logic_vector(31 downto 0);
+        manual_write_floor_enable : std_logic;
+        manual_write_floor        : std_logic_vector(31 downto 0);
+    end record;
+
+    -- 2026-09-13: db6_data_readout_debug's vio-driven trigger/readback-select controls
+    -- (see that entity's header). trigger arms on a 0->1 edge, must return to 0 before
+    -- the next capture can be armed; bcr_number is the free-running p_clknet_in.bcr.count
+    -- value to capture on; sample_index/channel_select mux which of the 16 captured
+    -- pipeline stages / which of the 6 adc channels is presented on the status readback
+    -- (see t_data_readout_debug_status) -- avoids one wide probe per sample.
+    type t_debug_control_data_readout is record
+        trigger        : std_logic;
+        bcr_number     : std_logic_vector(31 downto 0);
+        sample_index   : std_logic_vector(3 downto 0);
+        channel_select : std_logic_vector(2 downto 0);
+    end record;
+
+    type t_debug_control is record
+        clknet       : t_debug_control_clknet;
+        adc_readout  : t_debug_control_adc_readout;
+        adc_config   : t_debug_control_adc_config;
+        cis          : t_debug_control_cis;
+        flash        : t_debug_control_flash;
+        data_readout : t_debug_control_data_readout;
+    end record;
+
+    -- 2026-09-13: db6_data_readout_debug's vio-facing status readback -- captured goes
+    -- high once the armed trigger's bcr match completes a capture, and low again as
+    -- soon as p_data_readout_debug_control_in.trigger returns to 0 (rearming for the
+    -- next capture); hg_data/lg_data/fc_data are the one sample selected by
+    -- t_debug_control_data_readout.sample_index/channel_select out of the captured
+    -- 16-deep-per-channel buffer.
+    type t_data_readout_debug_status is record
+        captured : std_logic;
+        hg_data  : std_logic_vector(c_adc_bit_number-1 downto 0);
+        lg_data  : std_logic_vector(c_adc_bit_number-1 downto 0);
+        fc_data  : std_logic_vector(c_adc_bit_number-1 downto 0);
+    end record;
+
+    -- 2026-09-12: GTH/QPLL link clock-select + lock-status fields for vio_db_debug's
+    -- staging logic in db6v5_top.vhd -- these were previously read individually off
+    -- s_clkin/s_sfp_ku_mgt into separate loosely-named staging signals (one per VIO
+    -- probe) with no shared type; grouping them here is purely a debug/status-side
+    -- convenience next to that VIO instantiation. Deliberately NOT plumbed into
+    -- t_db_clkin/t_db_clknet themselves (those flat fields -- qpllclksel, rxsysclksel,
+    -- etc. -- are read directly by db6_xlx_ku_mgt.vhd and by db6_top.vhd/db6v4_top.vhd,
+    -- two legacy, still-VHDL-analyzed top-level files outside db6v5_top's hierarchy;
+    -- restructuring those flat fields would force touching that dead code too, for no
+    -- functional benefit beyond this file's own local organization).
+    type t_gth_link_debug is record
+        qpllclksel      : std_logic_vector(2 downto 0);
+        txsysclksel     : std_logic_vector(1 downto 0);
+        rxsysclksel     : std_logic_vector(1 downto 0);
+        rxoutclksel     : std_logic_vector(2 downto 0);
+        txoutclksel     : std_logic_vector(2 downto 0);
+        qpll1lock       : std_logic;
+        wordclk_locked  : std_logic_vector(1 downto 0);
+        cdc_reset_array : std_logic_vector(1 downto 0);
     end record;
 
     -- db7_is25lp256_driver <-> db7_io_box STARTUPE3 interface (see db7_is25lp256_driver.vhd

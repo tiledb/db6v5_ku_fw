@@ -58,8 +58,15 @@ entity db6_adc_interface is
         p_adc_readout_control_in : in t_adc_readout_control;
         --output
         p_adc_readout_out       : out t_adc_readout;
+        -- iddr/iddr280_clkdiv, g_bitclk=280 only: db6_adc_idelay_calibration's chosen
+        -- IDELAYE3 tap/load/en_vtc, to be threaded up to db7_io_box's IDELAYE3
+        -- primitives (see db6_adc_idelay_calibration.vhd's header for why this lives
+        -- here, outside any TMR replication, rather than inside the decoder). Only the
+        -- fc/lg/hg idelay_count/load/en_vtc fields of this record are meaningful; every
+        -- other field is left undriven and must be ignored by whatever consumes this.
+        p_adc_idelay_ctrl_out    : out t_adc_readout_control;
         p_leds_out      : out std_logic_vector(3 downto 0)
-				);	
+				);
 end db6_adc_interface;
 
 architecture behavioral of db6_adc_interface is
@@ -71,6 +78,20 @@ architecture behavioral of db6_adc_interface is
     signal s_adc_readout_tmr : t_adc_readout_tmr;
 
     signal s_lg_idelay_count, s_hg_idelay_count, s_fc_idelay_count : t_idelay_count;
+
+    -- 2026-09-12: db6_adc_idelay_calibration relocated here from
+    -- db6_mainboard_interface.vhd (see that entity's header) -- single shared instance,
+    -- outside gen_tmr_disabled/gen_tmr_enabled, driving p_adc_idelay_ctrl_out above and
+    -- the new p_calibration_tap_in/done_in/failed_in inputs on every TMR copy of
+    -- db6_adc_interface_decoder_iddr_bitclk280 identically.
+    signal s_adc_idelay_fc_count, s_adc_idelay_lg_count, s_adc_idelay_hg_count, s_adc_idelay_calibration_tap : t_idelay_count;
+    signal s_adc_idelay_fc_load, s_adc_idelay_lg_load, s_adc_idelay_hg_load : std_logic_vector(5 downto 0);
+    signal s_adc_idelay_fc_en_vtc, s_adc_idelay_lg_en_vtc, s_adc_idelay_hg_en_vtc : std_logic_vector(5 downto 0);
+    signal s_adc_idelay_calibration_done, s_adc_idelay_calibration_failed : std_logic_vector(5 downto 0);
+    -- calibration's channel_locked feedback: tmr copy 0 when tripled, to avoid fan-in
+    -- from all three onto one signal (same reasoning as the iserdese frame_missalignment
+    -- feedback further below in this file).
+    signal s_adc_channel_locked_for_calibration : std_logic_vector(5 downto 0);
 
     -- iserdese + tmr only: each tmr copy's own frame_missalignment_out, tmr copy 0 feeds
     -- the shared io feedback (see gen_db6_adc_interface_iserdese below)
@@ -90,6 +111,46 @@ p_adc_readout_out.channel_clk280_locked<=s_adc_bitclk_locked;
 gen_db6_adc_interface_iddr : if g_adc_clocking_scheme /= hss_wizard generate
 
 p_adc_frame_missalignment_out <= (others => '0');
+
+gen_calibration_locked_tmr_disabled : if g_tmr_enabled = '0' generate
+    s_adc_channel_locked_for_calibration <= s_adc_readout.channel_locked;
+end generate;
+gen_calibration_locked_tmr_enabled : if g_tmr_enabled = '1' generate
+    s_adc_channel_locked_for_calibration <= s_adc_readout_tmr(0).channel_locked;
+end generate;
+
+gen_idelay_calibration_bitclk280 : if g_bitclk = 280 generate
+    i_db6_adc_idelay_calibration : entity tilecal.db6_adc_idelay_calibration
+        port map (
+            p_master_reset_in   => p_master_reset_in,
+            p_clknet_in         => p_clknet_in,
+            p_adc_bitclk_in     => p_adc_bitclk_in,
+            p_start_in          => p_adc_readout_control_in.adc_config_done,
+            p_channel_locked_in => s_adc_channel_locked_for_calibration,
+            p_fc_idelay_count_out  => s_adc_idelay_fc_count,
+            p_fc_idelay_load_out   => s_adc_idelay_fc_load,
+            p_fc_idelay_en_vtc_out => s_adc_idelay_fc_en_vtc,
+            p_lg_idelay_count_out  => s_adc_idelay_lg_count,
+            p_lg_idelay_load_out   => s_adc_idelay_lg_load,
+            p_lg_idelay_en_vtc_out => s_adc_idelay_lg_en_vtc,
+            p_hg_idelay_count_out  => s_adc_idelay_hg_count,
+            p_hg_idelay_load_out   => s_adc_idelay_hg_load,
+            p_hg_idelay_en_vtc_out => s_adc_idelay_hg_en_vtc,
+            p_calibration_done_out   => s_adc_idelay_calibration_done,
+            p_calibration_failed_out => s_adc_idelay_calibration_failed,
+            p_calibration_tap_out    => s_adc_idelay_calibration_tap
+        );
+
+    p_adc_idelay_ctrl_out.fc_idelay_count  <= s_adc_idelay_fc_count;
+    p_adc_idelay_ctrl_out.fc_idelay_load   <= s_adc_idelay_fc_load;
+    p_adc_idelay_ctrl_out.fc_idelay_en_vtc <= s_adc_idelay_fc_en_vtc;
+    p_adc_idelay_ctrl_out.lg_idelay_count  <= s_adc_idelay_lg_count;
+    p_adc_idelay_ctrl_out.lg_idelay_load   <= s_adc_idelay_lg_load;
+    p_adc_idelay_ctrl_out.lg_idelay_en_vtc <= s_adc_idelay_lg_en_vtc;
+    p_adc_idelay_ctrl_out.hg_idelay_count  <= s_adc_idelay_hg_count;
+    p_adc_idelay_ctrl_out.hg_idelay_load   <= s_adc_idelay_hg_load;
+    p_adc_idelay_ctrl_out.hg_idelay_en_vtc <= s_adc_idelay_hg_en_vtc;
+end generate;
 
 gen_tmr_disabled: if g_tmr_enabled = '0' generate
     p_adc_readout_out<=s_adc_readout;
@@ -142,6 +203,9 @@ gen_tmr_disabled: if g_tmr_enabled = '0' generate
                 p_adc_lg_data_in    => p_adc_lg_data_in,
                 p_adc_hg_data_in    => p_adc_hg_data_in,
                 p_adc_pll0_locked_in => p_adc_pll0_locked_in,
+                p_calibration_tap_in    => s_adc_idelay_calibration_tap,
+                p_calibration_done_in   => s_adc_idelay_calibration_done,
+                p_calibration_failed_in => s_adc_idelay_calibration_failed,
 
                 --control
                 p_adc_readout_control_in => p_adc_readout_control_in,
@@ -208,16 +272,19 @@ gen_tmr_enabled: if g_tmr_enabled = '1' generate
                     p_adc_lg_data_in    => p_adc_lg_data_in,
                     p_adc_hg_data_in    => p_adc_hg_data_in,
                     p_adc_pll0_locked_in => p_adc_pll0_locked_in,
+                    p_calibration_tap_in    => s_adc_idelay_calibration_tap,
+                    p_calibration_done_in   => s_adc_idelay_calibration_done,
+                    p_calibration_failed_in => s_adc_idelay_calibration_failed,
 
                     --control
                     p_adc_readout_control_in => p_adc_readout_control_in,
 
                     --output
                     p_adc_readout_out   => s_adc_readout_tmr(v_tmr),
-                    
+
                     --debug
                     p_leds_out          => open
-                            );        
+                            );
         end generate;
     end generate;
     gen_adc_channel_voters: for v_adc in 0 to 5 generate

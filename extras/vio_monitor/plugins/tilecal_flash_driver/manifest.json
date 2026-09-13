@@ -1,36 +1,36 @@
 {
   "id": "tilecal_flash_driver",
   "name": "TileCal DB FLASH Driver",
-  "description": "Manual IS25LP256 config-flash access via s_clknet_debug_control flash_manual_* VIO probes",
-  "version": "1.0.0",
+  "description": "Manual IS25LP256 config-flash access via t_debug_control.flash / s_vio_dbg_flash_* VIO probes",
+  "version": "1.1.0",
   "default_enabled": true,
   "order": 36,
   "requires_target": true,
   "requires_device": true,
   "tree_node_types": ["tilecal_flash_driver"],
   "probe_defaults": {
-    "address_probe": "s_clknet_debug_control[flash_manual_address]",
-    "command_probe": "s_clknet_debug_control[flash_manual_command]",
-    "floor_enable_probe": "s_clknet_debug_control[flash_manual_write_floor_enable]",
-    "floor_probe": "s_clknet_debug_control[flash_manual_write_floor]",
-    "status_probe": "s_system_management_interface[flash_status]",
-    "rdata_probe": "s_system_management_interface[flash_rdata]"
+    "address_probe": "s_clknet_debug_control[flash][manual_address]",
+    "command_probe": "s_clknet_debug_control[flash][manual_command]",
+    "floor_enable_probe": "s_clknet_debug_control[flash][manual_write_floor_enable]",
+    "floor_probe": "s_clknet_debug_control[flash][manual_write_floor]",
+    "status_probe": "s_vio_dbg_flash_status",
+    "rdata_probe": "s_vio_dbg_flash_rdata"
   },
   "probe_labels": {
-    "address_probe": "flash_manual_address",
-    "command_probe": "flash_manual_command",
-    "floor_enable_probe": "flash_manual_write_floor_enable",
-    "floor_probe": "flash_manual_write_floor",
-    "status_probe": "flash_status",
-    "rdata_probe": "flash_rdata"
+    "address_probe": "flash.manual_address",
+    "command_probe": "flash.manual_command",
+    "floor_enable_probe": "flash.manual_write_floor_enable",
+    "floor_probe": "flash.manual_write_floor",
+    "status_probe": "s_vio_dbg_flash_status",
+    "rdata_probe": "s_vio_dbg_flash_rdata"
   },
   "probe_hints": {
-    "address_probe": "VIO output — 32-bit byte address",
-    "command_probe": "VIO output — start/opcode/length/wdata",
+    "address_probe": "VIO output — cfb_flash_address (0x012), 32-bit byte address",
+    "command_probe": "VIO output — cfb_flash_command (0x013): start/opcode/length/wdata",
     "floor_enable_probe": "VIO output — override write floor",
-    "floor_probe": "VIO output — write-protect floor address",
-    "status_probe": "VIO input — bit1=done",
-    "rdata_probe": "VIO input — read data from last command"
+    "floor_probe": "VIO output — cfb_flash_write_floor (0x014)",
+    "status_probe": "VIO input — stb_flash_status (0x34D), bit1=done",
+    "rdata_probe": "VIO input — stb_flash_rdata (0x34E)"
   },
   "assets": {
     "panel": "panel.html",

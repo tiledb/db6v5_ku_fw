@@ -57,7 +57,7 @@
     html += '<p class="sfp-i2c-legend">' +
       'Per address: <code>set_property OUTPUT_VALUE</code> (2-digit hex) → ' +
       '<code>commit_hw_vio</code> → <code>refresh_hw_vio</code> → read ' +
-      '<code>s_sfp_ku_mgt[sfp_tx_register][x]</code>. Configure probe names in ⚙.</p>';
+      '<code>s_vio_dbg_sfp_shadow_q*</code> (<code>cfb_sfp_reg_address</code> / <code>stb_sfp_reg_readback</code>). Configure probe names in ⚙.</p>';
 
     html += '<table class="data sfp-i2c-reg"><tr>' +
       '<th>Address</th>' +

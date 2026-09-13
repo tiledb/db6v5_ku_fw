@@ -257,7 +257,10 @@ signal s_mb_fpga_reset_low_out : t_mb_std_logic;
 -- manual vio-driven force of the altera companion fpga reset; moved out of
 -- t_clknet_debug_control into its own dedicated signal (mirrored into
 -- t_mb_interface.mb_reset by db6_mainboard_interface.vhd) for consistency
-signal s_mb_reset_vio : t_mb_std_logic := (q0 => '0', q1 => '0');
+-- 2026-09-12: was a bare t_mb_std_logic signal threaded through a dedicated
+-- p_mb_reset_vio_in port on db6_mainboard_interface; now a proper t_mb_interface
+-- (only .mb_reset populated -- see p_mb_interface_in on that entity).
+signal s_mb_interface_in : t_mb_interface;
 -- fires a one-shot boundary-scan trigger ~1s (100 ticks of clk_100hz) after each
 -- side's s_mb_fpga_reset_low_out releases -- see proc_mb_boundary_scan_timed_trigger
 signal s_mb_boundary_scan_timed_trigger : t_mb_std_logic := (q0 => '0', q1 => '0');
@@ -270,19 +273,119 @@ signal s_boot_gbtx_write_done : std_logic := '0';
 signal s_boot_gbtx_read_done  : std_logic := '0';
 signal s_boot_sfp_read_done   : std_logic_vector(1 downto 0) := (others => '0');
 
--- GLOBAL_DATE/GLOBAL_TIME generics, mirrored into named signals so vio_clknet_status's
+-- GLOBAL_DATE/GLOBAL_TIME generics, mirrored into named signals so vio_db_debug's
 -- ltx keeps a real probe label (see the concurrent assignment right after "begin" below)
 signal c_global_date : std_logic_vector(31 downto 0);
 signal c_global_time : std_logic_vector(31 downto 0);
 -- cfgbus loopback mux cannot live in the vio port map (to_integer/unsigned is an
 -- operation); named net so the ltx probe keeps a real label
 signal s_vio_cfgbus_loopback_reg : std_logic_vector(31 downto 0);
+attribute dont_touch of c_global_date, c_global_time, s_vio_cfgbus_loopback_reg : signal is "TRUE";
 
--- vio_clknet_status now lives here instead of inside db6_clock_interface; these carry
+-- vio_db_debug now lives here instead of inside db6_clock_interface; these carry
 -- exactly what it needs across that module boundary (see db6_design_package.vhd).
 signal s_clknet_debug_status  : t_clknet_debug_status;
-signal s_clknet_debug_control : t_clknet_debug_control;
+-- 2026-09-12: t_clknet_debug_control (flat grab-bag) replaced by t_debug_control,
+-- grouped per module (.clknet/.adc_readout/.adc_config/.cis/.flash -- see
+-- db6_design_package.vhd); also now carries the revived vio_adc_config controls
+-- (.adc_config) that used to need a second, separate, never-instantiated VIO core.
+signal s_clknet_debug_control : t_debug_control;
 signal s_dna_reset             : std_logic;
+-- 2026-09-13: db6_data_readout_debug's vio-facing status readback (see that entity)
+signal s_data_readout_debug_status : t_data_readout_debug_status;
+
+-- 2026-09-12: vio_clknet_status replaced by vio_db_debug (see i_vio_db_debug below) with
+-- a curated probe set -- dead/unconnected probes dropped, SEM status/counters dropped
+-- (now exposed via db_reg_tx instead -- see stb_sem_error_counters/stb_sem_injected_errors
+-- in db6_design_package.vhd), and mb_tx_collision/gbt_cdc_gearbox_phase (both directions)/
+-- gth_wordclk_sel/tmr_error_lg_hg_fc/mb_integrator/gbt_bank_sync dropped per direct
+-- request. New: idelay calibration tap/done/failed (see db6_adc_idelay_calibration.vhd).
+-- Every probe below is its own dedicated, dont_touch-protected staging signal (not a raw
+-- port-map expression) so its name survives synthesis into the ltx file regardless of
+-- what it's built from -- several old probes concatenated bits from multiple unrelated
+-- signals with no guarantee of a readable ltx label at all.
+
+-- t_adc_readout group
+signal s_vio_dbg_adc_channel_locked, s_vio_dbg_adc_channel_missed_locked,
+       s_vio_dbg_adc_channel_clk280_locked, s_vio_dbg_adc_channel_missed_bit_count,
+       s_vio_dbg_adc_pedestal_overflow, s_vio_dbg_adc_pedestal_underflow : std_logic_vector(5 downto 0);
+signal s_vio_dbg_adc_config_done, s_vio_dbg_adc_readout_initialized : std_logic_vector(0 downto 0);
+-- 2026-09-12: idelay tap dropped its combining staging signal -- probe_in8 below is now
+-- fed directly, per-channel, from s_mb_interface.adc_readout.fc_idelay_count(n) so each
+-- channel keeps a distinct, human-readable ltx name instead of one opaque 54-bit blob.
+signal s_vio_dbg_adc_idelay_calibration_done, s_vio_dbg_adc_idelay_calibration_failed : std_logic_vector(5 downto 0);
+attribute dont_touch of
+    s_vio_dbg_adc_channel_locked, s_vio_dbg_adc_channel_missed_locked,
+    s_vio_dbg_adc_channel_clk280_locked, s_vio_dbg_adc_channel_missed_bit_count,
+    s_vio_dbg_adc_pedestal_overflow, s_vio_dbg_adc_pedestal_underflow,
+    s_vio_dbg_adc_config_done, s_vio_dbg_adc_readout_initialized,
+    s_vio_dbg_adc_idelay_calibration_done, s_vio_dbg_adc_idelay_calibration_failed
+    : signal is "TRUE";
+
+-- t_db_clknet / system clock+reset health group
+signal s_vio_dbg_bcr_locked, s_vio_dbg_locked_db, s_vio_dbg_mmcm_gbt40_db6_locked, s_vio_dbg_clk_1hz,
+       s_vio_dbg_mb_fpga_reset_low_q0, s_vio_dbg_gbtx_rxready, s_vio_dbg_locked_tp_q0,
+       s_vio_dbg_mb_fpga_reset_low_q1, s_vio_dbg_db_side,
+       s_vio_dbg_dna_done : std_logic_vector(0 downto 0);
+-- 2026-09-12: qpllclksel/txsysclksel/rxsysclksel/rxoutclksel/txoutclksel/qpll1lock/
+-- wordclk_locked/cdc_reset_array grouped into one t_gth_link_debug signal instead of
+-- 8 independently-connected staging signals (see db6_design_package.vhd)
+signal s_vio_dbg_link : t_gth_link_debug;
+signal s_vio_dbg_gbt_cdc_phase_override_rb, s_vio_dbg_mb_jtag_done : std_logic_vector(1 downto 0);
+signal s_vio_dbg_db_leds : std_logic_vector(3 downto 0);
+-- 2026-09-12: bcr_tmr_error/tx_ph/gth_status/sfp_module_status/gbtx_shadow dropped their
+-- combining staging signals -- each is now fed directly, per-field, from its real named
+-- source at the probe_in port map below (item 1 rewiring: separate port-map associations
+-- per bit-range keep each field's own ltx name instead of one opaque blob per probe).
+signal s_vio_dbg_running_time, s_vio_dbg_mb_jtag_id_q0, s_vio_dbg_mb_jtag_id_q1 : std_logic_vector(31 downto 0);
+signal s_vio_dbg_md_number : std_logic_vector(3 downto 0);
+signal s_vio_dbg_dna : std_logic_vector(7 downto 0);
+signal s_vio_dbg_sfp_addr_echo0, s_vio_dbg_sfp_addr_echo1 : std_logic_vector(6 downto 0);
+signal s_vio_dbg_gbtx_config_readback : std_logic_vector(7 downto 0);
+signal s_vio_dbg_hss_rst_seq_done, s_vio_dbg_hss_fifo_data_valid : std_logic_vector(5 downto 0);
+signal s_vio_dbg_boot_done_mb_bs_q0, s_vio_dbg_boot_done_mb_bs_q1, s_vio_dbg_boot_done_gbtx_write,
+       s_vio_dbg_boot_done_gbtx_read, s_vio_dbg_boot_done_sfp_q0, s_vio_dbg_boot_done_sfp_q1 : std_logic_vector(0 downto 0);
+attribute dont_touch of
+    s_vio_dbg_bcr_locked, s_vio_dbg_locked_db, s_vio_dbg_link,
+    s_vio_dbg_mmcm_gbt40_db6_locked, s_vio_dbg_clk_1hz, s_vio_dbg_gbt_cdc_phase_override_rb,
+    s_vio_dbg_mb_fpga_reset_low_q0, s_vio_dbg_gbtx_rxready, s_vio_dbg_locked_tp_q0,
+    s_vio_dbg_mb_fpga_reset_low_q1,
+    s_vio_dbg_db_leds, s_vio_dbg_db_side, s_vio_dbg_running_time, s_vio_dbg_md_number,
+    s_vio_dbg_dna, s_vio_dbg_dna_done,
+    s_vio_dbg_mb_jtag_id_q0, s_vio_dbg_mb_jtag_id_q1, s_vio_dbg_mb_jtag_done, s_vio_dbg_sfp_addr_echo0,
+    s_vio_dbg_sfp_addr_echo1, s_vio_dbg_gbtx_config_readback, s_vio_dbg_hss_rst_seq_done,
+    s_vio_dbg_hss_fifo_data_valid, s_vio_dbg_boot_done_mb_bs_q0, s_vio_dbg_boot_done_mb_bs_q1,
+    s_vio_dbg_boot_done_gbtx_write, s_vio_dbg_boot_done_gbtx_read, s_vio_dbg_boot_done_sfp_q0,
+    s_vio_dbg_boot_done_sfp_q1
+    : signal is "TRUE";
+
+-- plugin-critical group (flash/sfp_i2c/sfp_ddm -- names/widths match extras/vio_monitor plugins)
+signal s_vio_dbg_flash_status, s_vio_dbg_flash_rdata : std_logic_vector(31 downto 0);
+signal s_vio_dbg_sfp_shadow_q0, s_vio_dbg_sfp_shadow_q1 : std_logic_vector(7 downto 0);
+signal s_vio_dbg_ddm_temp_q0, s_vio_dbg_ddm_temp_q1, s_vio_dbg_ddm_vcc_q0, s_vio_dbg_ddm_vcc_q1,
+       s_vio_dbg_ddm_txbias_q0, s_vio_dbg_ddm_txbias_q1, s_vio_dbg_ddm_txpower_q0, s_vio_dbg_ddm_txpower_q1,
+       s_vio_dbg_ddm_rxpower_q0, s_vio_dbg_ddm_rxpower_q1, s_vio_dbg_ddm_lasertemp_q0, s_vio_dbg_ddm_lasertemp_q1,
+       s_vio_dbg_ddm_teccurrent_q0, s_vio_dbg_ddm_teccurrent_q1 : std_logic_vector(15 downto 0);
+attribute dont_touch of
+    s_vio_dbg_flash_status, s_vio_dbg_flash_rdata, s_vio_dbg_sfp_shadow_q0, s_vio_dbg_sfp_shadow_q1,
+    s_vio_dbg_ddm_temp_q0, s_vio_dbg_ddm_temp_q1, s_vio_dbg_ddm_vcc_q0, s_vio_dbg_ddm_vcc_q1,
+    s_vio_dbg_ddm_txbias_q0, s_vio_dbg_ddm_txbias_q1, s_vio_dbg_ddm_txpower_q0, s_vio_dbg_ddm_txpower_q1,
+    s_vio_dbg_ddm_rxpower_q0, s_vio_dbg_ddm_rxpower_q1, s_vio_dbg_ddm_lasertemp_q0, s_vio_dbg_ddm_lasertemp_q1,
+    s_vio_dbg_ddm_teccurrent_q0, s_vio_dbg_ddm_teccurrent_q1
+    : signal is "TRUE";
+
+-- t_adc_readout_control (calibration thresholds) + system control group
+signal s_vio_dbg_adc_high_thresh, s_vio_dbg_adc_low_thresh : std_logic_vector(11 downto 0);
+signal s_vio_dbg_adc_thresh_sel_ch : std_logic_vector(2 downto 0);
+-- 2026-09-12: reset_controls/force_gtx_i2c_config/cis_manual_control/
+-- mb_fpga_reset_low_ctrl/flash_manual_access dropped their combining staging signals --
+-- each is now driven directly, per-field, straight into its real destination signal at
+-- the probe_out port map below (item 1 rewiring).
+signal s_vio_dbg_sfp_addr_out_q0, s_vio_dbg_sfp_addr_out_q1 : std_logic_vector(6 downto 0);
+attribute dont_touch of
+    s_vio_dbg_adc_high_thresh, s_vio_dbg_adc_low_thresh, s_vio_dbg_adc_thresh_sel_ch,
+    s_vio_dbg_sfp_addr_out_q0, s_vio_dbg_sfp_addr_out_q1
+    : signal is "TRUE";
 
 -- db7_io_box: mainboard driver serial bus, plain-logic side (stage 1 of IO isolation migration)
 signal s_mb_driver_ssel, s_mb_driver_sclk, s_mb_driver_sdata_tx, s_mb_driver_sdata_rx : t_mb_std_logic;
@@ -415,153 +518,118 @@ END COMPONENT;
 
 
 
-COMPONENT vio_clknet_status
+-- 2026-09-12: replaces vio_clknet_status -- see the vio_db_debug header comment near
+-- its signal declarations above for the full list of what changed and why.
+COMPONENT vio_db_debug
   PORT (
     clk : IN STD_LOGIC;
-    probe_in0 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in1 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in2 : IN STD_LOGIC_VECTOR(2 DOWNTO 0);
-    probe_in3 : IN STD_LOGIC_VECTOR(2 DOWNTO 0);
-    probe_in4 : IN STD_LOGIC_VECTOR(1 DOWNTO 0);
-    probe_in5 : IN STD_LOGIC_VECTOR(1 DOWNTO 0);
-    probe_in6 : IN STD_LOGIC_VECTOR(2 DOWNTO 0);
-    probe_in7 : IN STD_LOGIC_VECTOR(2 DOWNTO 0);
-    probe_in8 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in9 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in10 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in11 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in12 : IN STD_LOGIC_VECTOR(1 DOWNTO 0);
-    probe_in13 : IN STD_LOGIC_VECTOR(3 DOWNTO 0);
-    probe_in14 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in15 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in16 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in17 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in18 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in19 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in20 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in21 : IN STD_LOGIC_VECTOR(1 DOWNTO 0);
-    probe_in22 : IN STD_LOGIC_VECTOR(10 DOWNTO 0);
-    probe_in23 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
-    probe_in24 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in25 : IN STD_LOGIC_VECTOR(3 DOWNTO 0);
-    probe_in26 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in27 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in28 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in29 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in30 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in31 : IN STD_LOGIC_VECTOR(11 DOWNTO 0);
-    probe_in32 : IN STD_LOGIC_VECTOR(47 DOWNTO 0);
-    probe_in33 : IN STD_LOGIC_VECTOR(23 DOWNTO 0);
-    probe_in34 : IN STD_LOGIC_VECTOR(5 DOWNTO 0);
-    probe_in35 : IN STD_LOGIC_VECTOR(5 DOWNTO 0);
-    probe_in36 : IN STD_LOGIC_VECTOR(5 DOWNTO 0);
-    probe_in37 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
-    probe_in38 : IN STD_LOGIC_VECTOR(18 DOWNTO 0);
-    probe_in39 : IN STD_LOGIC_VECTOR(2 DOWNTO 0);
-    probe_in40 : IN STD_LOGIC_VECTOR(3 DOWNTO 0);
-    probe_in41 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
-    probe_in42 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in43 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in44 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in45 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in46 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in47 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in48 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in49 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in50 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in51 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in52 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in53 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in54 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in55 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
-    probe_in56 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
-    probe_in57 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
-    probe_in58 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
-    probe_in59 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
-    probe_in60 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
-    probe_in61 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in62 : IN STD_LOGIC_VECTOR(1 DOWNTO 0);
-    probe_in63 : IN STD_LOGIC_VECTOR(1 DOWNTO 0);
-    -- mainboard jtag id/done readout (added when the mb jtag driver was decoupled from
-    -- the vios and moved into db6_mainboard_interface -- see t_mb_interface.mb_jtag_id/done)
-    probe_in64 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
-    probe_in65 : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
-    probe_in66 : IN STD_LOGIC_VECTOR(1 DOWNTO 0);
-    -- sfp+ reg block ram debug readback (port b): echoed address + read value, per sfp side
-    probe_in67 : IN STD_LOGIC_VECTOR(6 DOWNTO 0);
-    probe_in68 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
-    probe_in69 : IN STD_LOGIC_VECTOR(6 DOWNTO 0);
-    probe_in70 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
-    -- gbtx write/config ram shadow readback: same address as the gbtx_reg_readback
-    -- ram (cfb_gbtx_reg_readback_address; no longer vio-addressable, see
-    -- s_gbtx_reg_readback_address_vio comment above), carries the originally-intended
-    -- write value instead of the actual i2c readback value -- reuses the slot vacated
-    -- by removing the hss_adc pll0_locked debug bits (see stb_gbtx_config_readback)
-    probe_in71 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
-    -- hss_adc per-channel status: internal reset-sequence-done / fifo read-data-valid,
-    -- one bit per ADC channel (see db6_adc_interface_io_hss.vhd)
-    probe_in72 : IN STD_LOGIC_VECTOR(5 DOWNTO 0);
-    probe_in73 : IN STD_LOGIC_VECTOR(5 DOWNTO 0);
-    -- db7_is25lp256_driver status readback (see db6_gbt_encoder_sc.vhd
-    -- stb_flash_status/stb_flash_rdata -- mirrored here for hardware debug).
-    -- Everything that used to live in probe_in74-110 except the sfp+ ddm fields and
-    -- the sticky first-done flags (both restored below, at different indices) was
-    -- dropped from the vio to make room -- the rest (mb boundary-scan readout, gbtx
-    -- reg readback byte, xadc channel scan, led value, boundary-scan timed trigger)
-    -- remains readable via db_reg_tx/DAQ software only.
-    probe_in74 : IN STD_LOGIC_VECTOR(31 DOWNTO 0); -- stb_flash_status
-    probe_in75 : IN STD_LOGIC_VECTOR(31 DOWNTO 0); -- stb_flash_rdata
-    -- sff-8472 A2h ddm fields -- one dedicated probe per side per field (matching
-    -- stb_sfp_ddm_* in db6_gbt_encoder_sc.vhd -- see t_sfp_regs/c_sfp_*)
-    probe_in76 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm temperature q0
-    probe_in77 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm temperature q1
-    probe_in78 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm vcc q0
-    probe_in79 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm vcc q1
-    probe_in80 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm tx_bias_current q0
-    probe_in81 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm tx_bias_current q1
-    probe_in82 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm tx_power q0
-    probe_in83 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm tx_power q1
-    probe_in84 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm rx_power q0
-    probe_in85 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm rx_power q1
-    probe_in86 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm laser_temperature q0
-    probe_in87 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm laser_temperature q1
-    probe_in88 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm tec_current q0
-    probe_in89 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm tec_current q1
-    -- sticky "performed at least once since master reset" flags for the bootup
-    -- boundary scan, gbtx register write/read, and sfp+ a2h read
-    probe_in90 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); -- mb boundary-scan boot-done q0
-    probe_in91 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); -- mb boundary-scan boot-done q1
-    probe_in92 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); -- gbtx register write first-done
-    probe_in93 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); -- gbtx register read first-done
-    probe_in94 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); -- sfp+ a2h read first-done q0
-    probe_in95 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); -- sfp+ a2h read first-done q1
-    probe_out0 : OUT STD_LOGIC_VECTOR(5 DOWNTO 0);
-    probe_out1 : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_out2 : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_out3 : OUT STD_LOGIC_VECTOR(2 DOWNTO 0);
-    probe_out4 : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_out5 : OUT STD_LOGIC_VECTOR(39 DOWNTO 0);
-    probe_out6 : OUT STD_LOGIC_VECTOR(1 DOWNTO 0);
-    probe_out7 : out std_logic_vector(0 downto 0);
-    probe_out8 : out std_logic_vector(11 downto 0);
-    probe_out9 : out std_logic_vector(11 downto 0);
-    probe_out10 : out std_logic_vector(2 downto 0);
-    probe_out11 : out std_logic_vector(25 downto 0);
-    -- reg block ram port b addresses -- one dedicated probe per side
-    probe_out12 : out std_logic_vector(6 downto 0); -- sfp+ reg block ram, q0
-    probe_out13 : out std_logic_vector(6 downto 0); -- sfp+ reg block ram, q1
-    -- mainboard companion fpga reset (active low): restores vio_mb_jtag_debug's old
-    -- probe_out3/4 control, now undriven since that vio was disabled -- see
-    -- vio_mb_jtag_debug_commented_out memory note. mb boundary-scan reg block ram
-    -- address (q0/q1) and gbtx register readback ram address, previously
-    -- probe_out14-16, were dropped to make room for the flash override below --
-    -- both remain settable via cfb_mb_boundary_scan_reg_address/cfb_gbtx_reg_readback_address.
-    probe_out14 : out std_logic_vector(1 downto 0); -- p_mb_fpga_reset_low: (0)=q0, (1)=q1
-    -- db7_is25lp256_driver manual override (see t_db_clknet.flash_manual_*):
-    -- (96 downto 65)=address, (64 downto 33)=command -- both ORed with the cfb_flash_*
-    -- db_reg_rx path; (32)=write_floor_enable, (31 downto 0)=write_floor -- muxed in
-    -- place of cfb_flash_write_floor while (32) is high, for hw_manager debug
-    probe_out15 : out std_logic_vector(96 downto 0)
+    -- t_adc_readout group
+    probe_in0  : IN STD_LOGIC_VECTOR(5 DOWNTO 0);  -- channel_locked
+    probe_in1  : IN STD_LOGIC_VECTOR(5 DOWNTO 0);  -- channel_missed_locked
+    probe_in2  : IN STD_LOGIC_VECTOR(5 DOWNTO 0);  -- channel_clk280_locked
+    probe_in3  : IN STD_LOGIC_VECTOR(5 DOWNTO 0);  -- channel_missed_bit_count
+    probe_in4  : IN STD_LOGIC_VECTOR(5 DOWNTO 0);  -- channel_pedestal_test_overflow
+    probe_in5  : IN STD_LOGIC_VECTOR(5 DOWNTO 0);  -- channel_pedestal_test_underflow
+    probe_in6  : IN STD_LOGIC_VECTOR(0 DOWNTO 0);  -- adc_config_done
+    probe_in7  : IN STD_LOGIC_VECTOR(0 DOWNTO 0);  -- readout_initialized
+    probe_in8  : IN STD_LOGIC_VECTOR(53 DOWNTO 0); -- idelay calibration tap (6ch x 9bit; fc/lg/hg identical)
+    probe_in9  : IN STD_LOGIC_VECTOR(5 DOWNTO 0);  -- idelay calibration done
+    probe_in10 : IN STD_LOGIC_VECTOR(5 DOWNTO 0);  -- idelay calibration failed
+    -- t_db_clknet / system clock+reset health group
+    probe_in11 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);  -- bcr_locked
+    probe_in12 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);  -- locked_db
+    probe_in13 : IN STD_LOGIC_VECTOR(2 DOWNTO 0);  -- qpllclksel
+    probe_in14 : IN STD_LOGIC_VECTOR(2 DOWNTO 0);  -- bcr tmr error bits
+    probe_in15 : IN STD_LOGIC_VECTOR(1 DOWNTO 0);  -- txsysclksel
+    probe_in16 : IN STD_LOGIC_VECTOR(1 DOWNTO 0);  -- rxsysclksel
+    probe_in17 : IN STD_LOGIC_VECTOR(2 DOWNTO 0);  -- rxoutclksel
+    probe_in18 : IN STD_LOGIC_VECTOR(2 DOWNTO 0);  -- txoutclksel
+    probe_in19 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);  -- mmcm_gbt40_db6_locked
+    probe_in20 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);  -- clk_1hz
+    probe_in21 : IN STD_LOGIC_VECTOR(1 DOWNTO 0);  -- gbt cdc phase override readback
+    probe_in22 : IN STD_LOGIC_VECTOR(3 DOWNTO 0);  -- tx_phcomputed/tx_phaligned
+    probe_in23 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);  -- mb_fpga_reset_low q0
+    probe_in24 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);  -- gbtx_rxready
+    probe_in25 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);  -- locked_tp_q0
+    probe_in26 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);  -- mb_fpga_reset_low q1
+    probe_in27 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);  -- qpll1lock
+    probe_in28 : IN STD_LOGIC_VECTOR(10 DOWNTO 0); -- GTH wizard status bits
+    probe_in29 : IN STD_LOGIC_VECTOR(5 DOWNTO 0);  -- sfp module status (mod_abs/mod_los/tx_fault)
+    probe_in30 : IN STD_LOGIC_VECTOR(3 DOWNTO 0);  -- db_leds
+    probe_in31 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);  -- db_side
+    probe_in32 : IN STD_LOGIC_VECTOR(45 DOWNTO 0); -- gbtx i2c/reg shadow
+    probe_in33 : IN STD_LOGIC_VECTOR(31 DOWNTO 0); -- running_time
+    probe_in34 : IN STD_LOGIC_VECTOR(3 DOWNTO 0);  -- md_number
+    probe_in35 : IN STD_LOGIC_VECTOR(31 DOWNTO 0); -- cfgbus loopback debug
+    probe_in36 : IN STD_LOGIC_VECTOR(31 DOWNTO 0); -- global_date
+    probe_in37 : IN STD_LOGIC_VECTOR(31 DOWNTO 0); -- global_time
+    probe_in38 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);  -- device dna
+    probe_in39 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);  -- device dna done
+    probe_in40 : IN STD_LOGIC_VECTOR(1 DOWNTO 0);  -- gbt wordclk_locked
+    probe_in41 : IN STD_LOGIC_VECTOR(1 DOWNTO 0);  -- gbt cdc_reset_array
+    probe_in42 : IN STD_LOGIC_VECTOR(31 DOWNTO 0); -- mb_jtag_id q0
+    probe_in43 : IN STD_LOGIC_VECTOR(31 DOWNTO 0); -- mb_jtag_id q1
+    probe_in44 : IN STD_LOGIC_VECTOR(1 DOWNTO 0);  -- mb_jtag_done q0/q1
+    probe_in45 : IN STD_LOGIC_VECTOR(6 DOWNTO 0);  -- sfp reg addr echo, side 0
+    probe_in46 : IN STD_LOGIC_VECTOR(6 DOWNTO 0);  -- sfp reg addr echo, side 1
+    probe_in47 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);  -- gbtx config shadow readback
+    probe_in48 : IN STD_LOGIC_VECTOR(5 DOWNTO 0);  -- hss_adc rst_seq_done (hss_wizard only)
+    probe_in49 : IN STD_LOGIC_VECTOR(5 DOWNTO 0);  -- hss_adc fifo_data_valid (hss_wizard only)
+    probe_in50 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);  -- boot-done: mb boundary-scan q0
+    probe_in51 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);  -- boot-done: mb boundary-scan q1
+    probe_in52 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);  -- boot-done: gbtx write
+    probe_in53 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);  -- boot-done: gbtx read
+    probe_in54 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);  -- boot-done: sfp+ a2h read q0
+    probe_in55 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);  -- boot-done: sfp+ a2h read q1
+    -- plugin-critical group (flash/sfp_i2c/sfp_ddm -- names/widths match extras/vio_monitor plugins)
+    probe_in56 : IN STD_LOGIC_VECTOR(31 DOWNTO 0); -- flash_status
+    probe_in57 : IN STD_LOGIC_VECTOR(31 DOWNTO 0); -- flash_rdata
+    probe_in58 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm temperature q0
+    probe_in59 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm temperature q1
+    probe_in60 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm vcc q0
+    probe_in61 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm vcc q1
+    probe_in62 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm tx_bias_current q0
+    probe_in63 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm tx_bias_current q1
+    probe_in64 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm tx_power q0
+    probe_in65 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm tx_power q1
+    probe_in66 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm rx_power q0
+    probe_in67 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm rx_power q1
+    probe_in68 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm laser_temperature q0
+    probe_in69 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm laser_temperature q1
+    probe_in70 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm tec_current q0
+    probe_in71 : IN STD_LOGIC_VECTOR(15 DOWNTO 0); -- sfp ddm tec_current q1
+    probe_in72 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);  -- sfp+ reg block ram shadow readback, side 0
+    probe_in73 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);  -- sfp+ reg block ram shadow readback, side 1
+    -- db6_data_readout_debug readback (t_data_readout_debug_status -- see
+    -- db6_design_package.vhd / db6_data_readout_debug.vhd)
+    probe_in74 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);  -- data_readout: captured
+    probe_in75 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); -- data_readout: hg_data (muxed sample)
+    probe_in76 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); -- data_readout: lg_data (muxed sample)
+    probe_in77 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); -- data_readout: fc_data (muxed sample)
+    -- t_adc_readout_control (calibration thresholds) + system control group
+    probe_out0 : OUT STD_LOGIC_VECTOR(11 DOWNTO 0); -- adc_readout_high_threshold
+    probe_out1 : OUT STD_LOGIC_VECTOR(11 DOWNTO 0); -- adc_readout_low_threshold
+    probe_out2 : OUT STD_LOGIC_VECTOR(2 DOWNTO 0);  -- adc_readout_threshold_select_channel
+    probe_out3 : OUT STD_LOGIC_VECTOR(4 DOWNTO 0);  -- reset controls: q0/q1/dna_reset/reset_clknet/skip_main_sm
+    probe_out4 : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);  -- force_gtx_i2c_config
+    probe_out5 : OUT STD_LOGIC_VECTOR(25 DOWNTO 0); -- CIS manual control
+    probe_out6 : OUT STD_LOGIC_VECTOR(1 DOWNTO 0);  -- mb_fpga_reset_low control
+    probe_out7 : OUT STD_LOGIC_VECTOR(6 DOWNTO 0);  -- sfp+ reg block ram address, side 0
+    probe_out8 : OUT STD_LOGIC_VECTOR(6 DOWNTO 0);  -- sfp+ reg block ram address, side 1
+    probe_out9  : OUT STD_LOGIC_VECTOR(96 DOWNTO 0); -- flash manual access override
+    -- revived vio_adc_config controls (t_debug_control_adc_config -- see
+    -- db6_design_package.vhd / db6_mainboard_interface.vhd)
+    probe_out10 : OUT STD_LOGIC_VECTOR(6 DOWNTO 0);  -- adc_config: mode/trigger/fpga_select/pmt_select
+    probe_out11 : OUT STD_LOGIC_VECTOR(7 DOWNTO 0);  -- adc_config: adc_register_0 (A0)
+    probe_out12 : OUT STD_LOGIC_VECTOR(7 DOWNTO 0);  -- adc_config: adc_register_1 (A1)
+    probe_out13 : OUT STD_LOGIC_VECTOR(7 DOWNTO 0);  -- adc_config: adc_register_2 (A2)
+    probe_out14 : OUT STD_LOGIC_VECTOR(7 DOWNTO 0);  -- adc_config: adc_register_3_raw (A3, manual)
+    probe_out15 : OUT STD_LOGIC_VECTOR(7 DOWNTO 0);  -- adc_config: adc_register_4_raw (A4, manual)
+    probe_out16 : OUT STD_LOGIC_VECTOR(14 DOWNTO 0); -- adc_config: test_pattern_enable/test_pattern_value
+    -- db6_data_readout_debug controls (t_debug_control_data_readout -- see
+    -- db6_design_package.vhd / db6_data_readout_debug.vhd)
+    probe_out17 : OUT STD_LOGIC_VECTOR(7 DOWNTO 0);  -- data_readout: trigger/sample_index/channel_select
+    probe_out18 : OUT STD_LOGIC_VECTOR(31 DOWNTO 0)  -- data_readout: bcr_number
   );
 END COMPONENT;
 
@@ -598,10 +666,108 @@ c_global_date <= GLOBAL_DATE;
 c_global_time <= GLOBAL_TIME;
 s_vio_cfgbus_loopback_reg <= s_cfgbus_interface.db_reg_rx(to_integer(unsigned(s_cfgbus_interface.db_reg_rx(cfb_loopback)(3 downto 0))));
 
+-- vio_db_debug staging signal assignments (see the signal declarations above for why
+-- each one is a dedicated dont_touch signal rather than a raw port-map expression).
+
+-- t_adc_readout group
+s_vio_dbg_adc_channel_locked <= s_mb_interface.adc_readout.channel_locked;
+s_vio_dbg_adc_channel_missed_locked <= s_mb_interface.adc_readout.channel_missed_locked;
+s_vio_dbg_adc_channel_clk280_locked <= s_mb_interface.adc_readout.channel_clk280_locked;
+s_vio_dbg_adc_channel_missed_bit_count <= s_mb_interface.adc_readout.channel_missed_bit_count;
+s_vio_dbg_adc_pedestal_overflow <= s_mb_interface.adc_readout.channel_pedestal_test_overflow;
+s_vio_dbg_adc_pedestal_underflow <= s_mb_interface.adc_readout.channel_pedestal_test_underflow;
+s_vio_dbg_adc_config_done(0) <= s_mb_interface.adc_readout_control.adc_config_done;
+s_vio_dbg_adc_readout_initialized(0) <= s_mb_interface.adc_readout.readout_initialized;
+s_vio_dbg_adc_idelay_calibration_done <= s_mb_interface.adc_readout.channel_idelay_calibration_done;
+s_vio_dbg_adc_idelay_calibration_failed <= s_mb_interface.adc_readout.channel_idelay_calibration_failed;
+
+-- t_db_clknet / system clock+reset health group
+s_vio_dbg_bcr_locked(0) <= s_clkin.bcr.bcr_locked;
+s_vio_dbg_locked_db(0) <= s_clknet.locked_db;
+-- t_gth_link_debug group (see db6_design_package.vhd)
+s_vio_dbg_link.qpllclksel <= s_clkin.qpllclksel;
+-- bcr_tmr_error's 3 bits go straight to probe_in14 below now (item 1 rewiring)
+s_vio_dbg_link.txsysclksel <= s_clkin.txsysclksel;
+s_vio_dbg_link.rxsysclksel <= s_clkin.rxsysclksel;
+s_vio_dbg_link.rxoutclksel <= s_clkin.rxoutclksel;
+s_vio_dbg_link.txoutclksel <= s_clkin.txoutclksel;
+s_vio_dbg_mmcm_gbt40_db6_locked(0) <= s_clknet_debug_status.mmcm_gbt40_db6_locked;
+s_vio_dbg_clk_1hz(0) <= s_clknet.clk_1hz;
+s_vio_dbg_gbt_cdc_phase_override_rb(0) <= s_cfgbus_interface.db_reg_rx(cfb_db_debug)(c_db_debug_gbt_cdc_phase_array);
+s_vio_dbg_gbt_cdc_phase_override_rb(1) <= s_cfgbus_interface.db_reg_rx(cfb_db_debug)(c_db_debug_gbt_cdc_phase_array + 1);
+-- tx_ph's 4 bits go straight to probe_in22 below now (item 1 rewiring)
+s_vio_dbg_mb_fpga_reset_low_q0(0) <= s_clknet.mb_fpga_reset_low.q0;
+s_vio_dbg_gbtx_rxready(0) <= p_gbtx_rxready_in(0);
+s_vio_dbg_locked_tp_q0(0) <= s_clknet.locked_tp_q0;
+s_vio_dbg_mb_fpga_reset_low_q1(0) <= s_clknet.mb_fpga_reset_low.q1;
+s_vio_dbg_link.qpll1lock <= s_sfp_ku_mgt.qpll1lock_out(1);
+-- gth_status's 11 bits go straight to probe_in28 below now (item 1 rewiring)
+-- sfp_module_status's 6 bits go straight to probe_in29 below now (item 1 rewiring)
+s_vio_dbg_db_leds <= s_clkin.db_leds;
+s_vio_dbg_db_side(0) <= p_db_side_in(0);
+-- gbtx_shadow's fields go straight to probe_in32 below now (item 1 rewiring)
+s_vio_dbg_running_time <= s_clknet.running_time;
+s_vio_dbg_md_number <= p_md_number_in;
+s_vio_dbg_dna <= s_system_management_interface.ku_dna(7 downto 0);
+s_vio_dbg_dna_done(0) <= s_system_management_interface.ku_dna_done;
+s_vio_dbg_link.wordclk_locked <= s_clknet_debug_status.wordclk_locked;
+s_vio_dbg_link.cdc_reset_array <= s_clknet_debug_status.cdc_reset_array;
+s_vio_dbg_mb_jtag_id_q0 <= s_mb_interface.mb_jtag_id.q0;
+s_vio_dbg_mb_jtag_id_q1 <= s_mb_interface.mb_jtag_id.q1;
+s_vio_dbg_mb_jtag_done(0) <= s_mb_interface.mb_jtag_done.q0;
+s_vio_dbg_mb_jtag_done(1) <= s_mb_interface.mb_jtag_done.q1;
+s_vio_dbg_sfp_addr_echo0 <= s_cfgbus_interface.db_reg_rx(cfb_sfp_reg_address)(6 downto 0);
+s_vio_dbg_sfp_addr_echo1 <= s_cfgbus_interface.db_reg_rx(cfb_sfp_reg_address)(14 downto 8);
+s_vio_dbg_gbtx_config_readback <= s_gbtx_interface.gbtx_config_readback.doutb;
+s_vio_dbg_hss_rst_seq_done <= s_adc_rst_seq_done;
+s_vio_dbg_hss_fifo_data_valid <= s_adc_fifo_data_valid;
+s_vio_dbg_boot_done_mb_bs_q0(0) <= s_mb_interface.mb_boundary_scan_boot_done.q0;
+s_vio_dbg_boot_done_mb_bs_q1(0) <= s_mb_interface.mb_boundary_scan_boot_done.q1;
+s_vio_dbg_boot_done_gbtx_write(0) <= s_boot_gbtx_write_done;
+s_vio_dbg_boot_done_gbtx_read(0) <= s_boot_gbtx_read_done;
+s_vio_dbg_boot_done_sfp_q0(0) <= s_boot_sfp_read_done(0);
+s_vio_dbg_boot_done_sfp_q1(0) <= s_boot_sfp_read_done(1);
+
+-- plugin-critical group
+s_vio_dbg_flash_status <= s_system_management_interface.flash_status;
+s_vio_dbg_flash_rdata <= s_system_management_interface.flash_rdata;
+s_vio_dbg_ddm_temp_q0 <= s_sfp_interface.ddm(0)(c_sfp_temperature);
+s_vio_dbg_ddm_temp_q1 <= s_sfp_interface.ddm(1)(c_sfp_temperature);
+s_vio_dbg_ddm_vcc_q0 <= s_sfp_interface.ddm(0)(c_sfp_vcc);
+s_vio_dbg_ddm_vcc_q1 <= s_sfp_interface.ddm(1)(c_sfp_vcc);
+s_vio_dbg_ddm_txbias_q0 <= s_sfp_interface.ddm(0)(c_sfp_tx_bias_current);
+s_vio_dbg_ddm_txbias_q1 <= s_sfp_interface.ddm(1)(c_sfp_tx_bias_current);
+s_vio_dbg_ddm_txpower_q0 <= s_sfp_interface.ddm(0)(c_sfp_tx_power);
+s_vio_dbg_ddm_txpower_q1 <= s_sfp_interface.ddm(1)(c_sfp_tx_power);
+s_vio_dbg_ddm_rxpower_q0 <= s_sfp_interface.ddm(0)(c_sfp_rx_power);
+s_vio_dbg_ddm_rxpower_q1 <= s_sfp_interface.ddm(1)(c_sfp_rx_power);
+s_vio_dbg_ddm_lasertemp_q0 <= s_sfp_interface.ddm(0)(c_sfp_laser_temperature);
+s_vio_dbg_ddm_lasertemp_q1 <= s_sfp_interface.ddm(1)(c_sfp_laser_temperature);
+s_vio_dbg_ddm_teccurrent_q0 <= s_sfp_interface.ddm(0)(c_sfp_tec_current);
+s_vio_dbg_ddm_teccurrent_q1 <= s_sfp_interface.ddm(1)(c_sfp_tec_current);
+s_vio_dbg_sfp_shadow_q0 <= s_sfp_ku_mgt.sfp_tx_register(0);
+s_vio_dbg_sfp_shadow_q1 <= s_sfp_ku_mgt.sfp_tx_register(1);
+
+-- t_adc_readout_control (calibration thresholds) + system control group -- probe_out driven
+-- straight from the vio instantiation below, these are just the readback/passthrough side
+s_clknet_debug_control.adc_readout.high_threshold <= s_vio_dbg_adc_high_thresh;
+s_clknet_debug_control.adc_readout.low_threshold <= s_vio_dbg_adc_low_thresh;
+s_clknet_debug_control.adc_readout.threshold_select_channel <= s_vio_dbg_adc_thresh_sel_ch;
+-- reset_controls/force_gtx_i2c_config/cis_manual_control/mb_fpga_reset_low_ctrl/
+-- flash_manual_access all now driven directly from the probe_out port map below
+-- (item 1 rewiring) -- 2026-09-12 fixed a pre-existing typo here in the process
+-- ("s_vio_dbg_sfp_addr_outs_q0", an undeclared identifier -- should have been
+-- s_vio_dbg_sfp_addr_out_q0, the signal probe_out7 actually drives).
+s_sfp_reg_address_vio(0) <= s_vio_dbg_sfp_addr_out_q0;
+s_sfp_reg_address_vio(1) <= s_vio_dbg_sfp_addr_out_q1;
+
 -- kept as an internal signal (rather than reading the p_mb_fpga_reset_low out port
 -- directly) so proc_mb_boundary_scan_timed_trigger below can watch it release.
-s_mb_fpga_reset_low_out.q0 <= s_clknet.mb_fpga_reset_low.q0 and not s_mb_fpga_reset_low.q0 and (not s_master_reset(c_mb0_reset_bit)); --s_mb_interface.mb_reset.q0 and s_clknet.mb_fpga_reset_low.q0;
-s_mb_fpga_reset_low_out.q1 <= s_clknet.mb_fpga_reset_low.q1 and not s_mb_fpga_reset_low.q1 and (not s_master_reset(c_mb1_reset_bit)); --s_mb_interface.mb_reset.q1 and s_clknet.mb_fpga_reset_low.q1;
+-- 2026-09-12: fixed a pre-existing typo on the q1 line ("as_mb_reset_vio", an
+-- undeclared identifier -- should have been the q1 sibling of the q0 line above).
+-- Both now reference s_mb_interface_in.mb_reset (see that signal's declaration).
+s_mb_fpga_reset_low_out.q0 <= not s_mb_interface_in.mb_reset.q0 and s_clknet.mb_fpga_reset_low.q0 and not s_mb_fpga_reset_low.q0 and (not s_master_reset(c_mb0_reset_bit));
+s_mb_fpga_reset_low_out.q1 <= not s_mb_interface_in.mb_reset.q1 and s_clknet.mb_fpga_reset_low.q1 and not s_mb_fpga_reset_low.q1 and (not s_master_reset(c_mb1_reset_bit));
 p_mb_fpga_reset_low <= s_mb_fpga_reset_low_out;
 
 -- fires a one-shot boundary-scan trigger ~1s after each side's altera companion
@@ -746,7 +912,7 @@ i_db6_clock_interface : entity tilecal.db6_clock_interface
         -- vio_clknet_status lives here now; see i_vio_clknet_status below
         p_clknet_debug_status_out => s_clknet_debug_status,
         p_clknet_debug_control_in => s_clknet_debug_control,
-        p_mb_reset_vio_in => s_mb_reset_vio,
+        p_mb_reset_vio_in => s_mb_interface_in.mb_reset,
 
         -- plain-logic side of the raw pads/wizards now in db7_io_box
         p_gth_refclk_local_in   => s_gth_refclk_local,
@@ -777,13 +943,7 @@ i_db6_mainboard_interface : entity tilecal.db6_mainboard_interface
         -- until reset (confirmed via the ir-only bisection test mode). flip to true
         -- only once that's understood/fixed on the altera side, or for a
         -- mainboard/firmware revision confirmed not to have the issue.
-        g_enable_mb_boundary_scan => false,
-        -- 2026-09-11: hss_wizard bring-up -- manual ADC SPI-register control (see
-        -- vio_adc_config in db6_mainboard_interface.vhd) to force a known LTC2264-12 test
-        -- pattern and check nibble alignment against ila_adc_nibble, independent of live
-        -- analog input. Off by default (g_vio_adc_config's own default is 0, matching
-        -- g_vio_adc_readout) -- explicitly on here only for this bring-up build.
-        g_vio_adc_config => 1
+        g_enable_mb_boundary_scan => false
         )
       Port map(
         p_master_reset_in => s_master_reset,
@@ -817,7 +977,7 @@ i_db6_mainboard_interface : entity tilecal.db6_mainboard_interface
         p_mb_jtag_tdo_in  => p_mb_tdo_in,
         p_mb_boundary_scan_reg_address_vio_in => s_mb_boundary_scan_reg_address_vio,
         p_boundary_scan_timed_trigger_in => s_mb_boundary_scan_timed_trigger,
-        p_mb_reset_vio_in => s_mb_reset_vio,
+        p_mb_interface_in => s_mb_interface_in,
         --integrator
         p_integrator_sda_drive_out => s_integrator_sda_drive,
         p_integrator_sda_tri_out   => s_integrator_sda_tri,
@@ -980,18 +1140,7 @@ i_db6_sfp_interface : entity tilecal.db6_sfp_interface
         g_num_gth_links                => g_num_gth_links,          --! num_links: number of links instantiated by the core (altera: up to 6, xilinx: up to 4)
         -- hog
         GLOBAL_DATE => GLOBAL_DATE, -- 32 bit Date of last commit when the project was modified. Format: ddmmyyyy (hex with decimal digits, no digit greater than 9 is used)
-        GLOBAL_TIME => GLOBAL_TIME, -- 32 bit Time of last commit when the project was modified. Format: 00HHMMSS (hex with decimal digits, no digit greater than 9 is used)
-        GLOBAL_VER => GLOBAL_VER,  -- 32 bit Last version Tag when the project was modified. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
-        GLOBAL_SHA => GLOBAL_SHA,  -- 32 bit Git hash (SHA) of the last commit when the project was modified.
-        TOP_VER => TOP_VER, -- 32 bit Top directory version, containing the hog.conf file and other files. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
-        TOP_SHA => TOP_SHA, -- 32 bit Top directory version, containing the hog.conf file and other files.
-        CON_VER => CON_VER, -- 32 bit The version of the constraint files. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
-        CON_SHA => CON_SHA, -- 32 bit The git commit hash (SHA) of the constraint files.
-        HOG_VER => HOG_VER, -- 32 bit Hog submodule version. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
-        HOG_SHA => HOG_SHA -- 32 bit Hog submodule git commit hash (SHA).
---        XML_VER => XML_VER, -- 32 bit (optional) IPbus xml version. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
---        XML_SHA => XML_SHA -- 32 bit (optional) IPbus xml git commit hash (SHA).
-
+        GLOBAL_TIME => GLOBAL_TIME -- 32 bit Time of last commit when the project was modified. Format: 00HHMMSS (hex with decimal digits, no digit greater than 9 is used)
         )
   port map(
         p_clknet_in => s_clknet,
@@ -1486,208 +1635,178 @@ begin
 end process;
 
 
+-- 2026-09-13: debug capture buffer for the adc readout data path -- see that entity's
+-- header for the trigger/bcr-match/readback-mux behaviour. g_data_readout_debug => 0
+-- disables it (status held at default) without touching any of the wiring below.
+i_db6_data_readout_debug : entity tilecal.db6_data_readout_debug
+    generic map(
+        g_data_readout_debug => 1
+    )
+    port map(
+        p_master_reset_in               => s_master_reset(c_adc_config_reset_bit),
+        p_clknet_in                     => s_clknet,
+        p_adc_readout_in                => s_mb_interface.adc_readout,
+        p_data_readout_debug_control_in => s_clknet_debug_control.data_readout,
+        p_data_readout_debug_status_out => s_data_readout_debug_status
+    );
+
 -- vio_clknet_status moved here from inside db6_clock_interface (probe_in/out widths are
 -- fixed by the IP -- all 64 original probe_in bits are already spoken for, so mb jtag
 -- id/done ride on the new probe_in64-66 added when the IP was regenerated). Combinational
 -- operators are not allowed in the port map (unnamed nets, meaningless ltx labels) --
 -- AND/OR/concat operands are split onto separate probes, reusing probe_in12 (dead
 -- BUFG_GT_SYNC CE/CLR) and the previously tied-off probe_in17/19.
-i_vio_clknet_status : vio_clknet_status
+i_vio_db_debug : vio_db_debug
   PORT MAP (
     clk => s_clknet.osc_clk40,
-    probe_in0(0) => s_clkin.bcr.bcr_locked,
-    probe_in1(0) => s_clknet.locked_db,
-    probe_in2 => s_clkin.qpllclksel,
-    probe_in3(0) => s_clkin.bcr.bcr_tmr_error,
-    probe_in3(1) => s_clkin.bcr.bcr_locked_tmr_error,
-    probe_in3(2) => s_clkin.bcr.count_tmr_error,
-    probe_in4 => s_clkin.txsysclksel,
-    probe_in5 => s_clkin.rxsysclksel,
-    probe_in6 => s_clkin.rxoutclksel,
-    probe_in7 => s_clkin.txoutclksel,
-    probe_in8(0) => s_clknet_debug_status.mmcm_gbt40_db6_locked,
-    probe_in9(0) => s_clknet.clk_1hz,
-    probe_in10(0) => s_mb_interface.mb_driver.mb_tx_collission_out.q0,
-    probe_in11(0) => s_mb_interface.mb_driver.mb_tx_collission_out.q1,
-    -- was dead BUFG_GT_SYNC CE/CLR; now the cfb_db_debug gbt-cdc-phase override bits
-    -- that used to be ORed into probe_in21
-    probe_in12(0) => s_cfgbus_interface.db_reg_rx(cfb_db_debug)(c_db_debug_gbt_cdc_phase_array),
-    probe_in12(1) => s_cfgbus_interface.db_reg_rx(cfb_db_debug)(c_db_debug_gbt_cdc_phase_array + 1),
-    probe_in13(3) => s_db6_gbt_bank.tx_phcomputed_o(0),
-    probe_in13(2) => s_db6_gbt_bank.tx_phcomputed_o(1),
-    probe_in13(1) => s_db6_gbt_bank.tx_phaligned_o(0),
-    probe_in13(0) => s_db6_gbt_bank.tx_phaligned_o(1),
-    probe_in14(0) => s_clknet.mb_fpga_reset_low.q0,
-    probe_in15(0) => p_gbtx_rxready_in(0),
-    probe_in16(0) => s_clknet.locked_tp_q0,
-    probe_in17(0) => s_clknet.mb_fpga_reset_low.q1,
-    probe_in18(0) => s_clknet.gth_wordclk_sel,
-    probe_in19(0) => s_sfp_ku_mgt.qpll1lock_out(1),
-    probe_in20 => "0",
-    probe_in21 => s_clknet.gbt_cdc_gearbox_phase,
-    probe_in22(0) => s_sfp_ku_mgt.qpll1refclklost_out(0),
-    probe_in22(1) => s_sfp_ku_mgt.gtwiz_reset_tx_done_out(0),
-    probe_in22(2) => s_sfp_ku_mgt.qpll1fbclklost_out(0),
-    probe_in22(3) => s_sfp_ku_mgt.qpll1refclklost_out(0),
-    probe_in22(4) => s_sfp_ku_mgt.gtwiz_buffbypass_tx_done_out(0),
-    probe_in22(5) => s_sfp_ku_mgt.gtwiz_buffbypass_tx_error_out(0),
-    probe_in22(6) => s_sfp_ku_mgt.qpll1lock_out(0),
-    probe_in22(7) => s_sfp_ku_mgt.qpll1fbclklost_out(0),
-    probe_in22(8) => s_sfp_ku_mgt.gtwiz_buffbypass_tx_start_user_in(0),
-    probe_in22(9) => s_sfp_ku_mgt.gtwiz_reset_tx_done_out(0),
-    probe_in22(10) => s_sfp_ku_mgt.gtwiz_reset_rx_cdr_stable_out(0),
-    probe_in23(31 downto 30) => s_sfp_interface.mod_abs,
-    probe_in23(29 downto 28) => s_sfp_interface.mod_los,
-    probe_in23(27 downto 26) => s_sfp_interface.tx_fault,
-    probe_in23(25 downto 0) => (others=>'0'),
+    probe_in0  => s_vio_dbg_adc_channel_locked,
+    probe_in1  => s_vio_dbg_adc_channel_missed_locked,
+    probe_in2  => s_vio_dbg_adc_channel_clk280_locked,
+    probe_in3  => s_vio_dbg_adc_channel_missed_bit_count,
+    probe_in4  => s_vio_dbg_adc_pedestal_overflow,
+    probe_in5  => s_vio_dbg_adc_pedestal_underflow,
+    probe_in6  => s_vio_dbg_adc_config_done,
+    probe_in7  => s_vio_dbg_adc_readout_initialized,
+    -- split per-channel (item 1 rewiring) so each channel keeps its own ltx name
+    -- instead of one opaque 54-bit blob (fc/lg/hg share the same tap -- see
+    -- db6_adc_interface_decoder_iddr_bitclk280.vhd)
+    probe_in8(8 downto 0)   => s_mb_interface.adc_readout.fc_idelay_count(0),
+    probe_in8(17 downto 9)  => s_mb_interface.adc_readout.fc_idelay_count(1),
+    probe_in8(26 downto 18) => s_mb_interface.adc_readout.fc_idelay_count(2),
+    probe_in8(35 downto 27) => s_mb_interface.adc_readout.fc_idelay_count(3),
+    probe_in8(44 downto 36) => s_mb_interface.adc_readout.fc_idelay_count(4),
+    probe_in8(53 downto 45) => s_mb_interface.adc_readout.fc_idelay_count(5),
+    probe_in9  => s_vio_dbg_adc_idelay_calibration_done,
+    probe_in10 => s_vio_dbg_adc_idelay_calibration_failed,
+    probe_in11 => s_vio_dbg_bcr_locked,
+    probe_in12 => s_vio_dbg_locked_db,
+    probe_in13 => s_vio_dbg_link.qpllclksel,
+    probe_in14(0) => s_clkin.bcr.bcr_tmr_error,
+    probe_in14(1) => s_clkin.bcr.bcr_locked_tmr_error,
+    probe_in14(2) => s_clkin.bcr.count_tmr_error,
+    probe_in15 => s_vio_dbg_link.txsysclksel,
+    probe_in16 => s_vio_dbg_link.rxsysclksel,
+    probe_in17 => s_vio_dbg_link.rxoutclksel,
+    probe_in18 => s_vio_dbg_link.txoutclksel,
+    probe_in19 => s_vio_dbg_mmcm_gbt40_db6_locked,
+    probe_in20 => s_vio_dbg_clk_1hz,
+    probe_in21 => s_vio_dbg_gbt_cdc_phase_override_rb,
+    probe_in22(3) => s_db6_gbt_bank.tx_phcomputed_o(0),
+    probe_in22(2) => s_db6_gbt_bank.tx_phcomputed_o(1),
+    probe_in22(1) => s_db6_gbt_bank.tx_phaligned_o(0),
+    probe_in22(0) => s_db6_gbt_bank.tx_phaligned_o(1),
+    probe_in23 => s_vio_dbg_mb_fpga_reset_low_q0,
+    probe_in24 => s_vio_dbg_gbtx_rxready,
+    probe_in25 => s_vio_dbg_locked_tp_q0,
+    probe_in26 => s_vio_dbg_mb_fpga_reset_low_q1,
+    probe_in27(0) => s_vio_dbg_link.qpll1lock,
+    probe_in28(0)  => s_sfp_ku_mgt.qpll1refclklost_out(0),
+    probe_in28(1)  => s_sfp_ku_mgt.gtwiz_reset_tx_done_out(0),
+    probe_in28(2)  => s_sfp_ku_mgt.qpll1fbclklost_out(0),
+    probe_in28(3)  => s_sfp_ku_mgt.qpll1refclklost_out(0),
+    probe_in28(4)  => s_sfp_ku_mgt.gtwiz_buffbypass_tx_done_out(0),
+    probe_in28(5)  => s_sfp_ku_mgt.gtwiz_buffbypass_tx_error_out(0),
+    probe_in28(6)  => s_sfp_ku_mgt.qpll1lock_out(0),
+    probe_in28(7)  => s_sfp_ku_mgt.qpll1fbclklost_out(0),
+    probe_in28(8)  => s_sfp_ku_mgt.gtwiz_buffbypass_tx_start_user_in(0),
+    probe_in28(9)  => s_sfp_ku_mgt.gtwiz_reset_tx_done_out(0),
+    probe_in28(10) => s_sfp_ku_mgt.gtwiz_reset_rx_cdr_stable_out(0),
+    probe_in29(5 downto 4) => s_sfp_interface.mod_abs,
+    probe_in29(3 downto 2) => s_sfp_interface.mod_los,
+    probe_in29(1 downto 0) => s_sfp_interface.tx_fault,
+    probe_in30 => s_vio_dbg_db_leds,
+    probe_in31 => s_vio_dbg_db_side,
+    probe_in32(45 downto 38) => s_gbtx_interface.blk_mem_gbtx_regs.dina,
+    probe_in32(37 downto 29) => s_gbtx_interface.blk_mem_gbtx_regs.addra,
+    probe_in32(28)           => s_gbtx_interface.busy,
+    probe_in32(27 downto 19) => s_gbtx_interface.gbtx_control.gbtx_reg_address(8 downto 0),
+    probe_in32(18)           => s_gbtx_interface.gbtx_control.gbtx_trigger_i2c_operation,
+    probe_in32(17 downto 10) => s_gbtx_interface.gbtx_control.gbtx_reg_value,
+    probe_in32(9)            => s_gbtx_interface.gbtx_control.gbtx_i2c_read_write_operation,
+    probe_in32(8 downto 1)   => s_gbtx_interface.blk_mem_gbtx_regs.douta,
+    probe_in32(0)            => s_gbtx_interface.gbtx_control.gbtx_default_config,
+    probe_in33 => s_vio_dbg_running_time,
+    probe_in34 => s_vio_dbg_md_number,
+    probe_in35 => s_vio_cfgbus_loopback_reg,
+    probe_in36 => c_global_date,
+    probe_in37 => c_global_time,
+    probe_in38 => s_vio_dbg_dna,
+    probe_in39 => s_vio_dbg_dna_done,
+    probe_in40 => s_vio_dbg_link.wordclk_locked,
+    probe_in41 => s_vio_dbg_link.cdc_reset_array,
+    probe_in42 => s_vio_dbg_mb_jtag_id_q0,
+    probe_in43 => s_vio_dbg_mb_jtag_id_q1,
+    probe_in44 => s_vio_dbg_mb_jtag_done,
+    probe_in45 => s_vio_dbg_sfp_addr_echo0,
+    probe_in46 => s_vio_dbg_sfp_addr_echo1,
+    probe_in47 => s_vio_dbg_gbtx_config_readback,
+    probe_in48 => s_vio_dbg_hss_rst_seq_done,
+    probe_in49 => s_vio_dbg_hss_fifo_data_valid,
+    probe_in50 => s_vio_dbg_boot_done_mb_bs_q0,
+    probe_in51 => s_vio_dbg_boot_done_mb_bs_q1,
+    probe_in52 => s_vio_dbg_boot_done_gbtx_write,
+    probe_in53 => s_vio_dbg_boot_done_gbtx_read,
+    probe_in54 => s_vio_dbg_boot_done_sfp_q0,
+    probe_in55 => s_vio_dbg_boot_done_sfp_q1,
+    probe_in56 => s_vio_dbg_flash_status,
+    probe_in57 => s_vio_dbg_flash_rdata,
+    probe_in58 => s_vio_dbg_ddm_temp_q0,
+    probe_in59 => s_vio_dbg_ddm_temp_q1,
+    probe_in60 => s_vio_dbg_ddm_vcc_q0,
+    probe_in61 => s_vio_dbg_ddm_vcc_q1,
+    probe_in62 => s_vio_dbg_ddm_txbias_q0,
+    probe_in63 => s_vio_dbg_ddm_txbias_q1,
+    probe_in64 => s_vio_dbg_ddm_txpower_q0,
+    probe_in65 => s_vio_dbg_ddm_txpower_q1,
+    probe_in66 => s_vio_dbg_ddm_rxpower_q0,
+    probe_in67 => s_vio_dbg_ddm_rxpower_q1,
+    probe_in68 => s_vio_dbg_ddm_lasertemp_q0,
+    probe_in69 => s_vio_dbg_ddm_lasertemp_q1,
+    probe_in70 => s_vio_dbg_ddm_teccurrent_q0,
+    probe_in71 => s_vio_dbg_ddm_teccurrent_q1,
+    probe_in72 => s_vio_dbg_sfp_shadow_q0,
+    probe_in73 => s_vio_dbg_sfp_shadow_q1,
+    probe_in74(0) => s_data_readout_debug_status.captured,
+    probe_in75    => s_data_readout_debug_status.hg_data,
+    probe_in76    => s_data_readout_debug_status.lg_data,
+    probe_in77    => s_data_readout_debug_status.fc_data,
 
-    probe_in24(0) => s_mb_interface.adc_readout_control.adc_config_done,
-    probe_in25 => s_clkin.db_leds,
-    probe_in26(0) => p_db_side_in(0),
-    probe_in27 => "0",
-    probe_in28(0) => s_db6_sem_interface.sem_interface.cap_gnt,
-    probe_in29(0) => s_db6_sem_interface.sem_interface.cap_rel,
-    probe_in30(0) => s_db6_sem_interface.sem_interface.cap_req,
-    probe_in31(11 downto 6) => s_mb_interface.adc_readout.channel_pedestal_test_overflow,
-    probe_in31(5 downto 0) => s_mb_interface.adc_readout.channel_pedestal_test_underflow,
-    probe_in32(47 downto 40) => s_gbtx_interface.blk_mem_gbtx_regs.dina,
-    probe_in32(39 downto 31) => s_gbtx_interface.blk_mem_gbtx_regs.addra,
-    probe_in32(30) => s_gbtx_interface.busy,
-    probe_in32(29 downto 21) => s_gbtx_interface.gbtx_control.gbtx_reg_address(8 downto 0),
-    probe_in32(20) => s_gbtx_interface.gbtx_control.gbtx_trigger_i2c_operation,
-    probe_in32(19 downto 12) => s_gbtx_interface.gbtx_control.gbtx_reg_value,
-    probe_in32(11) => s_gbtx_interface.gbtx_control.gbtx_i2c_read_write_operation,
-    probe_in32(10 downto 3) => s_gbtx_interface.blk_mem_gbtx_regs.douta,
-    probe_in32(2) => s_gbtx_interface.gbtx_control.gbtx_default_config,
-    probe_in32(1 downto 0) => (others => '0'),
-    probe_in33(5 downto 0) => s_mb_interface.adc_readout.channel_clk280_locked,
-    probe_in33(11 downto 6) => s_mb_interface.adc_readout.channel_missed_locked,
-    probe_in33(17 downto 12) => s_mb_interface.adc_readout.channel_locked,
-    probe_in33(23) => s_mb_interface.adc_readout.channel_missed_bit_count(5),
-    probe_in33(22) => s_mb_interface.adc_readout.channel_missed_bit_count(4),
-    probe_in33(21) => s_mb_interface.adc_readout.channel_missed_bit_count(3),
-    probe_in33(20) => s_mb_interface.adc_readout.channel_missed_bit_count(2),
-    probe_in33(19) => s_mb_interface.adc_readout.channel_missed_bit_count(1),
-    probe_in33(18) => s_mb_interface.adc_readout.channel_missed_bit_count(0),
-    probe_in34 => s_mb_interface.adc_readout.tmr_error_lg,
-    probe_in35 => s_mb_interface.adc_readout.tmr_error_hg,
-    probe_in36 => s_mb_interface.adc_readout.tmr_error_fc,
-    probe_in37 => s_clknet.running_time,
-    probe_in38(18) => s_mb_interface.mb_integrator.end_of_read_quadrant.q0,
-    probe_in38(17) => s_mb_interface.mb_integrator.end_of_read_quadrant.q1,
-    probe_in38(16) => s_mb_interface.mb_integrator.end_of_read,
-    probe_in38(15 downto 0) => s_mb_interface.mb_integrator.bc_count_readout,
-    probe_in39 => s_db6_gbt_bank.gbt_bank_sync,
-    probe_in40 => p_md_number_in,
-    probe_in41 => s_vio_cfgbus_loopback_reg,
-
-    probe_in42(0) => s_db6_sem_interface.sem_interface.status_heartbeat,
-    probe_in43(0) => s_db6_sem_interface.sem_interface.status_initialization,
-    probe_in44(0) => s_db6_sem_interface.sem_interface.status_observation,
-    probe_in45(0) => s_db6_sem_interface.sem_interface.status_correction,
-    probe_in46(0) => s_db6_sem_interface.sem_interface.status_classification,
-    probe_in47(0) => s_db6_sem_interface.sem_interface.status_injection,
-    probe_in48(0) => s_db6_sem_interface.sem_interface.status_essential,
-
-    probe_in49(0) => s_db6_sem_interface.sem_interface.status_detect_only,
-    probe_in50(0) => s_db6_sem_interface.sem_interface.command_busy,
-    probe_in51(0) => s_db6_sem_interface.sem_interface.monitor_txfull,
-    probe_in52(0) => s_db6_sem_interface.sem_interface.status_uncorrectable,
-    probe_in53(0) => s_db6_sem_interface.sem_interface.status_diagnostic_scan,
-    probe_in54(0) => s_db6_sem_interface.sem_interface.command_strobe,
-    probe_in55 => s_db6_sem_interface.sem_interpreter.correctable_errors,
-    probe_in56 => s_db6_sem_interface.sem_interpreter.uncorrectable_errors,
-    probe_in57 => s_db6_sem_interface.sem_interface.command_code(39 downto 8),
-
-    probe_in58 => c_global_date,
-    probe_in59 => c_global_time,
-
-    probe_in60 => s_system_management_interface.ku_dna(7 downto 0),
-    probe_in61(0) => s_system_management_interface.ku_dna_done,
-    probe_in62 => s_clknet_debug_status.wordclk_locked,
-    probe_in63 => s_clknet_debug_status.cdc_reset_array,
-
-    -- mainboard altera jtag readout (via t_mb_interface, decoupled from vios upstream)
-    probe_in64 => s_mb_interface.mb_jtag_id.q0,
-    probe_in65 => s_mb_interface.mb_jtag_id.q1,
-    probe_in66(0) => s_mb_interface.mb_jtag_done.q0,
-    probe_in66(1) => s_mb_interface.mb_jtag_done.q1,
-
-    -- sfp+ reg block ram port b readback: address now commanded by db_reg_rx
-    -- (cfb_sfp_reg_address) rather than this vio; still displayed here for debug
-    probe_in67 => s_cfgbus_interface.db_reg_rx(cfb_sfp_reg_address)(6 downto 0),
-    probe_in68 => s_sfp_ku_mgt.sfp_tx_register(0),
-    probe_in69 => s_cfgbus_interface.db_reg_rx(cfb_sfp_reg_address)(14 downto 8),
-    probe_in70 => s_sfp_ku_mgt.sfp_tx_register(1),
-
-    -- gbtx write/config ram shadow readback (address no longer vio-addressable,
-    -- see s_gbtx_reg_readback_address_vio comment above)
-    probe_in71 => s_gbtx_interface.gbtx_config_readback.doutb,
-    -- hss_adc per-channel status (g_adc_clocking_scheme=hss_wizard only -- all zero otherwise)
-    probe_in72 => s_adc_rst_seq_done,
-    probe_in73 => s_adc_fifo_data_valid,
-
-    -- db7_is25lp256_driver status readback (see comment on the component declaration
-    -- above for what used to live in probe_in74-110)
-    probe_in74 => s_system_management_interface.flash_status,
-    probe_in75 => s_system_management_interface.flash_rdata,
-
-    -- sff-8472 A2h ddm fields, one dedicated probe per side per field
-    probe_in76 => s_sfp_interface.ddm(0)(c_sfp_temperature),
-    probe_in77 => s_sfp_interface.ddm(1)(c_sfp_temperature),
-    probe_in78 => s_sfp_interface.ddm(0)(c_sfp_vcc),
-    probe_in79 => s_sfp_interface.ddm(1)(c_sfp_vcc),
-    probe_in80 => s_sfp_interface.ddm(0)(c_sfp_tx_bias_current),
-    probe_in81 => s_sfp_interface.ddm(1)(c_sfp_tx_bias_current),
-    probe_in82 => s_sfp_interface.ddm(0)(c_sfp_tx_power),
-    probe_in83 => s_sfp_interface.ddm(1)(c_sfp_tx_power),
-    probe_in84 => s_sfp_interface.ddm(0)(c_sfp_rx_power),
-    probe_in85 => s_sfp_interface.ddm(1)(c_sfp_rx_power),
-    probe_in86 => s_sfp_interface.ddm(0)(c_sfp_laser_temperature),
-    probe_in87 => s_sfp_interface.ddm(1)(c_sfp_laser_temperature),
-    probe_in88 => s_sfp_interface.ddm(0)(c_sfp_tec_current),
-    probe_in89 => s_sfp_interface.ddm(1)(c_sfp_tec_current),
-
-    -- first-bootup-operation-completed status
-    probe_in90(0) => s_mb_interface.mb_boundary_scan_boot_done.q0,
-    probe_in91(0) => s_mb_interface.mb_boundary_scan_boot_done.q1,
-    probe_in92(0) => s_boot_gbtx_write_done,
-    probe_in93(0) => s_boot_gbtx_read_done,
-    probe_in94(0) => s_boot_sfp_read_done(0),
-    probe_in95(0) => s_boot_sfp_read_done(1),
-
-    probe_out0(0) => s_mb_reset_vio.q0,
-    probe_out0(1) => s_mb_reset_vio.q1,
-    probe_out0(2) => s_dna_reset,
-    probe_out0(3) => open,
-    probe_out0(4) => s_clknet_debug_control.reset_clknet,
-    probe_out0(5) => s_clknet_debug_control.skip_main_sm,
-
-    probe_out1(0) => s_clknet_debug_control.force_gtx_i2c_config,
-    probe_out2 => open,
-    probe_out3 => open,
-    probe_out4 => open,
-    probe_out5 => open,
-    probe_out6 => s_clknet_debug_control.gbt_cdc_gearbox_phase,
-    probe_out7 => open,
-
-    probe_out8 => s_clknet_debug_control.adc_readout_high_threshold,
-    probe_out9 => s_clknet_debug_control.adc_readout_low_threshold,
-    probe_out10 => s_clknet_debug_control.adc_readout_threshold_select_channel,
-
-    probe_out11(25) => s_clknet_debug_control.cis_enable,
-    probe_out11(24) => s_clknet_debug_control.cis_gain,
-    probe_out11(23 downto 12) => s_clknet_debug_control.cis_bcid_charge,
-    probe_out11(11 downto 0) => s_clknet_debug_control.cis_bcid_discharge,
-
-    probe_out12 => s_sfp_reg_address_vio(0),
-    probe_out13 => s_sfp_reg_address_vio(1),
-    probe_out14(0) => s_mb_fpga_reset_low.q0,
-    probe_out14(1) => s_mb_fpga_reset_low.q1,
-    probe_out15(96 downto 65) => s_clknet_debug_control.flash_manual_address,
-    probe_out15(64 downto 33) => s_clknet_debug_control.flash_manual_command,
-    probe_out15(32)           => s_clknet_debug_control.flash_manual_write_floor_enable,
-    probe_out15(31 downto 0)  => s_clknet_debug_control.flash_manual_write_floor
+    probe_out0 => s_vio_dbg_adc_high_thresh,
+    probe_out1 => s_vio_dbg_adc_low_thresh,
+    probe_out2 => s_vio_dbg_adc_thresh_sel_ch,
+    probe_out3(0) => s_mb_interface_in.mb_reset.q0,
+    probe_out3(1) => s_mb_interface_in.mb_reset.q1,
+    probe_out3(2) => s_dna_reset,
+    probe_out3(3) => s_clknet_debug_control.clknet.reset_clknet,
+    probe_out3(4) => s_clknet_debug_control.clknet.skip_main_sm,
+    probe_out4(0) => s_clknet_debug_control.clknet.force_gtx_i2c_config,
+    probe_out5(25)          => s_clknet_debug_control.cis.enable,
+    probe_out5(24)          => s_clknet_debug_control.cis.gain,
+    probe_out5(23 downto 12) => s_clknet_debug_control.cis.bcid_charge,
+    probe_out5(11 downto 0)  => s_clknet_debug_control.cis.bcid_discharge,
+    probe_out6(0) => s_mb_fpga_reset_low.q0,
+    probe_out6(1) => s_mb_fpga_reset_low.q1,
+    probe_out7 => s_vio_dbg_sfp_addr_out_q0,
+    probe_out8 => s_vio_dbg_sfp_addr_out_q1,
+    probe_out9(96 downto 65) => s_clknet_debug_control.flash.manual_address,
+    probe_out9(64 downto 33) => s_clknet_debug_control.flash.manual_command,
+    probe_out9(32)           => s_clknet_debug_control.flash.manual_write_floor_enable,
+    probe_out9(31 downto 0)  => s_clknet_debug_control.flash.manual_write_floor,
+    probe_out10(0)          => s_clknet_debug_control.adc_config.mode,
+    probe_out10(1)          => s_clknet_debug_control.adc_config.trigger_mb_adc_config,
+    probe_out10(4 downto 2) => s_clknet_debug_control.adc_config.mb_fpga_select,
+    probe_out10(6 downto 5) => s_clknet_debug_control.adc_config.mb_pmt_select,
+    probe_out11 => s_clknet_debug_control.adc_config.adc_register_0,
+    probe_out12 => s_clknet_debug_control.adc_config.adc_register_1,
+    probe_out13 => s_clknet_debug_control.adc_config.adc_register_2,
+    probe_out14 => s_clknet_debug_control.adc_config.adc_register_3_raw,
+    probe_out15 => s_clknet_debug_control.adc_config.adc_register_4_raw,
+    probe_out16(0)           => s_clknet_debug_control.adc_config.test_pattern_enable,
+    probe_out16(14 downto 1) => s_clknet_debug_control.adc_config.test_pattern_value,
+    probe_out17(0)           => s_clknet_debug_control.data_readout.trigger,
+    probe_out17(4 downto 1)  => s_clknet_debug_control.data_readout.sample_index,
+    probe_out17(7 downto 5)  => s_clknet_debug_control.data_readout.channel_select,
+    probe_out18              => s_clknet_debug_control.data_readout.bcr_number
   );
 
 -- mb boundary-scan/gbtx reg readback vio address overrides retired (see the

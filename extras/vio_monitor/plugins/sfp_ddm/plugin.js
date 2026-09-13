@@ -226,7 +226,7 @@
     appendHistory(table);
 
     let html = '<p class="sfp-legend">' +
-      'SFF-8472 A2h diagnostics from <code>s_sfp_interface[ddm]</code> VIO probes. ' +
+      'SFF-8472 A2h diagnostics from <code>s_vio_dbg_ddm_*</code> (also <code>stb_sfp_ddm_*</code> @ 0x342–0x348). ' +
       'Configure probe names in ⚙ → Probe mapping…. ' +
       'Calibrated values follow vendor DDM encoding (temp 1/256 °C, VCC 100 µV/LSB, bias 2 µA/LSB, optical 0.1 µW/LSB).</p>';
 
@@ -238,7 +238,9 @@
 
     for (const row of table.rows) {
       html += '<tr><td colspan="5" class="group"><strong>' + esc(row.label) + '</strong> — ' +
-        esc(row.spec) + '</td></tr>';
+        esc(row.spec) +
+        (row.stb ? ' · ' + esc(row.stb) + (row.stb_addr != null ? ' @ 0x' + Number(row.stb_addr).toString(16).toUpperCase() : '') : '') +
+        '</td></tr>';
 
       const keyBase = row.field_id;
       const s0 = row.sides['0'];

@@ -51,7 +51,8 @@
     }
 
     html += '<p class="flash-legend">' +
-      'IS25LP256 via <code>s_clknet_debug_control[flash_manual_*]</code>. ' +
+      'IS25LP256 via <code>s_clknet_debug_control[flash][manual_*]</code> / <code>s_vio_dbg_flash_*</code> ' +
+      '(<code>cfb_flash_*</code> 0x012–0x014, <code>stb_flash_*</code> 0x34D–0x34E). ' +
       'Bulk read issues up to 4096 bytes (4-byte chunks). ' +
       'Writes/erase require address above firmware floor or floor override.</p>';
 

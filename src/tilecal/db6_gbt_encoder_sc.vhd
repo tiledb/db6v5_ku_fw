@@ -38,17 +38,11 @@ entity db6_gbt_encoder_sc is
   generic (
   -- hog
         GLOBAL_DATE : std_logic_vector(31 downto 0); -- 32 bit Date of last commit when the project was modified. Format: ddmmyyyy (hex with decimal digits, no digit greater than 9 is used)
-        GLOBAL_TIME : std_logic_vector(31 downto 0); -- 32 bit Time of last commit when the project was modified. Format: 00HHMMSS (hex with decimal digits, no digit greater than 9 is used)
-        GLOBAL_VER : std_logic_vector(31 downto 0); -- 32 bit Last version Tag when the project was modified. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
-        GLOBAL_SHA : std_logic_vector(31 downto 0); -- 32 bit Git hash (SHA) of the last commit when the project was modified.
-        TOP_VER : std_logic_vector(31 downto 0); -- 32 bit Top directory version, containing the hog.conf file and other files. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
-        TOP_SHA : std_logic_vector(31 downto 0); -- 32 bit Top directory version, containing the hog.conf file and other files.
-        CON_VER : std_logic_vector(31 downto 0); -- 32 bit The version of the constraint files. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
-        CON_SHA : std_logic_vector(31 downto 0); -- 32 bit The git commit hash (SHA) of the constraint files.
-        HOG_VER : std_logic_vector(31 downto 0); -- 32 bit Hog submodule version. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
-        HOG_SHA : std_logic_vector(31 downto 0) -- 32 bit Hog submodule git commit hash (SHA).
---        XML_VER : std_logic_vector(31 downto 0); -- 32 bit (optional) IPbus xml version. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
---        XML_SHA : std_logic_vector(31 downto 0) -- 32 bit (optional) IPbus xml git commit hash (SHA).
+        GLOBAL_TIME : std_logic_vector(31 downto 0) -- 32 bit Time of last commit when the project was modified. Format: 00HHMMSS (hex with decimal digits, no digit greater than 9 is used)
+        -- 2026-09-12: GLOBAL_VER/SHA, TOP_VER/SHA, CON_VER/SHA, HOG_VER/SHA (and the
+        -- already-dead XML_VER/SHA) removed along with their stb_* db_reg_tx registers
+        -- -- see db6_design_package.vhd. Only used here to drive those registers, no
+        -- other consumer in this file.
   );
   port (
         p_master_reset_in : std_logic;
@@ -343,6 +337,14 @@ end generate;
 
     s_db_reg_tx_in(stb_sem)(31 downto 16) <= p_db6_sem_interface_in.sem_interpreter.correctable_errors(15 downto 0);
 
+    -- 2026-09-12: stb_sem above is completely full; total_errors/uncorrectable_errors/
+    -- injected_errors/sem_fatal_error had no db_reg_tx exposure at all before this --
+    -- see stb_sem_error_counters/stb_sem_injected_errors in db6_design_package.vhd.
+    s_db_reg_tx_in(stb_sem_error_counters)(15 downto 0) <= p_db6_sem_interface_in.sem_interpreter.total_errors(15 downto 0);
+    s_db_reg_tx_in(stb_sem_error_counters)(31 downto 16) <= p_db6_sem_interface_in.sem_interpreter.uncorrectable_errors(15 downto 0);
+    s_db_reg_tx_in(stb_sem_injected_errors)(30 downto 0) <= p_db6_sem_interface_in.sem_interpreter.injected_errors(30 downto 0);
+    s_db_reg_tx_in(stb_sem_injected_errors)(31) <= p_db6_sem_interface_in.sem_interpreter.sem_fatal_error;
+
     s_db_reg_tx_in(stb_tmr)(15 downto 0) <= p_cfgbus_interface_in.tmr_error_local(15 downto 0);
     s_db_reg_tx_in(stb_tmr)(21 downto 16) <= p_mb_interface_in.adc_readout.tmr_error;
     s_db_reg_tx_in(stb_tmr)(22) <= p_mb_interface_in.cis_interface.tmr_error_tpl.q0;
@@ -361,16 +363,6 @@ end generate;
         -- hog
         s_db_reg_tx_in(stb_GLOBAL_DATE) <= GLOBAL_DATE; -- 32 bit Date of last commit when the project was modified. Format: ddmmyyyy (hex with decimal digits, no digit greater than 9 is used)
         s_db_reg_tx_in(stb_GLOBAL_TIME) <= GLOBAL_TIME; -- 32 bit Time of last commit when the project was modified. Format: 00HHMMSS (hex with decimal digits, no digit greater than 9 is used)
-        s_db_reg_tx_in(stb_GLOBAL_VER) <= GLOBAL_VER;  -- 32 bit Last version Tag when the project was modified. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
-        s_db_reg_tx_in(stb_GLOBAL_SHA) <= GLOBAL_SHA;  -- 32 bit Git hash (SHA) of the last commit when the project was modified.
-        s_db_reg_tx_in(stb_TOP_VER) <= TOP_VER; -- 32 bit Top directory version, containing the hog.conf file and other files. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
-        s_db_reg_tx_in(stb_TOP_SHA) <= TOP_SHA; -- 32 bit Top directory version, containing the hog.conf file and other files.
-        s_db_reg_tx_in(stb_CON_VER) <= CON_VER; -- 32 bit The version of the constraint files. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
-        s_db_reg_tx_in(stb_CON_SHA) <= CON_SHA; -- 32 bit The git commit hash (SHA) of the constraint files.
-        s_db_reg_tx_in(stb_HOG_VER) <= HOG_VER; -- 32 bit Hog submodule version. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
-        s_db_reg_tx_in(stb_HOG_SHA) <= HOG_SHA; -- 32 bit Hog submodule git commit hash (SHA).
---        s_db_reg_tx_in(stb_XML_VER) <= XML_VER; -- 32 bit (optional) IPbus xml version. The version of the form m.M.p is encoded in hexadecimal as MMmmpppp
---        s_db_reg_tx_in(stb_XML_SHA) <= XML_SHA; -- 32 bit (optional) IPbus xml git commit hash (SHA).
 
     proc_sync : process(p_clknet_in.cfgbus_clk40)
     begin

@@ -1,0 +1,18 @@
+{
+  "id": "vio_match",
+  "name": "LTX vs JTAG",
+  "description": "Compare VIO probes in the selected LTX file against live hw_probe names on the JTAG chain",
+  "version": "1.0.0",
+  "default_enabled": true,
+  "order": 5,
+  "requires_target": false,
+  "requires_device": false,
+  "requires_ltx": false,
+  "tree_node_types": ["vio_match"],
+  "assets": {
+    "panel": "panel.html",
+    "script": "plugin.js",
+    "styles": ["styles.css"],
+    "external_scripts": []
+  }
+}
