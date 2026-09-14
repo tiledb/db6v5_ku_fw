@@ -191,13 +191,15 @@ gen_adc_channels: for v_adc in 0 to 5 generate
     -- that stage's header comment.
     s_adc_readout.channel_clk280_locked(v_adc) <= p_adc_pll0_locked_in(v_adc);
 
-    proc_align_data : process (p_adc_bitclkdiv_in(v_adc), s_ctrl_reset_from_sm(v_adc), p_master_reset_in)
+    -- 2026-09-13: p_clknet_in.adc_config.force_adc_readout_reset added -- see
+    -- t_debug_control_adc_config's header comment (db6_design_package.vhd).
+    proc_align_data : process (p_adc_bitclkdiv_in(v_adc), s_ctrl_reset_from_sm(v_adc), p_master_reset_in, p_clknet_in.adc_config.force_adc_readout_reset)
     variable v_state  : integer range 0 to 6;
     variable v_lg_data  : std_logic_vector(11 downto 0):=(others=>'0');
     variable v_hg_data  : std_logic_vector(11 downto 0):=(others=>'0');
     variable v_fc_data  : std_logic_vector(11 downto 0):=(others=>'0');
     begin
-        if (s_ctrl_reset_from_sm(v_adc) = '1') or (p_master_reset_in = '1') then
+        if (s_ctrl_reset_from_sm(v_adc) = '1') or (p_master_reset_in = '1') or (p_clknet_in.adc_config.force_adc_readout_reset = '1') then
             s_frame_missalignment(v_adc) <= '1';
             v_state := 0;
         elsif rising_edge(p_adc_bitclkdiv_in(v_adc)) then
@@ -318,9 +320,9 @@ gen_adc_channels: for v_adc in 0 to 5 generate
     -- CDC into p_clknet_in.cfgbus_clk40 -- see s_data_toggle/s_toggle_sync0 declaration
     -- above for the full design reasoning (toggle/valid-handshake synchronizer, fixed
     -- latency, no per-channel tap selection, no elastic buffering).
-    proc_cdc_capture : process(p_clknet_in.cfgbus_clk40, s_ctrl_reset_from_sm(v_adc), p_master_reset_in)
+    proc_cdc_capture : process(p_clknet_in.cfgbus_clk40, s_ctrl_reset_from_sm(v_adc), p_master_reset_in, p_clknet_in.adc_config.force_adc_readout_reset)
     begin
-        if (s_ctrl_reset_from_sm(v_adc) = '1') or (p_master_reset_in = '1') then
+        if (s_ctrl_reset_from_sm(v_adc) = '1') or (p_master_reset_in = '1') or (p_clknet_in.adc_config.force_adc_readout_reset = '1') then
             s_toggle_sync0(v_adc) <= '0';
             s_toggle_sync1(v_adc) <= '0';
             s_toggle_sync1_prev(v_adc) <= '0';

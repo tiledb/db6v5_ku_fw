@@ -158,6 +158,19 @@ set_false_path -to [get_pins -hier -filter {NAME =~ *i_vio_clknet_status*/D}]
 ## decoder, is by construction reset-recovery-class, not data-path timing.
 set_false_path -from [get_cells -hier -filter {NAME =~ *s_master_reset_reg*}] -to [get_pins -hier -filter {NAME =~ *i_db6_adc_interface_decoder_iserdese*}]
 
+## 2026-09-13: db6_adc_interface_decoder_iddr_bitclk280_serdes140.vhd (iddr280_serdes140
+## scheme) -- identical root cause and identical proc_align_data/p_master_reset_in
+## pattern as the iserdese exception directly above (this decoder's FSM was modeled on
+## db6_adc_interface_decoder_iserdese.vhd's, including its use of p_master_reset_in in
+## the same if-elsif reset/no-reset condition, which synthesis folds into CE logic the
+## same way). Found the hard way: first implementation attempt after fixing this
+## scheme's placement (see p_blocks.xdc's pblock_adc_readout_serdes140_ch0-5) still
+## failed timing, WNS -2.319ns, on exactly this same s_master_reset_reg[24]-replica ->
+## decoder CE path, just under this decoder's own (different) instance name -- the
+## exception above never matched it. Same instance-name-glob approach, this decoder's
+## name instead.
+set_false_path -from [get_cells -hier -filter {NAME =~ *s_master_reset_reg*}] -to [get_pins -hier -filter {NAME =~ *i_db6_adc_interface_decoder_iddr_serdes140*}]
+
 # db6_adc_interface_decoder_iserdese.vhd (2026-09-12, same root cause as the group above):
 # real functional consumers of s_adc_readout (db6_gbt_encoder_adc_data among others) DO
 # need fc/hg/lg data back in cfgbus_clk40 -- see that file's proc_cdc_capture, a
@@ -213,6 +226,26 @@ set_clock_groups -asynchronous -group [get_clocks {p_clk40_out_pll_osc_clk}] -gr
 set_clock_groups -asynchronous -group [get_clocks {p_gbt_cfgbus_clk40_local_in[p]}] -group [get_clocks p_clk40_out_pll_osc_clk]
 
 
+
+## 2026-09-13: g_adc_clocking_scheme=iddr280_serdes140's per-channel CLKDIV
+## (s_adc_bitclkdiv[0-5], BUFGCE_DIV/2 off p_adc_bitclk_in[N][p] -- see
+## db6_adc_interface_io_iddr_bitclk280_serdes140.vhd) is its own distinct generated
+## clock object in Vivado's clock tree, not automatically covered by the
+## p_gbt_cfgbus_clk40_local_in<->p_adc_bitclk_in[N][p] async groups below even though
+## it's derived from that same bit clock. Found the hard way: fixing DRC REQP-1742
+## (moving each channel's IDELAYE3 CLK from the raw bit clock to this CLKDIV, to match
+## its paired ISERDESE3's CLKDIV pin -- a real hardware requirement) exposed
+## db6_adc_idelay_calibration.vhd's cfgbus_clk40->CNTVALUEIN crossing as a real,
+## unexempted STA path for the first time (WNS -5.3ns, TNS -427ns) -- that crossing is
+## exactly the same async, req/ack-handshake-guarded one already asynchronous for the
+## raw bit clock below; it just needs the same exemption extended to the derived clock
+## that now actually clocks the destination primitive.
+set_clock_groups -asynchronous -group [get_clocks {p_gbt_cfgbus_clk40_local_in[p]}] -group [get_clocks {s_adc_bitclkdiv[0]}]
+set_clock_groups -asynchronous -group [get_clocks {p_gbt_cfgbus_clk40_local_in[p]}] -group [get_clocks {s_adc_bitclkdiv[1]}]
+set_clock_groups -asynchronous -group [get_clocks {p_gbt_cfgbus_clk40_local_in[p]}] -group [get_clocks {s_adc_bitclkdiv[2]}]
+set_clock_groups -asynchronous -group [get_clocks {p_gbt_cfgbus_clk40_local_in[p]}] -group [get_clocks {s_adc_bitclkdiv[3]}]
+set_clock_groups -asynchronous -group [get_clocks {p_gbt_cfgbus_clk40_local_in[p]}] -group [get_clocks {s_adc_bitclkdiv[4]}]
+set_clock_groups -asynchronous -group [get_clocks {p_gbt_cfgbus_clk40_local_in[p]}] -group [get_clocks {s_adc_bitclkdiv[5]}]
 
 set_clock_groups -asynchronous -group [get_clocks {p_gbt_cfgbus_clk40_local_in[p]}] -group [get_clocks {p_adc_bitclk_in[0][p]}]
 set_clock_groups -asynchronous -group [get_clocks {p_gbt_cfgbus_clk40_local_in[p]}] -group [get_clocks {p_adc_bitclk_in[1][p]}]

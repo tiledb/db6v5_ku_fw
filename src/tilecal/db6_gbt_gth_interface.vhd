@@ -114,6 +114,48 @@ signal s_reset_gbt_bank, s_reset_gth : std_logic;
 
 signal s_gth_txwordclk80_out, s_gth_txwordclk40_out, s_gth_rxwordclk40_out, s_gth_txoutclkfabric_out, s_gth_rxoutclkfabric_out : std_logic_vector(1 to g_num_gth_links);
 
+-- 2026-09-13: dual-uplink deterministic sync (see gen_simple_gbt_encoder below) --
+-- link 0's canonical .sync word (from i_db6_gbt_encoder, gth_tx_wordclk(0) domain) is
+-- CDC'd into gth_tx_wordclk(1) with the same fixed-latency toggle+2-flop technique
+-- used throughout this codebase (see db6_gbt_encoder_gearbox.vhd's proc_cdc_capture),
+-- then fed to a genuinely independent db6_gbt_tx/db6_gbt_tx_gearbox pair clocked by
+-- link 1's own gth_tx_wordclk(1) -- replacing a naive raw mgt_txword fan-out that
+-- drove link 1's GT TX interface directly from a register only valid in link 0's
+-- clock domain (an unsynchronized crossing on a continuously-changing bus).
+signal s_sync_commit_toggle_link0 : std_logic := '0';
+signal s_sync_toggle_sync0_link1, s_sync_toggle_sync1_link1, s_sync_toggle_sync1_prev_link1 : std_logic := '0';
+signal s_sync_captured_link1 : std_logic_vector(115 downto 0) := (others => '0');
+signal s_sync_counter_link1 : integer range 0 to 2 := 0;
+signal s_link1_tx_frame : std_logic_vector(119 downto 0);
+signal s_link1_tx_phaligned, s_link1_tx_phcomputed : std_logic;
+
+-- comparator (see t_gbt_encoder_interface's dual_link_sync_mismatch_* fields) --
+-- 2026-09-14 redesign: the original version CDC'd both link 0's canonical .sync and
+-- link 1's captured copy independently into cfgbus_clk40 (40MHz) for comparison
+-- there. That is backwards from every other safe crossing in this codebase: .sync
+-- commits roughly once per 3 gth_tx_wordclk cycles (~12.5ns), FASTER than
+-- cfgbus_clk40's own 25ns period, so cfgbus_clk40 cannot reliably observe every
+-- commit -- it aliases/misses transitions and ends up comparing two DIFFERENT
+-- generations of data, causing near-constant false-positive mismatches (reported
+-- 2026-09-14: cleared count immediately saturates back to 0xFF). The actual
+-- CDC into s_sync_captured_link1 above (gth_tx_wordclk(1), same nominal frequency as
+-- the wordclock(0) source, ~3x margin -- same safety reasoning as this codebase's
+-- other fast-to-fast crossings) is NOT the bug and needs no verification against a
+-- slow domain. Instead: a SECOND, fully independent toggle-sync+capture chain
+-- (own flops, same source signals) runs in parallel in the SAME gth_tx_wordclk(1)
+-- domain -- comparing it against the primary chain is a genuine TMR-style hardware
+-- fault check (SEU/routing glitch in either chain), not a generation-alignment race,
+-- since both chains observe the identical source at the identical rate. The
+-- resulting sticky/count only change on an actual fault, so THEY are safe to read
+-- via a plain 2-flop synchronizer into cfgbus_clk40 (slow-changing signal, no
+-- aliasing risk -- same as reading channel_locked or any other status flag).
+signal s_sync_toggle_sync0_link1_b, s_sync_toggle_sync1_link1_b, s_sync_toggle_sync1_prev_link1_b : std_logic := '0';
+signal s_sync_captured_link1_b : std_logic_vector(115 downto 0) := (others => '0');
+signal s_dual_link_sync_mismatch_sticky_fast : std_logic := '0'; -- gth_tx_wordclk(1) domain
+signal s_dual_link_sync_mismatch_count_fast : unsigned(7 downto 0) := (others => '0'); -- gth_tx_wordclk(1) domain
+signal s_mismatch_sticky_sync0, s_mismatch_sticky_sync1 : std_logic := '0';
+signal s_mismatch_count_sync0, s_mismatch_count_sync1 : std_logic_vector(7 downto 0) := (others => '0');
+
 begin
 
 p_gbt_encoder_interface_out<=s_gbt_encoder_interface_buffer; --s_gbt_encoder_interface(0);
@@ -146,19 +188,149 @@ i_db6_gbt_encoder : entity tilecal.db6_gbt_encoder --tilecal.db6_gbt_encoder_tes
         p_cfgbus_interface_in => p_cfgbus_interface_in,
         p_sfp_interface_in => p_sfp_interface_in
     );
-    gen_link_connections: for i in 0 to g_num_gth_links-1 generate
-        s_db6_gbt_bank.tx_phase_i(i)<=s_gbt_encoder_interface(0).data_phase(0);
-        s_db6_gbt_bank.gbt_cdc_counter_array_i(i)<=s_gbt_encoder_interface(0).gbt_cdc_counter;
-        s_db6_gbt_bank.tx_phcomputed_o(i)<=s_gbt_encoder_interface(0).tx_phcomputed_o;
-        s_db6_gbt_bank.tx_phaligned_o(i)<=s_gbt_encoder_interface(0).tx_phaligned_o;
-    end generate;
+    -- link 0: status/counter reporting straight from the canonical encoder instance
+    -- (unchanged).
+    s_db6_gbt_bank.tx_phase_i(0)<=s_gbt_encoder_interface(0).data_phase(0);
+    s_db6_gbt_bank.gbt_cdc_counter_array_i(0)<=s_gbt_encoder_interface(0).gbt_cdc_counter;
+    s_db6_gbt_bank.tx_phcomputed_o(0)<=s_gbt_encoder_interface(0).tx_phcomputed_o;
+    s_db6_gbt_bank.tx_phaligned_o(0)<=s_gbt_encoder_interface(0).tx_phaligned_o;
 
-        -- db6_mgt now instantiated once, in db7_io_box (s_ku_mgt <= p_ku_mgt_in relay
-        -- is unconditional, below -- both link-count generate branches need it).
-        -- This branch's per-link tx word mapping (preserved as-is: both links get the
-        -- same encoder instance's word, matching the original whole-duplicate wiring):
-        p_mgt_usrword_out(1) <= s_gbt_encoder_interface(0).mgt_txword;
-        p_mgt_usrword_out(2) <= s_gbt_encoder_interface(0).mgt_txword;
+    -- link 1: reports its OWN genuinely independent gearbox's status/counter now
+    -- (i_db6_gbt_tx_gearbox_link1 below), not a copy of link 0's.
+    s_db6_gbt_bank.tx_phase_i(1)<=s_gbt_encoder_interface(0).data_phase(0);
+    s_db6_gbt_bank.gbt_cdc_counter_array_i(1)<=s_sync_counter_link1;
+    s_db6_gbt_bank.tx_phcomputed_o(1)<=s_link1_tx_phcomputed;
+    s_db6_gbt_bank.tx_phaligned_o(1)<=s_link1_tx_phaligned;
+
+    -- db6_mgt now instantiated once, in db7_io_box (s_ku_mgt <= p_ku_mgt_in relay
+    -- is unconditional, below -- both link-count generate branches need it).
+    -- link 0: direct output of the canonical encoder instance.
+    p_mgt_usrword_out(1) <= s_gbt_encoder_interface(0).mgt_txword;
+
+    -- toggles once per canonical .sync commit (mirrors the exact condition
+    -- db6_gbt_encoder_gearbox.vhd's proc_db_data_sync uses to write .sync), in link
+    -- 0's own gth_tx_wordclk(0) domain.
+    proc_sync_commit_toggle : process(p_clknet_in.gth_tx_wordclk(0))
+    begin
+        if rising_edge(p_clknet_in.gth_tx_wordclk(0)) then
+            if p_clknet_in.gbt_cdc_counter_array(0) = 0 then
+                s_sync_commit_toggle_link0 <= not s_sync_commit_toggle_link0;
+            end if;
+        end if;
+    end process;
+
+    -- link 1: fixed-latency CDC of link 0's canonical .sync word into
+    -- gth_tx_wordclk(1), a genuinely independent clock domain -- 2-flop toggle
+    -- synchronizer, capture only on detected transition (same proven pattern as
+    -- db6_gbt_encoder_gearbox.vhd's proc_cdc_capture; by the time a transition is
+    -- detected here, .sync has been stable in link 0's domain for a full commit
+    -- period (~3 gth_tx_wordclk(0) cycles), so the captured value is always valid).
+    -- s_sync_counter_link1 free-runs 0->1->2->0 (matching GBT_WORD_RATIO=3) but
+    -- RESETS to 0 on every detected commit, giving link 1's own db6_gbt_tx/
+    -- db6_gbt_tx_gearbox pair a gbt_cdc_counter_i that is always correctly phased to
+    -- when fresh data actually arrived in its own domain -- fixed, deterministic
+    -- latency behind link 0, no elastic buffering.
+    proc_sync_cdc_link1 : process(p_clknet_in.gth_tx_wordclk(1))
+    begin
+        if rising_edge(p_clknet_in.gth_tx_wordclk(1)) then
+            s_sync_toggle_sync0_link1 <= s_sync_commit_toggle_link0;
+            s_sync_toggle_sync1_link1 <= s_sync_toggle_sync0_link1;
+            s_sync_toggle_sync1_prev_link1 <= s_sync_toggle_sync1_link1;
+
+            if s_sync_toggle_sync1_link1 /= s_sync_toggle_sync1_prev_link1 then
+                s_sync_captured_link1 <= s_gbt_encoder_interface(0).gbt_tx_data_out.sync;
+                s_sync_counter_link1 <= 0;
+            elsif s_sync_counter_link1 = 2 then
+                s_sync_counter_link1 <= 0;
+            else
+                s_sync_counter_link1 <= s_sync_counter_link1 + 1;
+            end if;
+        end if;
+    end process;
+
+    i_db6_gbt_tx_link1 : entity tilecal.db6_gbt_tx
+        generic map (
+            tx_encoding => WIDE_BUS
+        )
+        port map (
+            tx_reset_i               => s_gbt_encoder_interface_in(1).gbt_txreset_i,
+            tx_frameclk_i             => p_clknet_in.gth_tx_wordclk(1),
+            tx_clken_i                => s_gbt_encoder_interface_in(1).gbt_txclken_i,
+            tx_encoding_sel_i         => s_gbt_encoder_interface_in(1).tx_encoding_sel_i,
+            tx_isdata_sel_i           => s_gbt_encoder_interface_in(1).gbt_isdataflag_i,
+            tx_data_i                 => s_sync_captured_link1(83 downto 0),
+            tx_extra_data_widebus_i   => s_sync_captured_link1(115 downto 84),
+            gbt_cdc_counter_i         => s_sync_counter_link1,
+            tx_frame_o                => s_link1_tx_frame
+        );
+
+    i_db6_gbt_tx_gearbox_link1 : entity tilecal.db6_gbt_tx_gearbox
+        generic map (
+            tx_optimization => LATENCY_OPTIMIZED
+        )
+        port map (
+            tx_reset_i        => s_gbt_encoder_interface_in(1).gbt_txreset_i,
+            tx_frameclk_i      => p_clknet_in.gth_tx_wordclk(1),
+            tx_clken_i         => s_gbt_encoder_interface_in(1).gbt_txclken_i,
+            tx_wordclk_i       => p_clknet_in.gth_tx_wordclk(1),
+            tx_phaligned_o     => s_link1_tx_phaligned,
+            tx_phcomputed_o    => s_link1_tx_phcomputed,
+            tx_frame_i         => s_link1_tx_frame,
+            gbt_cdc_counter_i  => s_sync_counter_link1,
+            tx_word_o          => p_mgt_usrword_out(2)
+        );
+
+    -- redundant (TMR-style) second capture chain, own flops, same source signals as
+    -- proc_sync_cdc_link1 above -- see this file's comparator signal-declaration
+    -- header comment for why this replaces the old cfgbus_clk40-domain compare.
+    proc_sync_cdc_link1_b : process(p_clknet_in.gth_tx_wordclk(1))
+    begin
+        if rising_edge(p_clknet_in.gth_tx_wordclk(1)) then
+            s_sync_toggle_sync0_link1_b <= s_sync_commit_toggle_link0;
+            s_sync_toggle_sync1_link1_b <= s_sync_toggle_sync0_link1_b;
+            s_sync_toggle_sync1_prev_link1_b <= s_sync_toggle_sync1_link1_b;
+
+            if s_sync_toggle_sync1_link1_b /= s_sync_toggle_sync1_prev_link1_b then
+                s_sync_captured_link1_b <= s_gbt_encoder_interface(0).gbt_tx_data_out.sync;
+            end if;
+        end if;
+    end process;
+
+    -- compare the two redundant chains in the SAME fast domain they're captured in
+    -- (no generation-alignment race -- both observe the identical source at the
+    -- identical rate). p_clknet_in.clear_dual_link_mismatch (new VIO button) clears
+    -- without a full master reset -- see t_db_clknet's identically-named field
+    -- (db6_design_package.vhd), a flat field (t_db_clknet has no .clknet
+    -- sub-record; that nesting only exists on t_debug_control, one level up).
+    proc_fast_compare : process(p_clknet_in.gth_tx_wordclk(1), p_master_reset_in, p_clknet_in.clear_dual_link_mismatch)
+    begin
+        if p_master_reset_in(c_gbt_encoder_reset_bit) = '1' or p_clknet_in.clear_dual_link_mismatch = '1' then
+            s_dual_link_sync_mismatch_sticky_fast <= '0';
+            s_dual_link_sync_mismatch_count_fast <= (others => '0');
+        elsif rising_edge(p_clknet_in.gth_tx_wordclk(1)) then
+            if s_sync_captured_link1 /= s_sync_captured_link1_b then
+                s_dual_link_sync_mismatch_sticky_fast <= '1';
+                if s_dual_link_sync_mismatch_count_fast /= x"FF" then
+                    s_dual_link_sync_mismatch_count_fast <= s_dual_link_sync_mismatch_count_fast + 1;
+                end if;
+            end if;
+        end if;
+    end process;
+
+    -- sticky/count only ever change on an actual fault (essentially never in normal
+    -- operation), so a plain 2-flop synchronizer into cfgbus_clk40 is safe here --
+    -- same as reading any other slow-changing status flag (e.g. channel_locked).
+    proc_mismatch_status_sync : process(p_clknet_in.cfgbus_clk40)
+    begin
+        if rising_edge(p_clknet_in.cfgbus_clk40) then
+            s_mismatch_sticky_sync0 <= s_dual_link_sync_mismatch_sticky_fast;
+            s_mismatch_sticky_sync1 <= s_mismatch_sticky_sync0;
+            s_mismatch_count_sync0 <= std_logic_vector(s_dual_link_sync_mismatch_count_fast);
+            s_mismatch_count_sync1 <= s_mismatch_count_sync0;
+        end if;
+    end process;
+    s_gbt_encoder_interface_buffer.dual_link_sync_mismatch_sticky <= s_mismatch_sticky_sync1;
+    s_gbt_encoder_interface_buffer.dual_link_sync_mismatch_count <= s_mismatch_count_sync1;
 
 end generate;
 

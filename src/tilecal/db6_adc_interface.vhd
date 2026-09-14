@@ -98,7 +98,26 @@ architecture behavioral of db6_adc_interface is
     type t_frame_missalignment_tmr is array (0 to 2) of std_logic_vector(5 downto 0);
     signal s_adc_frame_missalignment_tmr : t_frame_missalignment_tmr;
 
+    -- 2026-09-13: db6_adc_idelay_calibration's LOAD pulse (proc_fast_domain in that
+    -- file) is generated synchronous to whatever clock is passed as its
+    -- p_adc_bitclk_in port -- its header says this MUST be "IDELAYE3's own CLK", i.e.
+    -- whatever clock is actually wired to db7_io_box's IDELAYE3.CLK pin for the active
+    -- scheme. For iddr280/iddr280_clkdiv that is the raw 280MHz p_adc_bitclk_in
+    -- (db6_adc_interface_io_iddr_bitclk280.vhd's IDELAYE3 .clk <= s_bitclk_se). For
+    -- iddr280_serdes140 it is the 140MHz CLKDIV (s_bitclkdiv) instead -- REQP-1742
+    -- (IDELAYE3.CLK must share a net with its paired ISERDESE3.CLKDIV) forced that
+    -- rewiring in db6_adc_interface_io_iddr_bitclk280_serdes140.vhd, but the shared
+    -- calibration instance below was never updated to match, so the LOAD pulse was
+    -- being generated in a domain unrelated to what IDELAYE3 actually samples it
+    -- with -- corrupting the loaded tap and, with it, every capture downstream (the
+    -- 2026-09-13 hardware bring-up symptom: frameclk nibbles changing but never
+    -- matching the expected marker in any rotation). Feed the calibration module
+    -- whichever clock is actually correct for the active scheme.
+    signal s_idelay_calibration_clk : std_logic_vector(5 downto 0);
+
 begin
+
+s_idelay_calibration_clk <= p_adc_bitclkdiv_in when g_adc_clocking_scheme = iddr280_serdes140 else p_adc_bitclk_in;
 
 p_adc_readout_out.channel_clk280_locked<=s_adc_bitclk_locked;
 
@@ -124,7 +143,7 @@ gen_idelay_calibration_bitclk280 : if g_bitclk = 280 generate
         port map (
             p_master_reset_in   => p_master_reset_in,
             p_clknet_in         => p_clknet_in,
-            p_adc_bitclk_in     => p_adc_bitclk_in,
+            p_adc_bitclk_in     => s_idelay_calibration_clk,
             p_start_in          => p_adc_readout_control_in.adc_config_done,
             p_channel_locked_in => s_adc_channel_locked_for_calibration,
             p_fc_idelay_count_out  => s_adc_idelay_fc_count,
@@ -185,13 +204,13 @@ gen_tmr_disabled: if g_tmr_enabled = '0' generate
                         );
     end generate;
 
-    g_bitclk280 : if g_bitclk = 280 generate
+    g_bitclk280 : if g_bitclk = 280 and g_adc_clocking_scheme /= iddr280_serdes140 generate
         i_db6_adc_interface_decoder_iddr : entity tilecal.db6_adc_interface_decoder_iddr_bitclk280
             generic map(
                 g_tmr_enabled => g_tmr_enabled,
                 g_adc_clocking_scheme => g_adc_clocking_scheme
                 )
-            port map ( 	
+            port map (
                 p_master_reset_in   => p_master_reset_in,
                 --clock
                 p_clknet_in         => p_clknet_in,
@@ -202,6 +221,44 @@ gen_tmr_disabled: if g_tmr_enabled = '0' generate
                 p_adc_frameclk_in   => p_adc_frameclk_in,
                 p_adc_lg_data_in    => p_adc_lg_data_in,
                 p_adc_hg_data_in    => p_adc_hg_data_in,
+                p_adc_pll0_locked_in => p_adc_pll0_locked_in,
+                p_calibration_tap_in    => s_adc_idelay_calibration_tap,
+                p_calibration_done_in   => s_adc_idelay_calibration_done,
+                p_calibration_failed_in => s_adc_idelay_calibration_failed,
+
+                --control
+                p_adc_readout_control_in => p_adc_readout_control_in,
+
+                --output
+                p_adc_readout_out   => s_adc_readout,
+
+                --debug
+                p_leds_out          => open
+                        );
+    end generate;
+
+    -- 2026-09-13: iddr280_serdes140 -- see
+    -- db6_adc_interface_decoder_iddr_bitclk280_serdes140.vhd's header. Consumes the
+    -- same wide/iserdese-shaped ports as the hss_wizard branch below (this scheme's IO
+    -- layer produces the same t_byteslice_sr shape), but stays inside
+    -- gen_db6_adc_interface_iddr (g_adc_clocking_scheme /= hss_wizard) so it still gets
+    -- the shared db6_adc_idelay_calibration instance above, unlike hss_wizard.
+    g_bitclk280_serdes140 : if g_bitclk = 280 and g_adc_clocking_scheme = iddr280_serdes140 generate
+        i_db6_adc_interface_decoder_iddr_serdes140 : entity tilecal.db6_adc_interface_decoder_iddr_bitclk280_serdes140
+            generic map(
+                g_tmr_enabled => g_tmr_enabled
+                )
+            port map (
+                p_master_reset_in   => p_master_reset_in,
+                --clock
+                p_clknet_in         => p_clknet_in,
+                p_db_reg_rx_in      => p_db_reg_rx_in,
+                --inputs
+                p_adc_bitclk_in     => p_adc_bitclk_in,
+                p_adc_bitclkdiv_in  => p_adc_bitclkdiv_in,
+                p_adc_frameclk_in   => p_adc_frameclk_iserdese_in,
+                p_adc_lg_data_in    => p_adc_lg_data_iserdese_in,
+                p_adc_hg_data_in    => p_adc_hg_data_iserdese_in,
                 p_adc_pll0_locked_in => p_adc_pll0_locked_in,
                 p_calibration_tap_in    => s_adc_idelay_calibration_tap,
                 p_calibration_done_in   => s_adc_idelay_calibration_done,
@@ -254,13 +311,13 @@ gen_tmr_enabled: if g_tmr_enabled = '1' generate
                     p_leds_out          => open
                             );
         end generate;
-        g_bitclk280 : if g_bitclk = 280 generate
+        g_bitclk280 : if g_bitclk = 280 and g_adc_clocking_scheme /= iddr280_serdes140 generate
             i_db6_adc_interface_decoder_iddr : entity tilecal.db6_adc_interface_decoder_iddr_bitclk280
                 generic map(
                     g_tmr_enabled => g_tmr_enabled,
                     g_adc_clocking_scheme => g_adc_clocking_scheme
                     )
-                port map ( 	
+                port map (
                     p_master_reset_in   => '0',
                     --clock
                     p_clknet_in         => p_clknet_in,
@@ -271,6 +328,37 @@ gen_tmr_enabled: if g_tmr_enabled = '1' generate
                     p_adc_frameclk_in   => p_adc_frameclk_in,
                     p_adc_lg_data_in    => p_adc_lg_data_in,
                     p_adc_hg_data_in    => p_adc_hg_data_in,
+                    p_adc_pll0_locked_in => p_adc_pll0_locked_in,
+                    p_calibration_tap_in    => s_adc_idelay_calibration_tap,
+                    p_calibration_done_in   => s_adc_idelay_calibration_done,
+                    p_calibration_failed_in => s_adc_idelay_calibration_failed,
+
+                    --control
+                    p_adc_readout_control_in => p_adc_readout_control_in,
+
+                    --output
+                    p_adc_readout_out   => s_adc_readout_tmr(v_tmr),
+
+                    --debug
+                    p_leds_out          => open
+                            );
+        end generate;
+        g_bitclk280_serdes140 : if g_bitclk = 280 and g_adc_clocking_scheme = iddr280_serdes140 generate
+            i_db6_adc_interface_decoder_iddr_serdes140 : entity tilecal.db6_adc_interface_decoder_iddr_bitclk280_serdes140
+                generic map(
+                    g_tmr_enabled => g_tmr_enabled
+                    )
+                port map (
+                    p_master_reset_in   => '0',
+                    --clock
+                    p_clknet_in         => p_clknet_in,
+                    p_db_reg_rx_in      => p_db_reg_rx_in,
+                    --inputs
+                    p_adc_bitclk_in     => p_adc_bitclk_in,
+                    p_adc_bitclkdiv_in  => p_adc_bitclkdiv_in,
+                    p_adc_frameclk_in   => p_adc_frameclk_iserdese_in,
+                    p_adc_lg_data_in    => p_adc_lg_data_iserdese_in,
+                    p_adc_hg_data_in    => p_adc_hg_data_iserdese_in,
                     p_adc_pll0_locked_in => p_adc_pll0_locked_in,
                     p_calibration_tap_in    => s_adc_idelay_calibration_tap,
                     p_calibration_done_in   => s_adc_idelay_calibration_done,

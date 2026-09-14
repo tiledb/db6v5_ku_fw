@@ -866,6 +866,7 @@ s_clkin_in <= p_clkin_in;
 s_reset_mb <= p_mb_reset_vio_in;
 
 s_clknet_out.skip_main_sm                         <= p_clknet_debug_control_in.clknet.skip_main_sm;
+s_clknet_out.clear_dual_link_mismatch             <= p_clknet_debug_control_in.clknet.clear_dual_link_mismatch;
 s_clknet_out.force_gtx_i2c_config                 <= p_clknet_debug_control_in.clknet.force_gtx_i2c_config;
 s_clknet_out.gbt_cdc_gearbox_phase                <= p_clknet_debug_control_in.clknet.gbt_cdc_gearbox_phase;
 s_clknet_out.adc_readout_high_threshold           <= p_clknet_debug_control_in.adc_readout.high_threshold;

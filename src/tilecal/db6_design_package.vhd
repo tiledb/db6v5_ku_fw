@@ -662,7 +662,11 @@ end record;
     --                    being handed to the same dual-tap canary capture
     --   hss_wizard     : SelectIO Interface Wizard front end (db6_adc_interface_io_hss.vhd),
     --                    registered on its own internally-generated divided clock
-    type t_adc_clocking_scheme is (iddr280, iddr280_clkdiv, hss_wizard);
+    -- 2026-09-13: iddr280_serdes140 -- hand-written native ISERDESE3 1:4/140MHz-CLKDIV
+    -- alternative to iddr280/iddr280_clkdiv's raw undivided-bitclk half-period capture
+    -- (see db6_adc_interface_io_iddr_bitclk280_serdes140.vhd's header for the full
+    -- rationale -- replicates hss_wizard's fix without the wizard IP).
+    type t_adc_clocking_scheme is (iddr280, iddr280_clkdiv, hss_wizard, iddr280_serdes140);
 
     constant c_adc_bit_number : integer := 14;
     constant c_oversamples : integer := 2;
@@ -745,11 +749,26 @@ end record;
 	   	
 	end record;
 	
-	constant c_adc_registers_init_14_bit : t_adc_registers :=  (x"10", x"00", x"b5", x"00", x"00");
+	constant c_adc_registers_init_14_bit : t_adc_registers :=  (x"00", x"00", x"b5", x"00", x"00");
 	constant c_adc_registers_init_12_bit : t_adc_registers :=  (x"00", x"00", x"b6", x"00", x"00");
     constant c_adc_register_init_config_14_bit : t_adc_register_config := ( '0', '0', "100", "11", c_adc_registers_init_14_bit);
     constant c_adc_register_init_config_12_bit : t_adc_register_config := ( '0', '0', "100", "11", c_adc_registers_init_12_bit);
-    
+
+    -- 2026-09-13: db6_adc_config_driver.vhd's vio-facing status readback -- the
+    -- driver's own status/debug VIO (vio_adc_config_driver_status_control) has been
+    -- commented out/unreachable, so there was no way to see whether a triggered
+    -- config actually latched the intended register bytes (in particular
+    -- registers_buffer(3)/(4), which db6_mainboard_interface.vhd's test-pattern mux
+    -- writes) before they get shifted out. See db6_adc_config_driver.vhd's
+    -- p_debug_status_out port and db6v5_top.vhd's vio_db_debug wiring.
+    type t_adc_config_driver_debug_status is record
+        state            : std_logic_vector(2 downto 0); -- t_adc_config_sm, encoded (see db6_adc_config_driver.vhd's proc_state_encode)
+        registers_buffer : t_adc_registers; -- the actual latched A0..A4 bytes being shifted out
+        leds             : std_logic_vector(3 downto 0);
+        trigger_internal : std_logic; -- s_mb_config_trigger, pre-edge-detect
+        mb_config_done   : std_logic_vector(1 downto 0); -- p_mb_config_done_in.q0/q1 as last sampled
+    end record;
+
     type t_fifo_cdc is record
         srst : STD_LOGIC;
         rst : STD_LOGIC;
@@ -1745,6 +1764,7 @@ type t_mb_interface is record
     mb_boundary_scan_done : t_mb_std_logic;
     mb_boundary_scan_boot_done : t_mb_std_logic; -- latched high the first time mb_boundary_scan_done pulses (the bootup scan); sticky until master reset
     mb_boundary_scan_ir_only_done : t_mb_std_logic; -- bisection test mode done (see c_db_debug_mb_boundary_scan_ir_only_q0/q1) -- pulses/holds once the sample opcode has been shifted into the ir and the tap has returned to run-test/idle, without ever touching the dr
+    adc_config_driver_debug : t_adc_config_driver_debug_status;
 end record;
 
 
@@ -1892,6 +1912,21 @@ type t_mmcm_clk_control_array is array (0 to 1) of t_mmcm_clk_control;
         adc_register_4_raw    : std_logic_vector(7 downto 0);
         test_pattern_enable   : std_logic;
         test_pattern_value    : std_logic_vector(13 downto 0);
+        -- 2026-09-13: see db6_adc_idelay_calibration.vhd's proc_calibration_fsm header
+        -- comment -- forces a fresh IDELAY tap sweep (all 6 channels) without a full
+        -- system reset, needed after any ADC reconfiguration that resets the physical
+        -- chip (e.g. enabling test_pattern_enable above).
+        force_recalibrate     : std_logic;
+        -- 2026-09-13: broader than force_recalibrate above -- also resets the front-end
+        -- capture logic itself (BUFGCE_DIV/CLKDIV reset-sync, and for
+        -- iddr280_serdes140, the ISERDESE3 RST sync too), not just the IDELAY tap
+        -- sweep, without a full p_master_reset_in. Present (and wired) on every
+        -- g_adc_clocking_scheme variant -- see db6_adc_interface_io_iddr_bitclk280.vhd,
+        -- db6_adc_interface_io_iddr_bitclk280_serdes140.vhd, and
+        -- db6_adc_interface_io_hss.vhd. Also folded into
+        -- db6_adc_idelay_calibration.vhd's reset alongside force_recalibrate, so this
+        -- one button covers the whole front end.
+        force_adc_readout_reset : std_logic;
     end record;
 
     type t_db_clknet is record
@@ -1902,6 +1937,11 @@ type t_mmcm_clk_control_array is array (0 to 1) of t_mmcm_clk_control;
         reset_main_sm : std_logic;
         force_gtx_i2c_config : std_logic;
         reset_gbtx_i2c_interface : std_logic;
+        -- 2026-09-14: see t_debug_control_clknet's identically-named field --
+        -- t_db_clknet flattens each t_debug_control_clknet field onto its own direct
+        -- field here (matching skip_main_sm/reset_main_sm/force_gtx_i2c_config above),
+        -- not a nested .clknet sub-record.
+        clear_dual_link_mismatch : std_logic;
         adc_readout_high_threshold : std_logic_vector(11 downto 0);
         adc_readout_low_threshold : std_logic_vector(11 downto 0);
         adc_readout_threshold_select_channel : std_logic_vector(2 downto 0);
@@ -2103,6 +2143,10 @@ type t_mmcm_clk_control_array is array (0 to 1) of t_mmcm_clk_control;
         -- kept for structural completeness; permanently inert since no vio_db_debug
         -- probe drives it anymore (removed per direct request -- see that vio's header)
         gbt_cdc_gearbox_phase : std_logic_vector(1 downto 0);
+        -- 2026-09-13: see t_gbt_encoder_interface's dual_link_sync_mismatch_* header
+        -- comment (db6_gbt_gth_interface.vhd) -- clears the sticky flag/counter (VIO
+        -- probe_out, not a full master reset).
+        clear_dual_link_mismatch : std_logic;
     end record;
 
     type t_debug_control_adc_readout is record
@@ -2406,10 +2450,18 @@ type t_mmcm_clk_control_array is array (0 to 1) of t_mmcm_clk_control;
         gbt_cdc_counter_i : integer range 0 to 3;
         tx_phase_i : std_logic_vector(1 downto 0);
         gbt_bank_sync : std_logic_vector(2 downto 0);
-        
-        
-        
-        
+
+        -- 2026-09-13: dual-uplink sync-word comparator (db6_gbt_gth_interface.vhd's
+        -- gen_simple_gbt_encoder branch) -- both links now transmit a fixed-latency,
+        -- CDC'd copy of the SAME canonical .sync word (link 0's own encoder pipeline),
+        -- not two independently re-encoded pipelines, so these should always read
+        -- dual_link_sync_mismatch_sticky='0'/count=0 in normal operation. A live
+        -- mismatch means the link1 datapath (db6_gbt_tx/db6_gbt_tx_gearbox instance
+        -- fed by the CDC'd copy) has desynced from the canonical source -- wire to a
+        -- VIO/readback register to monitor in hardware.
+        dual_link_sync_mismatch_sticky : std_logic;
+        dual_link_sync_mismatch_count  : std_logic_vector(7 downto 0);
+
         --gearbox_tmr_error : std_logic_vector(1 downto 0);
     end record;
     type t_gbt_encoder_interface_tmr is array (natural range 0 to 2) of t_gbt_encoder_interface;

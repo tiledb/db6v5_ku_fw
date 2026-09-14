@@ -383,10 +383,12 @@ i_db6_mainboard_driver_io : entity tilecal.db6_mainboard_driver_io
         p_sdata_rx_out => p_mb_driver_sdata_rx_out
     );
 
--- ADC readout front end: iddr (IDDRE1, off the undivided bitclk) or hss (SelectIO
--- Interface Wizard, hss_adc -- see db6_adc_interface_io_hss.vhd), selected by
+-- ADC readout front end: iddr (IDDRE1, off the undivided bitclk), iddr280_serdes140
+-- (native ISERDESE3 1:4/140MHz CLKDIV -- see
+-- db6_adc_interface_io_iddr_bitclk280_serdes140.vhd), or hss (SelectIO Interface
+-- Wizard, hss_adc -- see db6_adc_interface_io_hss.vhd), selected by
 -- g_adc_clocking_scheme. Only one is ever elaborated.
-gen_db6_adc_interface_iddr : if g_adc_clocking_scheme /= hss_wizard generate
+gen_db6_adc_interface_iddr : if g_adc_clocking_scheme = iddr280 or g_adc_clocking_scheme = iddr280_clkdiv generate
     i_db6_adc_interface_io_iddr : entity tilecal.db6_adc_interface_io_iddr_bitclk280
         generic map (
             g_adc_clocking_scheme => g_adc_clocking_scheme
@@ -417,6 +419,40 @@ gen_db6_adc_interface_iddr : if g_adc_clocking_scheme /= hss_wizard generate
     p_adc_frameclk_iserdese_out  <= (others => (others => '0'));
     p_adc_lg_data_iserdese_out   <= (others => (others => '0'));
     p_adc_hg_data_iserdese_out   <= (others => (others => '0'));
+    p_adc_rst_seq_done_out       <= (others => '0');
+    p_adc_fifo_data_valid_out    <= (others => '0');
+    p_gbtx_clk40_data_out        <= (others => (others => '0'));
+    p_gbtx_clk80_data_out        <= (others => (others => '0'));
+end generate;
+
+gen_db6_adc_interface_serdes140 : if g_adc_clocking_scheme = iddr280_serdes140 generate
+    i_db6_adc_interface_io_iddr_serdes140 : entity tilecal.db6_adc_interface_io_iddr_bitclk280_serdes140
+        port map (
+            p_master_reset_in => p_adc_master_reset_in,
+            p_clknet_in        => p_clknet_in,
+            p_db_reg_rx_in      => p_db_reg_rx_in,
+            p_adc_bitclk_in     => p_adc_bitclk_in,
+            p_adc_frameclk_in   => p_adc_frameclk_in,
+            p_adc_lg_data_in    => p_adc_lg_data_in,
+            p_adc_hg_data_in    => p_adc_hg_data_in,
+
+            p_adc_bitclk_out          => p_adc_bitclk_out,
+            p_adc_bitclkdiv_out       => p_adc_bitclkdiv_out,
+            p_adc_frameclk_out        => p_adc_frameclk_iserdese_out,
+            p_adc_lg_data_out         => p_adc_lg_data_iserdese_out,
+            p_adc_hg_data_out         => p_adc_hg_data_iserdese_out,
+            p_adc_pll0_locked_out     => p_adc_pll0_locked_out,
+
+            p_adc_readout_control_in => p_adc_idelay_ctrl_in,
+
+            p_leds_out => open
+        );
+
+    p_adc_ctrl_reset_from_sm_out <= (others => '0');
+    p_frame_missalignment_out    <= (others => '0');
+    p_adc_frameclk_out           <= (others => (others => '0'));
+    p_adc_lg_data_out            <= (others => (others => '0'));
+    p_adc_hg_data_out            <= (others => (others => '0'));
     p_adc_rst_seq_done_out       <= (others => '0');
     p_adc_fifo_data_valid_out    <= (others => '0');
     p_gbtx_clk40_data_out        <= (others => (others => '0'));

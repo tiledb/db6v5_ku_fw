@@ -957,34 +957,9 @@ p_ssel_out.q1 <= s_mb_exe(1);
     
 
 
---i_ila_mb_driver : ila_mb_driver
---PORT MAP (
---	clk => p_clknet_in.osc_clk40,
---	probe0 => p_mb_txword_in, 
---	probe1 => s_rtn_wd(0), 
---	probe2 => s_rtn_wd(1), 
---	probe3 => s_execute, 
---	probe4 => s_bk_ena, 
---	probe5(0) => s_mb_clk(0), 
---	probe6(0) => s_mb_clk(1), 
---	probe7(0) => s_mb_data_out(0), 
---	probe8(0) => s_mb_data_out(1), 
---	probe9(0) => s_mb_exe(0), 
---	probe10(0) => s_mb_exe(1), 
---	probe11(0) => s_rtn_done(0), 
---	probe12(0) => s_rtn_done(1), 
---	probe13(0) => p_master_reset_in, 
---	probe14(0) => s_lrtn_bit(0),
---	probe15(0) => s_lrtn_bit(1),
---	probe16(0) => p_mb_config_trigger_in,
---	probe17(0) => s_idle_out(0),
---	probe18(0) => s_idle_out(1),
---	probe19(31 downto 24) => "00000000",
---	probe19(23 downto 0) => s_command(0),
---	probe20(31 downto 24) => "00000000",
---	probe20(23 downto 0) => s_command(1),
---	probe21 => s_fe_data
---);
+-- 2026-09-14: i_ila_mb_driver (temporarily re-enabled to trace the ADC test-pattern
+-- hang to a word-connection bug in this driver) removed now that the root cause is
+-- fixed -- see db6_adc_config_driver.vhd/git history for the actual fix.
 
 
 end Behavioral;

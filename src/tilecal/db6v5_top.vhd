@@ -47,6 +47,8 @@ generic (
     g_num_gth_ref_clks             : integer := c_number_of_gth_refclks;
     g_include_sem                   : integer :=1;
     g_include_debug_interface       : integer :=1;
+    g_adc_clocking_scheme : t_adc_clocking_scheme := iddr280_serdes140;
+    
     
     --hog
     GLOBAL_DATE : std_logic_vector(31 downto 0); -- 32 bit Date of last commit when the project was modified. Format: ddmmyyyy (hex with decimal digits, no digit greater than 9 is used)
@@ -387,6 +389,15 @@ attribute dont_touch of
     s_vio_dbg_sfp_addr_out_q0, s_vio_dbg_sfp_addr_out_q1
     : signal is "TRUE";
 
+-- 2026-09-13: db6_adc_config_driver.vhd status readback (t_adc_config_driver_debug_status
+-- -- see db6_design_package.vhd) and the dual-uplink sync mismatch comparator
+-- (t_gbt_encoder_interface's dual_link_sync_mismatch_* -- see db6_gbt_gth_interface.vhd)
+-- are wired directly off s_mb_interface/s_gbt_encoder_interface's record fields at the
+-- probe_in port map below (matching probe_in74-77's convention), not staging signals --
+-- both those signals are already keep/dont_touch-protected as wholes, so the ltx label
+-- comes out bracket-hierarchical (e.g. s_mb_interface[adc_config_driver_debug][state]),
+-- matching probe_out10-16's adc_config[...] style instead of a flat s_vio_dbg_* name.
+
 -- db7_io_box: mainboard driver serial bus, plain-logic side (stage 1 of IO isolation migration)
 signal s_mb_driver_ssel, s_mb_driver_sclk, s_mb_driver_sdata_tx, s_mb_driver_sdata_rx : t_mb_std_logic;
 
@@ -606,11 +617,27 @@ COMPONENT vio_db_debug
     probe_in75 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); -- data_readout: hg_data (muxed sample)
     probe_in76 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); -- data_readout: lg_data (muxed sample)
     probe_in77 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); -- data_readout: fc_data (muxed sample)
+    -- db6_adc_config_driver status readback (t_adc_config_driver_debug_status -- see
+    -- db6_design_package.vhd / db6_adc_config_driver.vhd). registers_buffer split one
+    -- probe per byte (A0..A4), matching probe_out11-15's adc_register_x_raw naming.
+    probe_in78 : IN STD_LOGIC_VECTOR(2 DOWNTO 0);  -- adc_config_driver: FSM state (encoded, see proc_state_encode)
+    probe_in79 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);  -- adc_config_driver: registers_buffer(0) (A0, as latched/sent)
+    probe_in80 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);  -- adc_config_driver: registers_buffer(1) (A1, as latched/sent)
+    probe_in81 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);  -- adc_config_driver: registers_buffer(2) (A2, as latched/sent)
+    probe_in82 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);  -- adc_config_driver: registers_buffer(3) (A3, as latched/sent)
+    probe_in83 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);  -- adc_config_driver: registers_buffer(4) (A4, as latched/sent)
+    probe_in84 : IN STD_LOGIC_VECTOR(3 DOWNTO 0);  -- adc_config_driver: leds
+    probe_in85 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);  -- adc_config_driver: trigger_internal
+    probe_in86 : IN STD_LOGIC_VECTOR(1 DOWNTO 0);  -- adc_config_driver: mb_config_done q0/q1
+    -- dual-uplink sync mismatch comparator (t_gbt_encoder_interface -- see
+    -- db6_design_package.vhd / db6_gbt_gth_interface.vhd)
+    probe_in87 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);  -- gbt: dual_link_sync_mismatch_sticky
+    probe_in88 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);  -- gbt: dual_link_sync_mismatch_count
     -- t_adc_readout_control (calibration thresholds) + system control group
     probe_out0 : OUT STD_LOGIC_VECTOR(11 DOWNTO 0); -- adc_readout_high_threshold
     probe_out1 : OUT STD_LOGIC_VECTOR(11 DOWNTO 0); -- adc_readout_low_threshold
     probe_out2 : OUT STD_LOGIC_VECTOR(2 DOWNTO 0);  -- adc_readout_threshold_select_channel
-    probe_out3 : OUT STD_LOGIC_VECTOR(4 DOWNTO 0);  -- reset controls: q0/q1/dna_reset/reset_clknet/skip_main_sm
+    probe_out3 : OUT STD_LOGIC_VECTOR(5 DOWNTO 0);  -- reset controls: q0/q1/dna_reset/reset_clknet/skip_main_sm/clear_dual_link_mismatch
     probe_out4 : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);  -- force_gtx_i2c_config
     probe_out5 : OUT STD_LOGIC_VECTOR(25 DOWNTO 0); -- CIS manual control
     probe_out6 : OUT STD_LOGIC_VECTOR(1 DOWNTO 0);  -- mb_fpga_reset_low control
@@ -618,8 +645,17 @@ COMPONENT vio_db_debug
     probe_out8 : OUT STD_LOGIC_VECTOR(6 DOWNTO 0);  -- sfp+ reg block ram address, side 1
     probe_out9  : OUT STD_LOGIC_VECTOR(96 DOWNTO 0); -- flash manual access override
     -- revived vio_adc_config controls (t_debug_control_adc_config -- see
-    -- db6_design_package.vhd / db6_mainboard_interface.vhd)
-    probe_out10 : OUT STD_LOGIC_VECTOR(6 DOWNTO 0);  -- adc_config: mode/trigger/fpga_select/pmt_select
+    -- db6_design_package.vhd / db6_mainboard_interface.vhd). 2026-09-13: this probe's
+    -- VIO INIT value was 0x0 (mb_fpga_select="000"=FPGA A0 only, mb_pmt_select="00"=
+    -- tube 1 only per db6_adc_config_driver.vhd's own s_fe_data comments), unlike the
+    -- configbus path (db6_mainboard_interface.vhd's s_adc_register_config_from_configbus,
+    -- hardcoded "100"/"11" = all/all) -- triggering a config write with mode=1 and
+    -- fpga/pmt_select left untouched silently targeted only A0/tube1, looking like a
+    -- no-op if that wasn't the intended target. Set to 0x70 in the .xci (mode=0,
+    -- trigger=0, mb_fpga_select="100", mb_pmt_select="11" -- see bit layout in the
+    -- probe_out10 port map below) so the VIO path defaults to the same always-broadcast
+    -- convention as the configbus path.
+    probe_out10 : OUT STD_LOGIC_VECTOR(8 DOWNTO 0);  -- adc_config: mode/trigger/fpga_select/pmt_select/force_recalibrate/force_adc_readout_reset
     probe_out11 : OUT STD_LOGIC_VECTOR(7 DOWNTO 0);  -- adc_config: adc_register_0 (A0)
     probe_out12 : OUT STD_LOGIC_VECTOR(7 DOWNTO 0);  -- adc_config: adc_register_1 (A1)
     probe_out13 : OUT STD_LOGIC_VECTOR(7 DOWNTO 0);  -- adc_config: adc_register_2 (A2)
@@ -727,6 +763,9 @@ s_vio_dbg_boot_done_gbtx_write(0) <= s_boot_gbtx_write_done;
 s_vio_dbg_boot_done_gbtx_read(0) <= s_boot_gbtx_read_done;
 s_vio_dbg_boot_done_sfp_q0(0) <= s_boot_sfp_read_done(0);
 s_vio_dbg_boot_done_sfp_q1(0) <= s_boot_sfp_read_done(1);
+
+-- db6_adc_config_driver status readback + dual-uplink sync mismatch comparator: wired
+-- directly at the probe_in port map below (see the signal declarations above for why).
 
 -- plugin-critical group
 s_vio_dbg_flash_status <= s_system_management_interface.flash_status;
@@ -937,7 +976,7 @@ i_db6_mainboard_interface : entity tilecal.db6_mainboard_interface
         -- per-channel bitslip on live ADC data even after fixing the raw-domain CDC and
         -- the GBT encoder gearbox CDC; trying the IDDRE1-based datapath instead, which
         -- doesn't go through the SelectIO Wizard/ISERDES3 path at all.
-        g_adc_clocking_scheme => iddr280_clkdiv,
+        g_adc_clocking_scheme => g_adc_clocking_scheme,
         -- mb boundary-scan (sample) feature kill switch: false because triggering
         -- any jtag instruction change freezes this altera companion fpga's firmware
         -- until reset (confirmed via the ir-only bisection test mode). flip to true
@@ -1000,7 +1039,7 @@ i_db7_io_box : entity tilecal.db7_io_box
         g_num_gth_links    => g_num_gth_links,
         g_num_gth_ref_clks => g_num_gth_ref_clks,
         -- iddr280 | iddr280_clkdiv | hss_wizard (must match i_db6_mainboard_interface above)
-        g_adc_clocking_scheme => iddr280_clkdiv
+        g_adc_clocking_scheme => g_adc_clocking_scheme
     )
     port map (
         p_clknet_in    => s_clknet,
@@ -1770,6 +1809,17 @@ i_vio_db_debug : vio_db_debug
     probe_in75    => s_data_readout_debug_status.hg_data,
     probe_in76    => s_data_readout_debug_status.lg_data,
     probe_in77    => s_data_readout_debug_status.fc_data,
+    probe_in78 => s_mb_interface.adc_config_driver_debug.state,
+    probe_in79 => s_mb_interface.adc_config_driver_debug.registers_buffer(0),
+    probe_in80 => s_mb_interface.adc_config_driver_debug.registers_buffer(1),
+    probe_in81 => s_mb_interface.adc_config_driver_debug.registers_buffer(2),
+    probe_in82 => s_mb_interface.adc_config_driver_debug.registers_buffer(3),
+    probe_in83 => s_mb_interface.adc_config_driver_debug.registers_buffer(4),
+    probe_in84 => s_mb_interface.adc_config_driver_debug.leds,
+    probe_in85(0) => s_mb_interface.adc_config_driver_debug.trigger_internal,
+    probe_in86 => s_mb_interface.adc_config_driver_debug.mb_config_done,
+    probe_in87(0) => s_gbt_encoder_interface.dual_link_sync_mismatch_sticky,
+    probe_in88 => s_gbt_encoder_interface.dual_link_sync_mismatch_count,
 
     probe_out0 => s_vio_dbg_adc_high_thresh,
     probe_out1 => s_vio_dbg_adc_low_thresh,
@@ -1779,6 +1829,7 @@ i_vio_db_debug : vio_db_debug
     probe_out3(2) => s_dna_reset,
     probe_out3(3) => s_clknet_debug_control.clknet.reset_clknet,
     probe_out3(4) => s_clknet_debug_control.clknet.skip_main_sm,
+    probe_out3(5) => s_clknet_debug_control.clknet.clear_dual_link_mismatch,
     probe_out4(0) => s_clknet_debug_control.clknet.force_gtx_i2c_config,
     probe_out5(25)          => s_clknet_debug_control.cis.enable,
     probe_out5(24)          => s_clknet_debug_control.cis.gain,
@@ -1796,6 +1847,8 @@ i_vio_db_debug : vio_db_debug
     probe_out10(1)          => s_clknet_debug_control.adc_config.trigger_mb_adc_config,
     probe_out10(4 downto 2) => s_clknet_debug_control.adc_config.mb_fpga_select,
     probe_out10(6 downto 5) => s_clknet_debug_control.adc_config.mb_pmt_select,
+    probe_out10(7)          => s_clknet_debug_control.adc_config.force_recalibrate,
+    probe_out10(8)          => s_clknet_debug_control.adc_config.force_adc_readout_reset,
     probe_out11 => s_clknet_debug_control.adc_config.adc_register_0,
     probe_out12 => s_clknet_debug_control.adc_config.adc_register_1,
     probe_out13 => s_clknet_debug_control.adc_config.adc_register_2,

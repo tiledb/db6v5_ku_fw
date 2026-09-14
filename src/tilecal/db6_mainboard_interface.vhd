@@ -37,7 +37,7 @@ use tilecal.db6_design_package.all;
 entity db6_mainboard_interface is
   generic (
             g_vio_adc_readout : natural :=0;
-            g_ila_adc_readout : natural :=0;
+            g_ila_adc_readout : natural :=1;
             -- 2026-09-11: hss_wizard bring-up debug only. ila_adc_readout above is clocked
             -- by p_clknet_in.refclk40 (40MHz) but the frame-alignment FSM in
             -- db6_adc_interface_decoder_iserdese runs on p_adc_bitclkdiv_in (~140MHz) --
@@ -47,7 +47,7 @@ entity db6_mainboard_interface is
             -- to determine empirically whether/where the true marker phase lands instead
             -- of guessing comparison constants blindly (see decoder file's revision
             -- history for the two failed guesses this is meant to replace).
-            g_ila_adc_nibble : natural :=0;
+            g_ila_adc_nibble : natural :=1;
             g_adc_clocking_scheme : t_adc_clocking_scheme := iddr280;
             g_bitclk        : integer := 280;
             -- compile-time kill switch for the whole mb boundary-scan (sample)
@@ -290,10 +290,19 @@ COMPONENT vio_adc_config_driver
 END COMPONENT;
 signal s_adc_config_reset : std_logic;
 signal s_adc_config_leds, s_db6_adc_interface_leds, a_db6_mainboard_driver_leds : std_logic_vector(3 downto 0);
+signal s_adc_config_driver_debug : t_adc_config_driver_debug_status;
 
--- hss_wizard nibble-level debug (see g_ila_adc_nibble above): channel 0 only, raw
--- pre-decode frameclk/hg/lg nibbles plus the decoder's own locked/missalignment/fc_data
--- outputs, all in channel 0's own p_adc_bitclkdiv_in domain.
+-- 2026-09-14: see gen_ila_adc_nibble's header comment below -- scheme-selected
+-- clock/data source for ila_adc_nibble, valid across all four g_adc_clocking_scheme
+-- variants.
+signal s_ila_adc_nibble_clk : std_logic;
+signal s_ila_adc_nibble_frameclk, s_ila_adc_nibble_hg, s_ila_adc_nibble_lg : std_logic_vector(3 downto 0);
+
+-- hss_wizard/iddr280_serdes140 nibble-level debug (see g_ila_adc_nibble above): channel
+-- 0 only, raw pre-decode frameclk/hg/lg nibbles plus the decoder's own
+-- locked/missalignment/fc_data outputs, all in channel 0's own p_adc_bitclkdiv_in domain.
+-- Both schemes share the same t_byteslice_sr-shaped p_adc_*_iserdese_in ports this ILA
+-- taps, so the same probe wiring below works unmodified for either.
 COMPONENT ila_adc_nibble
 
 PORT (
@@ -553,9 +562,17 @@ gen_db6_adc_interface_iddr : if g_adc_clocking_scheme /= hss_wizard generate
             p_adc_frameclk_in => p_adc_frameclk_in,
             p_adc_lg_data_in => p_adc_lg_data_in,
             p_adc_hg_data_in => p_adc_hg_data_in,
-            p_adc_frameclk_iserdese_in => (others => (others => '0')),
-            p_adc_lg_data_iserdese_in  => (others => (others => '0')),
-            p_adc_hg_data_iserdese_in  => (others => (others => '0')),
+            -- 2026-09-13: passed through (was hardcoded to zero) so
+            -- g_adc_clocking_scheme=iddr280_serdes140's real data -- which arrives in
+            -- this same t_byteslice_sr shape, same as hss_wizard's -- actually reaches
+            -- db6_adc_interface's g_bitclk280_serdes140 branch. Harmless no-op for
+            -- iddr280/iddr280_clkdiv: db7_io_box.vhd's gen_db6_adc_interface_iddr
+            -- branch (not serdes140/hss_wizard) already ties its own
+            -- p_adc_*_iserdese_out to zero, so these ports still read as zero for
+            -- those two schemes.
+            p_adc_frameclk_iserdese_in => p_adc_frameclk_iserdese_in,
+            p_adc_lg_data_iserdese_in  => p_adc_lg_data_iserdese_in,
+            p_adc_hg_data_iserdese_in  => p_adc_hg_data_iserdese_in,
             p_adc_pll0_locked_in       => p_adc_pll0_locked_in,
             p_adc_frame_missalignment_out => open,
             p_adc_ctrl_reset_from_sm_in   => (others => '0'),
@@ -935,21 +952,39 @@ s_adc_register_config_from_configbus.trigger_mb_adc_config <= p_db_reg_rx_in(cfb
 -- (p_adc_register_config_from_readout_in.mode) still decides which one wins.
 -- OUTTEST=1, bits5:0=TP13:TP8, bit6 don't-care (tied 0); TP7:TP0 = pattern(7:0) directly
 -- (LTC2264-12 datasheet Table 4, Registers A3/A4). Raw manual bytes otherwise.
-s_adc_register_config_from_readout.adc_registers(3) <=
-    '1' & '0' & p_clknet_in.adc_config.test_pattern_value(13 downto 8) when p_clknet_in.adc_config.test_pattern_enable = '1' else
-    p_clknet_in.adc_config.adc_register_3_raw;
-s_adc_register_config_from_readout.adc_registers(4) <=
-    p_clknet_in.adc_config.test_pattern_value(7 downto 0) when p_clknet_in.adc_config.test_pattern_enable = '1' else
-    p_clknet_in.adc_config.adc_register_4_raw;
+
+
 s_adc_register_config_from_readout.mode                  <= p_clknet_in.adc_config.mode;
 s_adc_register_config_from_readout.trigger_mb_adc_config  <= p_clknet_in.adc_config.trigger_mb_adc_config;
-s_adc_register_config_from_readout.mb_fpga_select         <= p_clknet_in.adc_config.mb_fpga_select;
-s_adc_register_config_from_readout.mb_pmt_select          <= p_clknet_in.adc_config.mb_pmt_select;
-s_adc_register_config_from_readout.adc_registers(0)       <= p_clknet_in.adc_config.adc_register_0;
-s_adc_register_config_from_readout.adc_registers(1)       <= p_clknet_in.adc_config.adc_register_1;
-s_adc_register_config_from_readout.adc_registers(2)       <= p_clknet_in.adc_config.adc_register_2;
-
 s_adc_config_reset <= p_master_reset_in(c_adc_config_reset_bit) or p_db_reg_rx_in(cfb_strobe_reg)(c_adc_config_reset_bit);
+
+proc_test_mode: process(p_clknet_in.adc_config.test_pattern_enable)
+begin
+    if (p_clknet_in.adc_config.test_pattern_enable = '1') then
+        s_adc_register_config_from_readout.adc_registers(3) <= '1' & '0' & p_clknet_in.adc_config.test_pattern_value(13 downto 8);
+        s_adc_register_config_from_readout.adc_registers(4) <= p_clknet_in.adc_config.test_pattern_value(7 downto 0);
+  
+        s_adc_register_config_from_readout.mb_fpga_select         <= c_adc_register_init_config_14_bit.mb_fpga_select;
+        s_adc_register_config_from_readout.mb_pmt_select          <= c_adc_register_init_config_14_bit.mb_pmt_select;        
+        s_adc_register_config_from_readout.adc_registers(0) <= c_adc_registers_init_14_bit(0);
+        s_adc_register_config_from_readout.adc_registers(1) <= c_adc_registers_init_14_bit(1);
+        s_adc_register_config_from_readout.adc_registers(2) <= c_adc_registers_init_14_bit(2);
+    
+    else
+        s_adc_register_config_from_readout.adc_registers(3) <= p_clknet_in.adc_config.adc_register_3_raw;
+        s_adc_register_config_from_readout.adc_registers(4) <= p_clknet_in.adc_config.adc_register_4_raw;
+    
+        s_adc_register_config_from_readout.mb_fpga_select         <= p_clknet_in.adc_config.mb_fpga_select;
+        s_adc_register_config_from_readout.mb_pmt_select          <= p_clknet_in.adc_config.mb_pmt_select;
+        s_adc_register_config_from_readout.adc_registers(0)       <= p_clknet_in.adc_config.adc_register_0;
+        s_adc_register_config_from_readout.adc_registers(1)       <= p_clknet_in.adc_config.adc_register_1;
+        s_adc_register_config_from_readout.adc_registers(2)       <= p_clknet_in.adc_config.adc_register_2;
+    
+    end if;
+end process;
+
+
+
 
 i_db6_adc_config_driver  : entity tilecal.db6_adc_config_driver 
     generic map(
@@ -965,8 +1000,10 @@ i_db6_adc_config_driver  : entity tilecal.db6_adc_config_driver
         p_mb_config_done_in   => s_mb_driver.tx_done_out,
         p_fe_data_out           => s_mb_txword_in,
         p_fe_data_in            =>  p_db_reg_rx_in(cfb_mb_adc_config),
-        p_leds_out => s_adc_config_leds
+        p_leds_out => s_adc_config_leds,
+        p_debug_status_out => s_adc_config_driver_debug
   );
+p_mb_interface_out.adc_config_driver_debug <= s_adc_config_driver_debug;
 
 --------------------------------------------------------------------------------------------------------------------------
 --adc_readout! 
@@ -1062,16 +1099,58 @@ gen_ila_adc_readout : if g_ila_adc_readout = 1 generate
     );
 end generate;
 
--- see g_ila_adc_nibble above
-gen_ila_adc_nibble : if g_ila_adc_nibble = 1 and g_adc_clocking_scheme = hss_wizard generate
+-- see g_ila_adc_nibble above -- widened 2026-09-13 to also cover iddr280_serdes140:
+-- needed to see this new scheme's raw pre-decode nibbles in hardware after the
+-- ISERDESE3 RST fix didn't resolve the all-zero/locked=0/missalignment=1 bring-up
+-- symptom, to distinguish "front end genuinely dead" from "front end fine, bug is
+-- elsewhere downstream/upstream of it".
+--
+-- 2026-09-14: extended to ALL FOUR g_adc_clocking_scheme variants, not just
+-- hss_wizard/iddr280_serdes140 -- the active scheme reverted to iddr280_clkdiv and
+-- the ILA (gated to the other two only) silently vanished from the design, showing
+-- as "no clock connected" in Hardware Manager against a stale .ltx from an earlier
+-- bitstream. iddr280/iddr280_clkdiv use a different, narrower per-cycle capture
+-- (t_bitslice_sr, 2 bits/cycle -- plain IDDRE1 DDR, vs t_byteslice_sr's 4 bits/cycle
+-- native ISERDESE3 1:4) and, for plain iddr280 specifically, have no CLKDIV at all
+-- (db6_adc_interface_io_iddr_bitclk280.vhd's BUFGCE_DIV is only generated for
+-- iddr280_clkdiv -- p_adc_bitclkdiv_in reads constant '0' for plain iddr280, which
+-- is exactly what "no clock connected" looks like). These intermediate signals pick
+-- the correct clock and (zero-extended to 4 bits where narrower) data source per
+-- scheme (declared up in the architecture's declarative part, alongside
+-- s_adc_config_driver_debug); the ila_adc_nibble instantiation itself is
+-- unconditional (just g_ila_adc_nibble=1) and unchanged otherwise.
+gen_ila_src_byteslice : if g_adc_clocking_scheme = hss_wizard or g_adc_clocking_scheme = iddr280_serdes140 generate
+    s_ila_adc_nibble_clk      <= p_adc_bitclkdiv_in(0);
+    s_ila_adc_nibble_frameclk <= p_adc_frameclk_iserdese_in(0)(3 downto 0);
+    s_ila_adc_nibble_hg       <= p_adc_hg_data_iserdese_in(0)(3 downto 0);
+    s_ila_adc_nibble_lg       <= p_adc_lg_data_iserdese_in(0)(3 downto 0);
+end generate;
+
+gen_ila_src_bitslice_clkdiv : if g_adc_clocking_scheme = iddr280_clkdiv generate
+    s_ila_adc_nibble_clk      <= p_adc_bitclkdiv_in(0);
+    s_ila_adc_nibble_frameclk <= "00" & p_adc_frameclk_in(0);
+    s_ila_adc_nibble_hg       <= "00" & p_adc_hg_data_in(0);
+    s_ila_adc_nibble_lg       <= "00" & p_adc_lg_data_in(0);
+end generate;
+
+gen_ila_src_bitslice_plain : if g_adc_clocking_scheme = iddr280 generate
+    -- no CLKDIV exists for this variant -- the raw per-channel bit clock is the only
+    -- valid clock available pre-decode.
+    s_ila_adc_nibble_clk      <= p_adc_bitclk_in(0);
+    s_ila_adc_nibble_frameclk <= "00" & p_adc_frameclk_in(0);
+    s_ila_adc_nibble_hg       <= "00" & p_adc_hg_data_in(0);
+    s_ila_adc_nibble_lg       <= "00" & p_adc_lg_data_in(0);
+end generate;
+
+gen_ila_adc_nibble : if g_ila_adc_nibble = 1 generate
 
     i_ila_adc_nibble : ila_adc_nibble
     PORT MAP (
-        clk => p_adc_bitclkdiv_in(0),
+        clk => s_ila_adc_nibble_clk,
 
-        probe0 => p_adc_frameclk_iserdese_in(0)(3 downto 0),
-        probe1 => p_adc_hg_data_iserdese_in(0)(3 downto 0),
-        probe2 => p_adc_lg_data_iserdese_in(0)(3 downto 0),
+        probe0 => s_ila_adc_nibble_frameclk,
+        probe1 => s_ila_adc_nibble_hg,
+        probe2 => s_ila_adc_nibble_lg,
         probe3(0) => s_adc_readout.channel_locked(0),
         probe4(0) => s_adc_readout.channel_frame_missalignemt(0),
         probe5 => s_adc_readout.fc_data(0)

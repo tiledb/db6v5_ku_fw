@@ -48,8 +48,13 @@ entity db6_adc_config_driver is
         p_adc_config_done_out   : out std_logic;
         p_fe_data_in           : in std_logic_vector(31 downto 0);
         p_fe_data_out           : out std_logic_vector(31 downto 0);
-        p_leds_out              : out std_logic_vector(3 downto 0)        
-  
+        p_leds_out              : out std_logic_vector(3 downto 0);
+
+        -- 2026-09-13: see t_adc_config_driver_debug_status's header comment
+        -- (db6_design_package.vhd) -- replaces the never-reachable
+        -- vio_adc_config_driver_status_control below.
+        p_debug_status_out      : out t_adc_config_driver_debug_status
+
   );
 end db6_adc_config_driver;
 
@@ -70,31 +75,30 @@ type t_adc_config_sm is (st_reset_adc, st_limbo, st_config_reg1, st_config_reg2,
 signal s_adc_config_st, s_next_st : t_adc_config_sm := st_idle;
 
 signal s_leds : std_logic_vector(3 downto 0);
-
-COMPONENT vio_adc_config_driver_status_control
-  PORT (
-    clk : IN STD_LOGIC;
-    probe_in0 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in1 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
-    probe_in2 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
-    probe_in3 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
-    probe_in4 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
-    probe_in5 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
-    probe_in6 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
-    probe_in7 : IN STD_LOGIC_VECTOR(2 DOWNTO 0);
-    probe_in8 : IN STD_LOGIC_VECTOR(2 DOWNTO 0);
-    probe_in9 : IN STD_LOGIC_VECTOR(1 DOWNTO 0);
-    probe_in10 : IN STD_LOGIC_VECTOR(2 DOWNTO 0);
-    probe_in11 : IN STD_LOGIC_VECTOR(4 DOWNTO 0);
-    probe_in12 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
-    probe_in13 : IN STD_LOGIC_VECTOR(3 DOWNTO 0);
-    probe_in14 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-    probe_in15 : IN STD_LOGIC_VECTOR(1 DOWNTO 0);
-    probe_in16 : IN STD_LOGIC_VECTOR(0 DOWNTO 0)
-  );
-END COMPONENT;
+signal s_adc_config_state_encoded : std_logic_vector(2 downto 0);
 
 begin
+
+-- see t_adc_config_driver_debug_status's header comment
+proc_state_encode : process(s_adc_config_st)
+begin
+    case s_adc_config_st is
+        when st_reset_adc       => s_adc_config_state_encoded <= "000";
+        when st_limbo            => s_adc_config_state_encoded <= "001";
+        when st_config_reg1      => s_adc_config_state_encoded <= "010";
+        when st_config_reg2      => s_adc_config_state_encoded <= "011";
+        when st_config_reg3      => s_adc_config_state_encoded <= "100";
+        when st_config_reg4      => s_adc_config_state_encoded <= "101";
+        when st_trigger_debounce => s_adc_config_state_encoded <= "110";
+        when st_idle             => s_adc_config_state_encoded <= "111";
+    end case;
+end process;
+
+p_debug_status_out.state            <= s_adc_config_state_encoded;
+p_debug_status_out.registers_buffer <= s_adc_registers_buffer;
+p_debug_status_out.leds             <= s_leds;
+p_debug_status_out.trigger_internal <= s_mb_config_trigger;
+p_debug_status_out.mb_config_done   <= s_mb_config_done_buffer.q1 & s_mb_config_done_buffer.q0;
 
 proc_mux_control : process(s_adcs_config_flag)
 begin
@@ -363,30 +367,11 @@ begin
     
 end process;
 
---i_vio_adc_config_driver_status_control : vio_adc_config_driver_status_control
---  PORT MAP (
---    clk => p_clknet_in.osc_clk40,
---    probe_in0(0) => s_adcs_config_flag,
---    probe_in1 => s_adc_registers_buffer(0),
---    probe_in2 => s_adc_registers_buffer(1),
---    probe_in3 => s_adc_registers_buffer(2),
---    probe_in4 => s_adc_registers_buffer(3),
---    probe_in5 => s_adc_registers_buffer(4),
---    probe_in6 => s_fe_data(31 downto 24),
---    probe_in7 => s_fe_data(23 downto 21),
---    probe_in8 => s_fe_data(20 downto 18),
---    probe_in9 => s_fe_data(17 downto 16),
---    probe_in10 => s_fe_data(15 downto 13),
---    probe_in11 => s_fe_data(12 downto 8),
---    probe_in12 => s_fe_data(7 downto 0),
---    probe_in13 => s_leds,
---    probe_in14(0) => s_adcs_config_flag,
---    probe_in15(0) => s_mb_config_done_buffer.q0,
---    probe_in15(1) => s_mb_config_done_buffer.q1,
---    probe_in16(0) => s_mb_config_trigger
-    
---  );
-
+-- 2026-09-13: vio_adc_config_driver_status_control (a separate, never-instantiated
+-- VIO core) removed -- its useful signals (s_adc_registers_buffer, s_leds,
+-- s_mb_config_done_buffer, s_mb_config_trigger, FSM state) are now exposed via
+-- p_debug_status_out above and wired into vio_db_debug instead (see
+-- db6_mainboard_interface.vhd / db6v5_top.vhd).
 
 end Behavioral;
 

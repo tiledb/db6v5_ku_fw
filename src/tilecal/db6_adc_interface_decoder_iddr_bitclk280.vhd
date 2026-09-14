@@ -328,9 +328,14 @@ gen_adc_channels: for v_adc in 0 to 5 generate
             end if;
         end process;
 
+        -- 2026-09-13: p_clknet_in.adc_config.force_adc_readout_reset added -- see
+        -- t_debug_control_adc_config's header comment (db6_design_package.vhd). This
+        -- clears s_channel_missed_locked (the sticky "ever lost lock" latch, proc_mon
+        -- above) too, not just the front-end capture logic in the io layer.
         s_cdc_reset_in(v_adc)<= (p_db_reg_rx_in(cfb_strobe_reg)(c_adc_readout_reset_channel_5_bit-v_adc)) or
                           (p_db_reg_rx_in(cfb_strobe_reg)(c_adc_readout_reset_bit)) or
                           (p_master_reset_in) or
+                          (p_clknet_in.adc_config.force_adc_readout_reset) or
                           (not p_clknet_in.mb_fpga_reset_low.q0) or
                           (not p_clknet_in.mb_fpga_reset_low.q1) or
                           (not p_adc_readout_control_in.adc_config_done);

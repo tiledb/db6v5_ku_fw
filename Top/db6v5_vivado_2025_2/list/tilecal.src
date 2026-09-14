@@ -13,9 +13,11 @@ src/tilecal/db6_adc_interface_decoder_iddr.vhd
 src/tilecal/db6_adc_interface_decoder_iddr_bitclk240.vhd
 src/tilecal/db6_adc_interface_decoder_iddr_bitclk280.vhd
 src/tilecal/db6_adc_interface_decoder_iddr_bitclk280_ddcounter.vhd
+src/tilecal/db6_adc_interface_decoder_iddr_bitclk280_serdes140.vhd
 src/tilecal/db6_adc_interface_decoder_iserdese.vhd
 src/tilecal/db6_adc_interface_io_iddr_bitclk240.vhd
 src/tilecal/db6_adc_interface_io_iddr_bitclk280.vhd
+src/tilecal/db6_adc_interface_io_iddr_bitclk280_serdes140.vhd
 src/tilecal/db6_adc_interface_io_iserdese.vhd
 src/tilecal/db6_adc_interface_io_hss.vhd
 src/tilecal/db6_adc_interface_iserdese.vhd

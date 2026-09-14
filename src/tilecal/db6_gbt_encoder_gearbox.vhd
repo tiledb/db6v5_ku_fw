@@ -83,7 +83,11 @@ architecture Behavioral of db6_gbt_encoder_gearbox is
 
 begin
     p_gbt_encoder_interface_out.gbt_tx_data_out.lg <= s_gbt_encoder_interface.gbt_tx_data_out.lg;--p_gbt_encoder_interface_in.gbt_tx_data_out.lg;
-    p_gbt_encoder_interface_out.gbt_tx_data_out.hg <= s_gbt_encoder_interface.gbt_tx_data_out.lg;--p_gbt_encoder_interface_in.gbt_tx_data_out.hg;
+    -- 2026-09-13: was reading .lg here (copy-paste bug) -- fed the ila_gbt_encoder's
+    -- HG-labeled debug probes with LG data instead. Did not affect the actual
+    -- transmitted word (tx_data_i/tx_extra_data_widebus_i in db6_gbt_encoder.vhd use
+    -- .sync, not .hg/.lg directly), only the debug view.
+    p_gbt_encoder_interface_out.gbt_tx_data_out.hg <= s_gbt_encoder_interface.gbt_tx_data_out.hg;
     p_gbt_encoder_interface_out.gbt_tx_data_out.sync <= s_gbt_encoder_interface.gbt_tx_data_out.sync;
     p_gbt_encoder_interface_out.data_phase <= s_data_phase;
     p_gbt_encoder_interface_out.data_phase_sync <= s_data_phase_sync;

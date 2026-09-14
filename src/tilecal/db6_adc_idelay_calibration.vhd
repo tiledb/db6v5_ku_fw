@@ -167,10 +167,22 @@ begin
             end if;
         end process;
 
-        -- cfgbus_clk40 domain: tap sweep / lock-window search FSM
-        proc_calibration_fsm : process(p_clknet_in.cfgbus_clk40, p_master_reset_in)
+        -- cfgbus_clk40 domain: tap sweep / lock-window search FSM. 2026-09-13: the only
+        -- way back to st_idle from st_locked/st_failed used to be a full
+        -- p_master_reset_in -- once locked, a LATER ADC reconfiguration (e.g. enabling
+        -- OUTTEST test pattern mode, which involves db6_adc_config_driver.vhd's
+        -- st_reset_adc sending an actual reset command to the physical ADC chip) never
+        -- re-triggers this sweep, even though the ADC's LVDS serializer restarting can
+        -- shift its output word-boundary phase. p_clknet_in.adc_config.force_recalibrate
+        -- (new VIO button, see db6v5_top.vhd's probe_out10 bit 7) gives a lightweight
+        -- way to force a fresh sweep without a disruptive full system reset.
+        -- 2026-09-13: p_clknet_in.adc_config.force_adc_readout_reset (the broader,
+        -- all-scheme front-end reset -- see its header comment) also forces a fresh
+        -- sweep here, same as force_recalibrate alone did, so pulsing that one button
+        -- covers both the front-end capture logic and this calibration engine.
+        proc_calibration_fsm : process(p_clknet_in.cfgbus_clk40, p_master_reset_in, p_clknet_in.adc_config.force_recalibrate, p_clknet_in.adc_config.force_adc_readout_reset)
         begin
-            if p_master_reset_in = '1' then
+            if p_master_reset_in = '1' or p_clknet_in.adc_config.force_recalibrate = '1' or p_clknet_in.adc_config.force_adc_readout_reset = '1' then
                 s_state(v_adc) <= st_idle;
                 s_tap(v_adc) <= 0;
                 s_run_len(v_adc) <= 0;

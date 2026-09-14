@@ -479,7 +479,10 @@ gen_adc_channels: for v_adc in 0 to 5 generate
     s_hg_idelay_count_in_from_sm(v_adc) <= to_integer(unsigned(p_adc_readout_control_in.hg_idelay_count(v_adc)));
 
 
-    s_bufgce_div_ctrl_reset_async(v_adc)<=p_master_reset_in or (p_db_reg_rx_in(cfb_strobe_reg)(c_adc_readout_reset_bit)) or (p_db_reg_rx_in(cfb_strobe_reg)(c_adc_readout_reset_channel_0_bit+v_adc));
+    -- 2026-09-13: p_clknet_in.adc_config.force_adc_readout_reset added alongside the
+    -- existing configbus-driven reset sources -- see t_debug_control_adc_config's
+    -- header comment (db6_design_package.vhd).
+    s_bufgce_div_ctrl_reset_async(v_adc)<=p_master_reset_in or (p_db_reg_rx_in(cfb_strobe_reg)(c_adc_readout_reset_bit)) or (p_db_reg_rx_in(cfb_strobe_reg)(c_adc_readout_reset_channel_0_bit+v_adc)) or p_clknet_in.adc_config.force_adc_readout_reset;
 
     -- gen_enable_bitclkdiv's BUFGCE_DIV clr is a plain synchronous-clear input on that
     -- primitive's own input clock (s_bitclk_se(v_adc)) -- a standard 2-flop reset

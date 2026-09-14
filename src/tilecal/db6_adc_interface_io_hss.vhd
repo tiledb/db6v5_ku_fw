@@ -470,9 +470,13 @@ begin
         I => s_adc_rx_clk_raw(i)
         );
 
-    proc_reset_sync : process(p_clknet_in.cfgbus_clk40, p_master_reset_in)
+    -- 2026-09-13: p_clknet_in.adc_config.force_adc_readout_reset added alongside
+    -- p_master_reset_in -- see t_debug_control_adc_config's header comment
+    -- (db6_design_package.vhd); same lightweight front-end reset available on every
+    -- g_adc_clocking_scheme variant.
+    proc_reset_sync : process(p_clknet_in.cfgbus_clk40, p_master_reset_in, p_clknet_in.adc_config.force_adc_readout_reset)
     begin
-        if p_master_reset_in = '1' then
+        if p_master_reset_in = '1' or p_clknet_in.adc_config.force_adc_readout_reset = '1' then
             s_rst(i)    <= '1';
             s_en_vtc(i) <= '0';
         elsif rising_edge(p_clknet_in.cfgbus_clk40) then
