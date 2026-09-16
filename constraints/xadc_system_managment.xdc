@@ -19,15 +19,12 @@ set_property PULLTYPE PULLUP [get_ports {p_xadc_i2c_inout[sda]}]
 
 
 #p_good
-set_property PACKAGE_PIN R18 [get_ports {p_pgood_in[mb_5v0_n_3v3]}]
 set_property IOSTANDARD LVCMOS18 [get_ports {p_pgood_in[mb_5v0_n_3v3]}]
 set_property IOSTANDARD LVCMOS18 [get_ports {p_pgood_in[mb_2v5_1v2]}]
 set_property IOSTANDARD LVCMOS18 [get_ports {p_pgood_in[mb_5v0_1v8]}]
-set_property PACKAGE_PIN T18 [get_ports {p_pgood_in[mb_10v0]}]
 set_property IOSTANDARD LVCMOS25 [get_ports {p_pgood_in[mb_10v0]}]
 
 
-set_property PACKAGE_PIN P12 [get_ports {p_xadc_analog_in[v][p]}]
 
 
 # Input clock periods. These duplicate the values entered for the
@@ -120,6 +117,7 @@ set_property PACKAGE_PIN P12 [get_ports {p_xadc_analog_in[v][p]}]
 ##set_false_path -to [get_pins -hierarchical -filter {NAME =~ *inst_sysmon*/RESET}]
 #set_false_path -to [get_pins -of [get_cells -hier -filter {NAME =~ *inst_sysmon*}] -filter {NAME =~*RESET}]
 #set_property DONT_TOUCH true [get_cells -hierarchical -filter {NAME =~*/inst_sysmon*}]
+
 
 
 

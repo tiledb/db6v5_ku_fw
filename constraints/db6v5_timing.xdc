@@ -284,3 +284,16 @@ set_clock_groups -asynchronous -group [get_clocks {p_gbt_cfgbus_clk40_local_in[p
 set_clock_groups -asynchronous -group [get_clocks {p_gbt_cfgbus_clk40_local_in[p]}] -group [get_clocks p_clk200_out_pll_osc_clk]
 
 
+# 2026-09-15: user-requested test -- pair p_clk40_out_pll_osc_clk against each
+# s_adc_bitclkdiv[N] individually. NOTE: this exact exception was already tried and
+# reverted in an earlier session (blanket set_clock_groups version) -- it cleared this
+# STA violation but caused a confirmed hardware regression (db6_adc_config_driver FSM
+# livelock). Being re-tested here at the user's request; see memory
+# adc-bitclkdiv-osc-clk40-missing-async-group for the full history before trusting a
+# clean report_timing_summary on this change alone.
+set_clock_groups -asynchronous -group [get_clocks {p_clk40_out_pll_osc_clk}] -group [get_clocks {s_adc_bitclkdiv[0]}]
+set_clock_groups -asynchronous -group [get_clocks {p_clk40_out_pll_osc_clk}] -group [get_clocks {s_adc_bitclkdiv[1]}]
+set_clock_groups -asynchronous -group [get_clocks {p_clk40_out_pll_osc_clk}] -group [get_clocks {s_adc_bitclkdiv[2]}]
+set_clock_groups -asynchronous -group [get_clocks {p_clk40_out_pll_osc_clk}] -group [get_clocks {s_adc_bitclkdiv[3]}]
+set_clock_groups -asynchronous -group [get_clocks {p_clk40_out_pll_osc_clk}] -group [get_clocks {s_adc_bitclkdiv[4]}]
+set_clock_groups -asynchronous -group [get_clocks {p_clk40_out_pll_osc_clk}] -group [get_clocks {s_adc_bitclkdiv[5]}]

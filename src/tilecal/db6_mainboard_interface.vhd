@@ -958,7 +958,7 @@ s_adc_register_config_from_readout.mode                  <= p_clknet_in.adc_conf
 s_adc_register_config_from_readout.trigger_mb_adc_config  <= p_clknet_in.adc_config.trigger_mb_adc_config;
 s_adc_config_reset <= p_master_reset_in(c_adc_config_reset_bit) or p_db_reg_rx_in(cfb_strobe_reg)(c_adc_config_reset_bit);
 
-proc_test_mode: process(p_clknet_in.adc_config.test_pattern_enable)
+proc_test_mode: process(p_clknet_in.adc_config.test_pattern_enable, p_clknet_in.adc_config.mode)
 begin
     if (p_clknet_in.adc_config.test_pattern_enable = '1') then
         s_adc_register_config_from_readout.adc_registers(3) <= '1' & '0' & p_clknet_in.adc_config.test_pattern_value(13 downto 8);

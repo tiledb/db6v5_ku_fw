@@ -20,6 +20,7 @@ src/ip/vivado_2025_2/blk_mem_gbtx_regs.xcix
 src/ip/vivado_2025_2/blk_mem_flash_page.xcix
 src/ip/vivado_2025_2/blk_mem_gbt_sc.xcix
 src/ip/vivado_2025_2/blk_mem_sfp.xcix
+src/ip/vivado_2025_2/blk_mem_data_readout_inject.xcix
 src/ip/vivado_2025_2/counter_binary_32bit.xcix
 src/ip/vivado_2025_2/counter_binary_48bit.xcix
 src/ip/vivado_2025_2/counter_binary_8bit.xcix

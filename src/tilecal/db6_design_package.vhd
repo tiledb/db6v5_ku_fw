@@ -104,6 +104,31 @@ package db6_design_package is
         doutb : STD_LOGIC_VECTOR(7 DOWNTO 0);
     end record;
 
+    -- 3564x14 (c_lhc_bunches_between_bcr-deep) True Dual Port RAM: db6_data_readout_inject_debug's
+    -- pulse-injection waveform. Port a is the free-running playback port -- always
+    -- addressed by p_clknet_in.bcr.count(11 downto 0), read-only (wea tied '0') --
+    -- port b is the manual read/write access port, shared (OR'd, same "don't drive
+    -- both non-zero at once" idiom as s_gbtx_reg_readback_address) between
+    -- cfb_db_inject_pulse (db_reg_rx/tx) and probe_out19/probe_in89 (vio_db_debug).
+    -- Data width matches c_adc_bit_number (14) so a stored word plugs directly into
+    -- t_adc_readout.hg_data/lg_data with no reformatting -- only the 12 MSBs
+    -- (13 downto 2) are meaningful, mirroring db6_gbt_encoder_adc_data's own
+    -- "(13 downto 2)" truncation of real ADC samples; those 12 bits are a SIGNED
+    -- (two's complement) offset from p_data_readout_inject_control_in.pedestal, so a
+    -- stored negative value reads back as an undershoot below the pedestal baseline.
+    type t_blk_mem_data_readout_inject is record
+        clka  : STD_LOGIC;
+        wea   : STD_LOGIC_VECTOR(0 DOWNTO 0);
+        addra : STD_LOGIC_VECTOR(11 DOWNTO 0);
+        dina  : STD_LOGIC_VECTOR(13 DOWNTO 0);
+        douta : STD_LOGIC_VECTOR(13 DOWNTO 0);
+        clkb  : STD_LOGIC;
+        web   : STD_LOGIC_VECTOR(0 DOWNTO 0);
+        addrb : STD_LOGIC_VECTOR(11 DOWNTO 0);
+        dinb  : STD_LOGIC_VECTOR(13 DOWNTO 0);
+        doutb : STD_LOGIC_VECTOR(13 DOWNTO 0);
+    end record;
+
     -- 256x8 True Dual Port RAM: one flash page, filled by db7_is25lp256_driver's
     -- PAGE_READ burst on port a, walked one byte at a time via cfb_flash_page_ram_address
     -- on port b (same commanded-address readback idiom as t_blk_mem_gbtx_regs above).
@@ -885,7 +910,15 @@ end record;
         channel_enable_test_pattern : std_logic_vector (5 downto 0);
         channel_lg_data_test_pattern            : t_adc_data;
         channel_hg_data_test_pattern            : t_adc_data;
-    
+
+        -- 2026-09-14: db6_data_readout_inject_debug status, carried on the same
+        -- s_mb_interface_gbt_tx record that db6v5_top splices hg_data/lg_data into
+        -- (see that entity's header) so db6_gbt_encoder_sc can pick it up exactly like
+        -- every other adc_readout status field above, with no extra port threading
+        -- through the sfp_interface/gbt_gth_interface/gbt_encoder chain.
+        data_readout_inject_active    : std_logic;
+        data_readout_inject_ram_rdata : std_logic_vector(13 downto 0);
+
 	    readout_initialized : std_logic;
 	        
 	    mb_adc_config_control : t_adc_register_config;
@@ -1152,7 +1185,7 @@ end record;
 	type t_gbt_reg_addr_type is array (natural range <>) of integer;
 
 --gbttx registers
-    constant c_number_of_gbttx_regs : integer := 42+1;--14+1;-- 21 + 1;
+    constant c_number_of_gbttx_regs : integer := 43+1;--14+1;-- 21 + 1;
     type t_db_reg_tx is array (integer range 0 to c_number_of_gbttx_regs-1) of std_logic_vector(31 downto 0);
     type t_db_reg_tx_lut is array (integer range 0 to c_number_of_gbttx_regs-1) of std_logic_vector(15 downto 0);
     
@@ -1251,6 +1284,12 @@ end record;
     -- on an error *count* is an acceptable trade avoiding a 3rd/4th register.
     constant stb_sem_error_counters : integer := 40+1;   -- bits15:0=total_errors(15:0), bits31:16=uncorrectable_errors(15:0)
     constant stb_sem_injected_errors : integer := 41+1;  -- bits30:0=injected_errors(30:0), bit31=sem_fatal_error
+    -- db6_data_readout_inject_debug port b commanded-address readback (same idiom as
+    -- stb_flash_page_ram_readback/stb_gbtx_reg_readback): bits13:0=ram_rdata (current
+    -- t_blk_mem_data_readout_inject.doutb, addressed by cfb_db_inject_pulse.ram_addr
+    -- ORed with probe_out19's ram_addr), bit14=active (injection currently overriding
+    -- hg_data/lg_data, i.e. cfb_db_inject_pulse.enable or probe_out19.enable is set).
+    constant stb_db_inject_ram_rdata : integer := 42+1;
 
 constant c_db_reg_tx_lut : t_db_reg_tx_lut := (
     x"0" & x"001", --stb_mb,
@@ -1311,14 +1350,15 @@ constant c_db_reg_tx_lut : t_db_reg_tx_lut := (
     x"0" & x"34f", --stb_flash_page_ram_readback
     x"0" & x"350", --stb_flash_fifo_status
     x"0" & x"102", --stb_sem_error_counters (reuses an address freed by the Hog register removal above)
-    x"0" & x"103"  --stb_sem_injected_errors (reuses an address freed by the Hog register removal above)
+    x"0" & x"103", --stb_sem_injected_errors (reuses an address freed by the Hog register removal above)
+    x"0" & x"351"  --stb_db_inject_ram_rdata
     );
 
 
 
 
 -- new code for configbus register arrays
-    constant c_number_of_cfgbus_regs : integer := 23+1; --75 + 1;
+    constant c_number_of_cfgbus_regs : integer := 24+1; --75 + 1;
     type t_db_reg_rx is array (integer range 0 to c_number_of_cfgbus_regs-1) of std_logic_vector(31 downto 0);
     type t_db_reg_rx_tmr is array (integer range 0 to 2) of t_db_reg_rx;
     type t_db_reg_rx_lut is array (integer range 0 to c_number_of_cfgbus_regs-1) of std_logic_vector(11 downto 0);
@@ -1370,6 +1410,19 @@ constant c_db_reg_tx_lut : t_db_reg_tx_lut := (
         -- stb_flash_fifo_status for fill/full/empty), bits7:0=data byte. Pushes
         -- {cfb_flash_fifo_addr, bits7:0} as one fifo entry.
         constant cfb_flash_fifo_push        : integer := 23;
+        -- 2026-09-14: db6_data_readout_inject_debug manual/register access (see that
+        -- entity's header and t_blk_mem_data_readout_inject above). bit0=enable
+        -- (ORed with probe_out19's enable bit -- either source can turn injection on),
+        -- bit1=ram_we (flip to write ram_wdata at ram_addr into port b, same
+        -- push-toggle idiom as cfb_flash_fifo_push), bits15:2=ram_wdata (14 bit,
+        -- signed pedestal-relative sample), bits27:16=ram_addr (12 bit, 0..3563).
+        constant cfb_db_inject_pulse        : integer := 24;
+        constant c_db_inject_pulse_enable_bit        : integer := 0;
+        constant c_db_inject_pulse_ram_we_bit        : integer := 1;
+        constant c_db_inject_pulse_ram_wdata_lsb_bit : integer := 2;
+        constant c_db_inject_pulse_ram_wdata_msb_bit : integer := 15;
+        constant c_db_inject_pulse_ram_addr_lsb_bit  : integer := 16;
+        constant c_db_inject_pulse_ram_addr_msb_bit  : integer := 27;
         constant bc_number                  : integer := 4;--16; -- bunch crossing number counter
 --        constant cfb_adc_readout       : integer := 16;
 --        constant cfb_wr_strobe              : integer := 17; -- strobe indicating write to a cfb register 
@@ -1589,7 +1642,8 @@ constant c_db_reg_tx_lut : t_db_reg_tx_lut := (
         x"014", --cfb_flash_write_floor,
         x"015", --cfb_flash_page_ram_address,
         x"016", --cfb_flash_fifo_addr,
-        x"017" --cfb_flash_fifo_push,
+        x"017", --cfb_flash_fifo_push,
+        x"018" --cfb_db_inject_pulse,
 --        x"010" --cfb_adc_readout,
 --        x"011", --cfb_wr_strobe,
 --     --advanced configbus registers
@@ -2185,13 +2239,30 @@ type t_mmcm_clk_control_array is array (0 to 1) of t_mmcm_clk_control;
         channel_select : std_logic_vector(2 downto 0);
     end record;
 
+    -- 2026-09-14: db6_data_readout_inject_debug's vio-driven controls (probe_out19 --
+    -- see db6v5_top.vhd). enable is ORed with cfb_db_inject_pulse's own enable bit
+    -- (c_db_inject_pulse_enable_bit) -- either source turns injection on. pedestal is
+    -- the 13 bit baseline added (saturating, 0..4095) to the ram's signed 12 bit
+    -- sample to form the injected hg_data/lg_data word. ram_addr/ram_wdata/ram_we are
+    -- the manual port b access path (0->1 edge on ram_we writes ram_wdata at ram_addr,
+    -- same arm-on-edge idiom as t_debug_control_data_readout.trigger), ORed against
+    -- cfb_db_inject_pulse's own ram_addr/ram_wdata/ram_we for the same access.
+    type t_debug_control_data_readout_inject is record
+        enable    : std_logic;
+        pedestal  : std_logic_vector(12 downto 0);
+        ram_addr  : std_logic_vector(11 downto 0);
+        ram_wdata : std_logic_vector(13 downto 0);
+        ram_we    : std_logic;
+    end record;
+
     type t_debug_control is record
-        clknet       : t_debug_control_clknet;
-        adc_readout  : t_debug_control_adc_readout;
-        adc_config   : t_debug_control_adc_config;
-        cis          : t_debug_control_cis;
-        flash        : t_debug_control_flash;
-        data_readout : t_debug_control_data_readout;
+        clknet              : t_debug_control_clknet;
+        adc_readout         : t_debug_control_adc_readout;
+        adc_config          : t_debug_control_adc_config;
+        cis                 : t_debug_control_cis;
+        flash               : t_debug_control_flash;
+        data_readout        : t_debug_control_data_readout;
+        data_readout_inject : t_debug_control_data_readout_inject;
     end record;
 
     -- 2026-09-13: db6_data_readout_debug's vio-facing status readback -- captured goes
@@ -2205,6 +2276,14 @@ type t_mmcm_clk_control_array is array (0 to 1) of t_mmcm_clk_control;
         hg_data  : std_logic_vector(c_adc_bit_number-1 downto 0);
         lg_data  : std_logic_vector(c_adc_bit_number-1 downto 0);
         fc_data  : std_logic_vector(c_adc_bit_number-1 downto 0);
+    end record;
+
+    -- db6_data_readout_inject_debug's vio-facing status (probe_in89) -- active mirrors
+    -- t_mb_interface.adc_readout.data_readout_inject_active (also on stb_db_inject_ram_rdata
+    -- bit14, see above), ram_rdata is the live port b readback (t_blk_mem_data_readout_inject.doutb).
+    type t_data_readout_inject_debug_status is record
+        active    : std_logic;
+        ram_rdata : std_logic_vector(13 downto 0);
     end record;
 
     -- 2026-09-12: GTH/QPLL link clock-select + lock-status fields for vio_db_debug's

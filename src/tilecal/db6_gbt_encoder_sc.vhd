@@ -283,6 +283,13 @@ s_db_reg_tx_in(stb_sfp_ddm_tec_current)(31 downto 16)       <= p_sfp_interface_i
 
 s_db_reg_tx_in(stb_db_status)(c_db_status_bcr_locked_bit) <= p_clknet_in.bcr.bcr_locked;
 
+-- db6_data_readout_inject_debug status, carried on p_mb_interface_in.adc_readout --
+-- see db6v5_top.vhd's s_mb_interface_gbt_tx splice and t_adc_readout's
+-- data_readout_inject_active/data_readout_inject_ram_rdata fields.
+s_db_reg_tx_in(stb_db_inject_ram_rdata)(13 downto 0)  <= p_mb_interface_in.adc_readout.data_readout_inject_ram_rdata;
+s_db_reg_tx_in(stb_db_inject_ram_rdata)(14)           <= p_mb_interface_in.adc_readout.data_readout_inject_active;
+s_db_reg_tx_in(stb_db_inject_ram_rdata)(31 downto 15) <= (others => '0');
+
 s_db_reg_tx_in(stb_adc_readout_status)(c_adc_config_done_bit) <= p_mb_interface_in.adc_readout_control.adc_config_done;
 gen_adc_channels: for v_adc in 0 to 5 generate 
     s_db_reg_tx_in(stb_adc_readout_status)(c_adc_readout_status_adc_missalignment_bit(v_adc)) <= p_mb_interface_in.adc_readout.channel_frame_missalignemt(v_adc);

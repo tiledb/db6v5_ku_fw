@@ -156,6 +156,13 @@ architecture Behavioral of db6_adc_interface_decoder_iserdese is
             channel_pedestal_test_overflow => (others=> '0'),
             channel_pedestal_test_underflow => (others=> '0'),
                     
+            -- 2026-09-14: db6_data_readout_inject_debug status fields (see
+            -- db6_design_package.vhd / db6v5_top.vhd's s_mb_interface_gbt_tx splice) --
+            -- not driven here, only by that splice; initialized off like every other
+            -- status field in this aggregate.
+            data_readout_inject_active => '0',
+            data_readout_inject_ram_rdata => (others => '0'),
+
             readout_initialized => '0',
             
             mb_adc_config_control => c_adc_register_init_config_14_bit,

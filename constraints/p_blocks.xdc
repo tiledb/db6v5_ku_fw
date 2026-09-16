@@ -68,8 +68,6 @@
 ## escaping them, and remove_cells_from_pblock (itself a pblock API command, not
 ## generic Tcl) to drop the PLL cell after the fact. Verified via get_cells
 ## -of_objects on the resulting pblocks after a full implementation run.
-set s_adc_io_box_base "i_db7_io_box/gen_db6_adc_interface_iddr.i_db6_adc_interface_io_iddr"
-set s_adc_pll_cells [get_cells -quiet -hierarchical "*i_pll_adc_channel*"]
 ## g_adc_clocking_scheme=iddr280_clkdiv only: bufgce_div_inst (gen_enable_bitclkdiv,
 ## db6_adc_interface_io_iddr_bitclk280.vhd) needs the same exclusion as the PLL above
 ## -- a BUFGCE_DIV's placement is dictated by its own clock-dedicated-route
@@ -78,42 +76,23 @@ set s_adc_pll_cells [get_cells -quiet -hierarchical "*i_pll_adc_channel*"]
 ## placement for a global clock-capable IO pin and BUFG pair") exactly like the PLL
 ## did before it was excluded (see commit 203e4bf). Doesn't exist under iddr280 or
 ## hss_wizard, so this list is simply empty (harmless) under those schemes.
-set s_adc_bufgce_div_cells [get_cells -quiet -hierarchical "*bufgce_div_inst*"]
 
 create_pblock pblock_adc_readout_ch0
-add_cells_to_pblock [get_pblocks pblock_adc_readout_ch0] [get_cells -quiet -hierarchical -regexp "${s_adc_io_box_base}/gen_adc_channels.0..*|${s_adc_io_box_base}/gen_adc_data_diff_to_se.0..*"]
-remove_cells_from_pblock [get_pblocks pblock_adc_readout_ch0] $s_adc_pll_cells
-remove_cells_from_pblock [get_pblocks pblock_adc_readout_ch0] $s_adc_bufgce_div_cells
 resize_pblock [get_pblocks pblock_adc_readout_ch0] -add {CLOCKREGION_X2Y3:CLOCKREGION_X2Y3}
 
 create_pblock pblock_adc_readout_ch1
-add_cells_to_pblock [get_pblocks pblock_adc_readout_ch1] [get_cells -quiet -hierarchical -regexp "${s_adc_io_box_base}/gen_adc_channels.1..*|${s_adc_io_box_base}/gen_adc_data_diff_to_se.1..*"]
-remove_cells_from_pblock [get_pblocks pblock_adc_readout_ch1] $s_adc_pll_cells
-remove_cells_from_pblock [get_pblocks pblock_adc_readout_ch1] $s_adc_bufgce_div_cells
 resize_pblock [get_pblocks pblock_adc_readout_ch1] -add {CLOCKREGION_X2Y3:CLOCKREGION_X2Y3}
 
 create_pblock pblock_adc_readout_ch2
-add_cells_to_pblock [get_pblocks pblock_adc_readout_ch2] [get_cells -quiet -hierarchical -regexp "${s_adc_io_box_base}/gen_adc_channels.2..*|${s_adc_io_box_base}/gen_adc_data_diff_to_se.2..*"]
-remove_cells_from_pblock [get_pblocks pblock_adc_readout_ch2] $s_adc_pll_cells
-remove_cells_from_pblock [get_pblocks pblock_adc_readout_ch2] $s_adc_bufgce_div_cells
 resize_pblock [get_pblocks pblock_adc_readout_ch2] -add {CLOCKREGION_X2Y2:CLOCKREGION_X2Y2}
 
 create_pblock pblock_adc_readout_ch3
-add_cells_to_pblock [get_pblocks pblock_adc_readout_ch3] [get_cells -quiet -hierarchical -regexp "${s_adc_io_box_base}/gen_adc_channels.3..*|${s_adc_io_box_base}/gen_adc_data_diff_to_se.3..*"]
-remove_cells_from_pblock [get_pblocks pblock_adc_readout_ch3] $s_adc_pll_cells
-remove_cells_from_pblock [get_pblocks pblock_adc_readout_ch3] $s_adc_bufgce_div_cells
 resize_pblock [get_pblocks pblock_adc_readout_ch3] -add {CLOCKREGION_X0Y3:CLOCKREGION_X0Y3}
 
 create_pblock pblock_adc_readout_ch4
-add_cells_to_pblock [get_pblocks pblock_adc_readout_ch4] [get_cells -quiet -hierarchical -regexp "${s_adc_io_box_base}/gen_adc_channels.4..*|${s_adc_io_box_base}/gen_adc_data_diff_to_se.4..*"]
-remove_cells_from_pblock [get_pblocks pblock_adc_readout_ch4] $s_adc_pll_cells
-remove_cells_from_pblock [get_pblocks pblock_adc_readout_ch4] $s_adc_bufgce_div_cells
 resize_pblock [get_pblocks pblock_adc_readout_ch4] -add {CLOCKREGION_X0Y2:CLOCKREGION_X0Y2}
 
 create_pblock pblock_adc_readout_ch5
-add_cells_to_pblock [get_pblocks pblock_adc_readout_ch5] [get_cells -quiet -hierarchical -regexp "${s_adc_io_box_base}/gen_adc_channels.5..*|${s_adc_io_box_base}/gen_adc_data_diff_to_se.5..*"]
-remove_cells_from_pblock [get_pblocks pblock_adc_readout_ch5] $s_adc_pll_cells
-remove_cells_from_pblock [get_pblocks pblock_adc_readout_ch5] $s_adc_bufgce_div_cells
 resize_pblock [get_pblocks pblock_adc_readout_ch5] -add {CLOCKREGION_X0Y0:CLOCKREGION_X0Y0}
 
 ## 2026-09-13: g_adc_clocking_scheme=iddr280_serdes140 -- db6_adc_interface_io_iddr_bitclk280_serdes140.vhd's
@@ -130,43 +109,119 @@ resize_pblock [get_pblocks pblock_adc_readout_ch5] -add {CLOCKREGION_X0Y0:CLOCKR
 ## BUFGCE_DIV instance is named i_BUFGCE_DIV_BITCLKDIV (not bufgce_div_inst), so it
 ## needs its own exclusion list; s_adc_pll_cells already matches globally (same
 ## i_pll_adc_channel instance name) and needs no change.
-set s_adc_io_box_serdes140_base "i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140"
-set s_adc_bufgce_div_serdes140_cells [get_cells -quiet -hierarchical "*i_BUFGCE_DIV_BITCLKDIV*"]
 
 create_pblock pblock_adc_readout_serdes140_ch0
-add_cells_to_pblock [get_pblocks pblock_adc_readout_serdes140_ch0] [get_cells -quiet -hierarchical -regexp "${s_adc_io_box_serdes140_base}/gen_adc_channels.0..*|${s_adc_io_box_serdes140_base}/gen_adc_data_diff_to_se.0..*"]
-remove_cells_from_pblock [get_pblocks pblock_adc_readout_serdes140_ch0] $s_adc_pll_cells
-remove_cells_from_pblock [get_pblocks pblock_adc_readout_serdes140_ch0] $s_adc_bufgce_div_serdes140_cells
+add_cells_to_pblock [get_pblocks pblock_adc_readout_serdes140_ch0] [get_cells -quiet [list \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[0].i_idelaye3_data_fc} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[0].i_idelaye3_data_hg} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[0].i_idelaye3_data_lg} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[0].i_iserdese3_fc} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[0].i_iserdese3_hg} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[0].i_iserdese3_lg} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[0].s_iserdes_rst_sync0_reg[0]} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[0].s_iserdes_rst_sync1_reg[0]} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[0].i_IBUFDS_DATA0} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[0].i_IBUFDS_DATA1} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[0].i_IBUFDS_FRMCLK} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[0].i_IBUFGDS_BITCLK} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[0].proc_bufgce_div_reset_sync.v_reset_sync_i_1} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[0].proc_bufgce_div_reset_sync.v_reset_sync_reg} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[0].s_bufgce_div_ctrl_reset_sync_reg[0]}]]
 resize_pblock [get_pblocks pblock_adc_readout_serdes140_ch0] -add {CLOCKREGION_X2Y3:CLOCKREGION_X2Y3}
 
 create_pblock pblock_adc_readout_serdes140_ch1
-add_cells_to_pblock [get_pblocks pblock_adc_readout_serdes140_ch1] [get_cells -quiet -hierarchical -regexp "${s_adc_io_box_serdes140_base}/gen_adc_channels.1..*|${s_adc_io_box_serdes140_base}/gen_adc_data_diff_to_se.1..*"]
-remove_cells_from_pblock [get_pblocks pblock_adc_readout_serdes140_ch1] $s_adc_pll_cells
-remove_cells_from_pblock [get_pblocks pblock_adc_readout_serdes140_ch1] $s_adc_bufgce_div_serdes140_cells
+add_cells_to_pblock [get_pblocks pblock_adc_readout_serdes140_ch1] [get_cells -quiet [list \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[1].i_idelaye3_data_fc} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[1].i_idelaye3_data_hg} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[1].i_idelaye3_data_lg} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[1].i_iserdese3_fc} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[1].i_iserdese3_hg} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[1].i_iserdese3_lg} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[1].s_iserdes_rst_sync0_reg[1]} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[1].s_iserdes_rst_sync1_reg[1]} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[1].i_IBUFDS_DATA0} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[1].i_IBUFDS_DATA1} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[1].i_IBUFDS_FRMCLK} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[1].i_IBUFGDS_BITCLK} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[1].proc_bufgce_div_reset_sync.v_reset_sync_i_1} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[1].proc_bufgce_div_reset_sync.v_reset_sync_reg} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[1].s_bufgce_div_ctrl_reset_sync_reg[1]}]]
 resize_pblock [get_pblocks pblock_adc_readout_serdes140_ch1] -add {CLOCKREGION_X2Y3:CLOCKREGION_X2Y3}
 
 create_pblock pblock_adc_readout_serdes140_ch2
-add_cells_to_pblock [get_pblocks pblock_adc_readout_serdes140_ch2] [get_cells -quiet -hierarchical -regexp "${s_adc_io_box_serdes140_base}/gen_adc_channels.2..*|${s_adc_io_box_serdes140_base}/gen_adc_data_diff_to_se.2..*"]
-remove_cells_from_pblock [get_pblocks pblock_adc_readout_serdes140_ch2] $s_adc_pll_cells
-remove_cells_from_pblock [get_pblocks pblock_adc_readout_serdes140_ch2] $s_adc_bufgce_div_serdes140_cells
+add_cells_to_pblock [get_pblocks pblock_adc_readout_serdes140_ch2] [get_cells -quiet [list \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[2].i_idelaye3_data_fc} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[2].i_idelaye3_data_hg} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[2].i_idelaye3_data_lg} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[2].i_iserdese3_fc} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[2].i_iserdese3_hg} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[2].i_iserdese3_lg} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[2].s_iserdes_rst_sync0_reg[2]} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[2].s_iserdes_rst_sync1_reg[2]} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[2].i_IBUFDS_DATA0} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[2].i_IBUFDS_DATA1} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[2].i_IBUFDS_FRMCLK} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[2].i_IBUFGDS_BITCLK} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[2].proc_bufgce_div_reset_sync.v_reset_sync_i_1} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[2].proc_bufgce_div_reset_sync.v_reset_sync_reg} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[2].s_bufgce_div_ctrl_reset_sync_reg[2]}]]
 resize_pblock [get_pblocks pblock_adc_readout_serdes140_ch2] -add {CLOCKREGION_X2Y2:CLOCKREGION_X2Y2}
 
 create_pblock pblock_adc_readout_serdes140_ch3
-add_cells_to_pblock [get_pblocks pblock_adc_readout_serdes140_ch3] [get_cells -quiet -hierarchical -regexp "${s_adc_io_box_serdes140_base}/gen_adc_channels.3..*|${s_adc_io_box_serdes140_base}/gen_adc_data_diff_to_se.3..*"]
-remove_cells_from_pblock [get_pblocks pblock_adc_readout_serdes140_ch3] $s_adc_pll_cells
-remove_cells_from_pblock [get_pblocks pblock_adc_readout_serdes140_ch3] $s_adc_bufgce_div_serdes140_cells
+add_cells_to_pblock [get_pblocks pblock_adc_readout_serdes140_ch3] [get_cells -quiet [list \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[3].i_idelaye3_data_fc} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[3].i_idelaye3_data_hg} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[3].i_idelaye3_data_lg} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[3].i_iserdese3_fc} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[3].i_iserdese3_hg} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[3].i_iserdese3_lg} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[3].s_iserdes_rst_sync0_reg[3]} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[3].s_iserdes_rst_sync1_reg[3]} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[3].i_IBUFDS_DATA0} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[3].i_IBUFDS_DATA1} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[3].i_IBUFDS_FRMCLK} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[3].i_IBUFGDS_BITCLK} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[3].proc_bufgce_div_reset_sync.v_reset_sync_i_1} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[3].proc_bufgce_div_reset_sync.v_reset_sync_reg} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[3].s_bufgce_div_ctrl_reset_sync_reg[3]}]]
 resize_pblock [get_pblocks pblock_adc_readout_serdes140_ch3] -add {CLOCKREGION_X0Y3:CLOCKREGION_X0Y3}
 
 create_pblock pblock_adc_readout_serdes140_ch4
-add_cells_to_pblock [get_pblocks pblock_adc_readout_serdes140_ch4] [get_cells -quiet -hierarchical -regexp "${s_adc_io_box_serdes140_base}/gen_adc_channels.4..*|${s_adc_io_box_serdes140_base}/gen_adc_data_diff_to_se.4..*"]
-remove_cells_from_pblock [get_pblocks pblock_adc_readout_serdes140_ch4] $s_adc_pll_cells
-remove_cells_from_pblock [get_pblocks pblock_adc_readout_serdes140_ch4] $s_adc_bufgce_div_serdes140_cells
+add_cells_to_pblock [get_pblocks pblock_adc_readout_serdes140_ch4] [get_cells -quiet [list \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[4].i_idelaye3_data_fc} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[4].i_idelaye3_data_hg} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[4].i_idelaye3_data_lg} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[4].i_iserdese3_fc} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[4].i_iserdese3_hg} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[4].i_iserdese3_lg} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[4].s_iserdes_rst_sync0_reg[4]} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[4].s_iserdes_rst_sync1_reg[4]} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[4].i_IBUFDS_DATA0} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[4].i_IBUFDS_DATA1} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[4].i_IBUFDS_FRMCLK} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[4].i_IBUFGDS_BITCLK} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[4].proc_bufgce_div_reset_sync.v_reset_sync_i_1} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[4].proc_bufgce_div_reset_sync.v_reset_sync_reg} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[4].s_bufgce_div_ctrl_reset_sync_reg[4]}]]
 resize_pblock [get_pblocks pblock_adc_readout_serdes140_ch4] -add {CLOCKREGION_X0Y2:CLOCKREGION_X0Y2}
 
 create_pblock pblock_adc_readout_serdes140_ch5
-add_cells_to_pblock [get_pblocks pblock_adc_readout_serdes140_ch5] [get_cells -quiet -hierarchical -regexp "${s_adc_io_box_serdes140_base}/gen_adc_channels.5..*|${s_adc_io_box_serdes140_base}/gen_adc_data_diff_to_se.5..*"]
-remove_cells_from_pblock [get_pblocks pblock_adc_readout_serdes140_ch5] $s_adc_pll_cells
-remove_cells_from_pblock [get_pblocks pblock_adc_readout_serdes140_ch5] $s_adc_bufgce_div_serdes140_cells
+add_cells_to_pblock [get_pblocks pblock_adc_readout_serdes140_ch5] [get_cells -quiet [list \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[5].i_idelaye3_data_fc} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[5].i_idelaye3_data_hg} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[5].i_idelaye3_data_lg} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[5].i_iserdese3_fc} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[5].i_iserdese3_hg} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[5].i_iserdese3_lg} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[5].s_iserdes_rst_sync0_reg[5]} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_channels[5].s_iserdes_rst_sync1_reg[5]} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[5].i_IBUFDS_DATA0} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[5].i_IBUFDS_DATA1} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[5].i_IBUFDS_FRMCLK} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[5].i_IBUFGDS_BITCLK} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[5].proc_bufgce_div_reset_sync.v_reset_sync_i_1} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[5].proc_bufgce_div_reset_sync.v_reset_sync_reg} \
+          {i_db7_io_box/gen_db6_adc_interface_serdes140.i_db6_adc_interface_io_iddr_serdes140/gen_adc_data_diff_to_se[5].s_bufgce_div_ctrl_reset_sync_reg[5]}]]
 resize_pblock [get_pblocks pblock_adc_readout_serdes140_ch5] -add {CLOCKREGION_X0Y0:CLOCKREGION_X0Y0}
 
 ## 2026-09-12: db6_adc_idelay_calibration.vhd (instantiated once, outside db7_io_box --
@@ -186,30 +241,23 @@ resize_pblock [get_pblocks pblock_adc_readout_serdes140_ch5] -add {CLOCKREGION_X
 ## pipeline itself (see the header comment at the top of this file) -- that one needs the
 ## dedicated hard-LOC investigation already flagged there, not a placement constraint on
 ## unrelated new logic.
-set s_adc_cal_base "i_db6_mainboard_interface/i_db6_adc_idelay_calibration"
 
 create_pblock pblock_adc_idelay_cal_ch0
-add_cells_to_pblock [get_pblocks pblock_adc_idelay_cal_ch0] [get_cells -quiet -hierarchical -regexp "${s_adc_cal_base}/gen_channel.0..*"]
 resize_pblock [get_pblocks pblock_adc_idelay_cal_ch0] -add {CLOCKREGION_X2Y3:CLOCKREGION_X2Y3}
 
 create_pblock pblock_adc_idelay_cal_ch1
-add_cells_to_pblock [get_pblocks pblock_adc_idelay_cal_ch1] [get_cells -quiet -hierarchical -regexp "${s_adc_cal_base}/gen_channel.1..*"]
 resize_pblock [get_pblocks pblock_adc_idelay_cal_ch1] -add {CLOCKREGION_X2Y3:CLOCKREGION_X2Y3}
 
 create_pblock pblock_adc_idelay_cal_ch2
-add_cells_to_pblock [get_pblocks pblock_adc_idelay_cal_ch2] [get_cells -quiet -hierarchical -regexp "${s_adc_cal_base}/gen_channel.2..*"]
 resize_pblock [get_pblocks pblock_adc_idelay_cal_ch2] -add {CLOCKREGION_X2Y2:CLOCKREGION_X2Y2}
 
 create_pblock pblock_adc_idelay_cal_ch3
-add_cells_to_pblock [get_pblocks pblock_adc_idelay_cal_ch3] [get_cells -quiet -hierarchical -regexp "${s_adc_cal_base}/gen_channel.3..*"]
 resize_pblock [get_pblocks pblock_adc_idelay_cal_ch3] -add {CLOCKREGION_X0Y3:CLOCKREGION_X0Y3}
 
 create_pblock pblock_adc_idelay_cal_ch4
-add_cells_to_pblock [get_pblocks pblock_adc_idelay_cal_ch4] [get_cells -quiet -hierarchical -regexp "${s_adc_cal_base}/gen_channel.4..*"]
 resize_pblock [get_pblocks pblock_adc_idelay_cal_ch4] -add {CLOCKREGION_X0Y2:CLOCKREGION_X0Y2}
 
 create_pblock pblock_adc_idelay_cal_ch5
-add_cells_to_pblock [get_pblocks pblock_adc_idelay_cal_ch5] [get_cells -quiet -hierarchical -regexp "${s_adc_cal_base}/gen_channel.5..*"]
 resize_pblock [get_pblocks pblock_adc_idelay_cal_ch5] -add {CLOCKREGION_X0Y0:CLOCKREGION_X0Y0}
 
 ## 2026-09-13: attempted a hard, 102-slice-window pblock per channel (covering all of
@@ -267,30 +315,23 @@ resize_pblock [get_pblocks pblock_adc_idelay_cal_ch5] -add {CLOCKREGION_X0Y0:CLO
 ## logic and its channel's I/O/PLL share the identical physical bank/region by
 ## construction), same soft-pblock rationale (see the header comment at the top of this
 ## file), no PLL/BUFGCE_DIV cells exist in this hierarchy to exclude.
-set s_adc_decoder_base "i_db6_mainboard_interface/gen_db6_adc_interface_iserdese.i_db6_adc_interface_iserdese/gen_db6_adc_interface_iserdese.gen_tmr_disabled.i_db6_adc_interface_decoder_iserdese"
 
 create_pblock pblock_adc_decoder_ch0
-add_cells_to_pblock [get_pblocks pblock_adc_decoder_ch0] [get_cells -quiet -hierarchical -regexp "${s_adc_decoder_base}/gen_adc_channels.0..*"]
 resize_pblock [get_pblocks pblock_adc_decoder_ch0] -add {CLOCKREGION_X2Y3:CLOCKREGION_X2Y3}
 
 create_pblock pblock_adc_decoder_ch1
-add_cells_to_pblock [get_pblocks pblock_adc_decoder_ch1] [get_cells -quiet -hierarchical -regexp "${s_adc_decoder_base}/gen_adc_channels.1..*"]
 resize_pblock [get_pblocks pblock_adc_decoder_ch1] -add {CLOCKREGION_X2Y3:CLOCKREGION_X2Y3}
 
 create_pblock pblock_adc_decoder_ch2
-add_cells_to_pblock [get_pblocks pblock_adc_decoder_ch2] [get_cells -quiet -hierarchical -regexp "${s_adc_decoder_base}/gen_adc_channels.2..*"]
 resize_pblock [get_pblocks pblock_adc_decoder_ch2] -add {CLOCKREGION_X2Y2:CLOCKREGION_X2Y2}
 
 create_pblock pblock_adc_decoder_ch3
-add_cells_to_pblock [get_pblocks pblock_adc_decoder_ch3] [get_cells -quiet -hierarchical -regexp "${s_adc_decoder_base}/gen_adc_channels.3..*"]
 resize_pblock [get_pblocks pblock_adc_decoder_ch3] -add {CLOCKREGION_X0Y3:CLOCKREGION_X0Y3}
 
 create_pblock pblock_adc_decoder_ch4
-add_cells_to_pblock [get_pblocks pblock_adc_decoder_ch4] [get_cells -quiet -hierarchical -regexp "${s_adc_decoder_base}/gen_adc_channels.4..*"]
 resize_pblock [get_pblocks pblock_adc_decoder_ch4] -add {CLOCKREGION_X0Y2:CLOCKREGION_X0Y2}
 
 create_pblock pblock_adc_decoder_ch5
-add_cells_to_pblock [get_pblocks pblock_adc_decoder_ch5] [get_cells -quiet -hierarchical -regexp "${s_adc_decoder_base}/gen_adc_channels.5..*"]
 resize_pblock [get_pblocks pblock_adc_decoder_ch5] -add {CLOCKREGION_X0Y0:CLOCKREGION_X0Y0}
 
 ## 2026-09-13: g_adc_clocking_scheme=iddr280_serdes140's decoder -- same defensive
@@ -300,30 +341,29 @@ resize_pblock [get_pblocks pblock_adc_decoder_ch5] -add {CLOCKREGION_X0Y0:CLOCKR
 ## unconstrained placement already proved costly once this session (see
 ## pblock_adc_readout_serdes140_ch0-5 above) -- no reason to assume the decoder is
 ## exempt just because 140MHz has more nominal slack than 280MHz half-period did.
-set s_adc_decoder_serdes140_base "i_db6_mainboard_interface/gen_db6_adc_interface_iddr.i_db6_adc_interface_iddr/gen_db6_adc_interface_iddr.gen_tmr_disabled.g_bitclk280_serdes140.i_db6_adc_interface_decoder_iddr_serdes140"
 
 create_pblock pblock_adc_decoder_serdes140_ch0
-add_cells_to_pblock [get_pblocks pblock_adc_decoder_serdes140_ch0] [get_cells -quiet -hierarchical -regexp "${s_adc_decoder_serdes140_base}/gen_adc_channels.0..*"]
+add_cells_to_pblock [get_pblocks pblock_adc_decoder_serdes140_ch0] [get_cells -quiet -hierarchical -regexp i_db6_mainboard_interface/gen_db6_adc_interface_iddr.i_db6_adc_interface_iddr/gen_db6_adc_interface_iddr.gen_tmr_disabled.g_bitclk280_serdes140.i_db6_adc_interface_decoder_iddr_serdes140/gen_adc_channels.0..*]
 resize_pblock [get_pblocks pblock_adc_decoder_serdes140_ch0] -add {CLOCKREGION_X2Y3:CLOCKREGION_X2Y3}
 
 create_pblock pblock_adc_decoder_serdes140_ch1
-add_cells_to_pblock [get_pblocks pblock_adc_decoder_serdes140_ch1] [get_cells -quiet -hierarchical -regexp "${s_adc_decoder_serdes140_base}/gen_adc_channels.1..*"]
+add_cells_to_pblock [get_pblocks pblock_adc_decoder_serdes140_ch1] [get_cells -quiet -hierarchical -regexp i_db6_mainboard_interface/gen_db6_adc_interface_iddr.i_db6_adc_interface_iddr/gen_db6_adc_interface_iddr.gen_tmr_disabled.g_bitclk280_serdes140.i_db6_adc_interface_decoder_iddr_serdes140/gen_adc_channels.1..*]
 resize_pblock [get_pblocks pblock_adc_decoder_serdes140_ch1] -add {CLOCKREGION_X2Y3:CLOCKREGION_X2Y3}
 
 create_pblock pblock_adc_decoder_serdes140_ch2
-add_cells_to_pblock [get_pblocks pblock_adc_decoder_serdes140_ch2] [get_cells -quiet -hierarchical -regexp "${s_adc_decoder_serdes140_base}/gen_adc_channels.2..*"]
+add_cells_to_pblock [get_pblocks pblock_adc_decoder_serdes140_ch2] [get_cells -quiet -hierarchical -regexp i_db6_mainboard_interface/gen_db6_adc_interface_iddr.i_db6_adc_interface_iddr/gen_db6_adc_interface_iddr.gen_tmr_disabled.g_bitclk280_serdes140.i_db6_adc_interface_decoder_iddr_serdes140/gen_adc_channels.2..*]
 resize_pblock [get_pblocks pblock_adc_decoder_serdes140_ch2] -add {CLOCKREGION_X2Y2:CLOCKREGION_X2Y2}
 
 create_pblock pblock_adc_decoder_serdes140_ch3
-add_cells_to_pblock [get_pblocks pblock_adc_decoder_serdes140_ch3] [get_cells -quiet -hierarchical -regexp "${s_adc_decoder_serdes140_base}/gen_adc_channels.3..*"]
+add_cells_to_pblock [get_pblocks pblock_adc_decoder_serdes140_ch3] [get_cells -quiet -hierarchical -regexp i_db6_mainboard_interface/gen_db6_adc_interface_iddr.i_db6_adc_interface_iddr/gen_db6_adc_interface_iddr.gen_tmr_disabled.g_bitclk280_serdes140.i_db6_adc_interface_decoder_iddr_serdes140/gen_adc_channels.3..*]
 resize_pblock [get_pblocks pblock_adc_decoder_serdes140_ch3] -add {CLOCKREGION_X0Y3:CLOCKREGION_X0Y3}
 
 create_pblock pblock_adc_decoder_serdes140_ch4
-add_cells_to_pblock [get_pblocks pblock_adc_decoder_serdes140_ch4] [get_cells -quiet -hierarchical -regexp "${s_adc_decoder_serdes140_base}/gen_adc_channels.4..*"]
+add_cells_to_pblock [get_pblocks pblock_adc_decoder_serdes140_ch4] [get_cells -quiet -hierarchical -regexp i_db6_mainboard_interface/gen_db6_adc_interface_iddr.i_db6_adc_interface_iddr/gen_db6_adc_interface_iddr.gen_tmr_disabled.g_bitclk280_serdes140.i_db6_adc_interface_decoder_iddr_serdes140/gen_adc_channels.4..*]
 resize_pblock [get_pblocks pblock_adc_decoder_serdes140_ch4] -add {CLOCKREGION_X0Y2:CLOCKREGION_X0Y2}
 
 create_pblock pblock_adc_decoder_serdes140_ch5
-add_cells_to_pblock [get_pblocks pblock_adc_decoder_serdes140_ch5] [get_cells -quiet -hierarchical -regexp "${s_adc_decoder_serdes140_base}/gen_adc_channels.5..*"]
+add_cells_to_pblock [get_pblocks pblock_adc_decoder_serdes140_ch5] [get_cells -quiet -hierarchical -regexp i_db6_mainboard_interface/gen_db6_adc_interface_iddr.i_db6_adc_interface_iddr/gen_db6_adc_interface_iddr.gen_tmr_disabled.g_bitclk280_serdes140.i_db6_adc_interface_decoder_iddr_serdes140/gen_adc_channels.5..*]
 resize_pblock [get_pblocks pblock_adc_decoder_serdes140_ch5] -add {CLOCKREGION_X0Y0:CLOCKREGION_X0Y0}
 
 #create_pblock pblock_configbus
@@ -336,6 +376,7 @@ resize_pblock [get_pblocks pblock_adc_decoder_serdes140_ch5] -add {CLOCKREGION_X
 #create_pblock pblock_gbt_encoder
 #add_cells_to_pblock [get_pblocks pblock_gbt_encoder] [get_cells -quiet [list i_db6_sfp_interface/i_db6_gbt_gth_interface/i_db6_gbt_encoder]]
 #resize_pblock [get_pblocks pblock_gbt_encoder] -add {CLOCKREGION_X2Y0:CLOCKREGION_X2Y0}
+
 
 
 

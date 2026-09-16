@@ -48,6 +48,11 @@ generic (
     g_include_sem                   : integer :=1;
     g_include_debug_interface       : integer :=1;
     g_adc_clocking_scheme : t_adc_clocking_scheme := iddr280_serdes140;
+    -- 2026-09-14: build-time enable/disable for i_db6_data_readout_debug and
+    -- i_db6_data_readout_inject_debug (0 = logic not built, status/output held at
+    -- default/passthrough -- see each entity's own g_* generic and header)
+    g_data_readout_debug            : integer := 1;
+    g_data_readout_inject_debug     : integer := 1;
     
     
     --hog
@@ -295,6 +300,18 @@ signal s_clknet_debug_control : t_debug_control;
 signal s_dna_reset             : std_logic;
 -- 2026-09-13: db6_data_readout_debug's vio-facing status readback (see that entity)
 signal s_data_readout_debug_status : t_data_readout_debug_status;
+
+-- 2026-09-14: db6_data_readout_inject_debug (see that entity's header). s_adc_hg_injected/
+-- s_adc_lg_injected are its per-channel outputs (injected or passthrough, per enable);
+-- s_mb_interface_gbt_tx is s_mb_interface with those two fields spliced in (plus the
+-- inject status fields) via proc_mb_interface_gbt_tx_mux below, and is what actually
+-- feeds the gbt encoder chain (i_db6_sfp_interface's p_mb_interface_in) -- every other
+-- consumer of s_mb_interface (debug_interface, vio probes, the readout capture debug
+-- above) keeps seeing raw, un-injected adc data.
+signal s_adc_hg_injected : t_adc_data;
+signal s_adc_lg_injected : t_adc_data;
+signal s_data_readout_inject_status : t_data_readout_inject_debug_status;
+signal s_mb_interface_gbt_tx : t_mb_interface;
 
 -- 2026-09-12: vio_clknet_status replaced by vio_db_debug (see i_vio_db_debug below) with
 -- a curated probe set -- dead/unconnected probes dropped, SEM status/counters dropped
@@ -633,6 +650,12 @@ COMPONENT vio_db_debug
     -- db6_design_package.vhd / db6_gbt_gth_interface.vhd)
     probe_in87 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);  -- gbt: dual_link_sync_mismatch_sticky
     probe_in88 : IN STD_LOGIC_VECTOR(7 DOWNTO 0);  -- gbt: dual_link_sync_mismatch_count
+    -- db6_data_readout_inject_debug readback (t_data_readout_inject_debug_status --
+    -- see db6_design_package.vhd / db6_data_readout_inject_debug.vhd). NEW PROBE --
+    -- regenerate vio_db_debug's .xcix in Vivado (IP catalog -> re-customize -> add
+    -- one more probe_in, width 15) before this will elaborate against real hardware;
+    -- see the "Vivado IP probe regen cache gotcha" note for the .cache/ip step.
+    probe_in89 : IN STD_LOGIC_VECTOR(14 DOWNTO 0); -- data_readout_inject: active(14) & ram_rdata(13:0)
     -- t_adc_readout_control (calibration thresholds) + system control group
     probe_out0 : OUT STD_LOGIC_VECTOR(11 DOWNTO 0); -- adc_readout_high_threshold
     probe_out1 : OUT STD_LOGIC_VECTOR(11 DOWNTO 0); -- adc_readout_low_threshold
@@ -665,7 +688,11 @@ COMPONENT vio_db_debug
     -- db6_data_readout_debug controls (t_debug_control_data_readout -- see
     -- db6_design_package.vhd / db6_data_readout_debug.vhd)
     probe_out17 : OUT STD_LOGIC_VECTOR(7 DOWNTO 0);  -- data_readout: trigger/sample_index/channel_select
-    probe_out18 : OUT STD_LOGIC_VECTOR(31 DOWNTO 0)  -- data_readout: bcr_number
+    probe_out18 : OUT STD_LOGIC_VECTOR(31 DOWNTO 0); -- data_readout: bcr_number
+    -- db6_data_readout_inject_debug controls (t_debug_control_data_readout_inject --
+    -- see db6_design_package.vhd / db6_data_readout_inject_debug.vhd). NEW PROBE --
+    -- see the probe_in89 comment above, add one more probe_out, width 41, alongside it.
+    probe_out19 : OUT STD_LOGIC_VECTOR(40 DOWNTO 0)  -- data_readout_inject: enable(40) & ram_we(39) & pedestal(38:26) & ram_addr(25:14) & ram_wdata(13:0)
   );
 END COMPONENT;
 
@@ -1224,7 +1251,10 @@ i_db6_sfp_interface : entity tilecal.db6_sfp_interface
         
         --interfaces
         p_gbt_bank_out => s_db6_gbt_bank,
-        p_mb_interface_in => s_mb_interface,
+        -- 2026-09-14: s_mb_interface_gbt_tx (not raw s_mb_interface) so
+        -- db6_data_readout_inject_debug's hg_data/lg_data override reaches the gbt
+        -- encoder chain -- see that signal's declaration comment above.
+        p_mb_interface_in => s_mb_interface_gbt_tx,
         p_sem_interface_in => s_sem_interface,
         p_system_management_interface_in => s_system_management_interface,
         p_gbtx_interface_in => s_gbtx_interface,
@@ -1679,7 +1709,7 @@ end process;
 -- disables it (status held at default) without touching any of the wiring below.
 i_db6_data_readout_debug : entity tilecal.db6_data_readout_debug
     generic map(
-        g_data_readout_debug => 1
+        g_data_readout_debug => g_data_readout_debug
     )
     port map(
         p_master_reset_in               => s_master_reset(c_adc_config_reset_bit),
@@ -1688,6 +1718,37 @@ i_db6_data_readout_debug : entity tilecal.db6_data_readout_debug
         p_data_readout_debug_control_in => s_clknet_debug_control.data_readout,
         p_data_readout_debug_status_out => s_data_readout_debug_status
     );
+
+-- 2026-09-14: pulse-injection debug module -- see that entity's header. Only feeds
+-- the gbt encoder chain (via s_mb_interface_gbt_tx below); the readout capture debug
+-- above and every other s_mb_interface consumer still see raw adc data.
+i_db6_data_readout_inject_debug : entity tilecal.db6_data_readout_inject_debug
+    generic map(
+        g_data_readout_inject_debug => g_data_readout_inject_debug
+    )
+    port map(
+        p_master_reset_in                => s_master_reset(c_adc_config_reset_bit),
+        p_clknet_in                      => s_clknet,
+        p_db_reg_rx_in                   => s_cfgbus_interface.db_reg_rx,
+        p_data_readout_inject_control_in => s_clknet_debug_control.data_readout_inject,
+        p_adc_readout_in                 => s_mb_interface.adc_readout,
+        p_hg_data_out                    => s_adc_hg_injected,
+        p_lg_data_out                    => s_adc_lg_injected,
+        p_data_readout_inject_status_out => s_data_readout_inject_status
+    );
+
+-- splice the (possibly injected) hg_data/lg_data and inject status into a private
+-- copy of s_mb_interface that only feeds the gbt encoder data path -- see the signal
+-- declaration comment above for why this can't just be done as field-by-field
+-- concurrent assignments onto s_mb_interface itself (would be a second driver).
+proc_mb_interface_gbt_tx_mux : process(s_mb_interface, s_adc_hg_injected, s_adc_lg_injected, s_data_readout_inject_status)
+begin
+    s_mb_interface_gbt_tx <= s_mb_interface;
+    s_mb_interface_gbt_tx.adc_readout.hg_data                     <= s_adc_hg_injected;
+    s_mb_interface_gbt_tx.adc_readout.lg_data                     <= s_adc_lg_injected;
+    s_mb_interface_gbt_tx.adc_readout.data_readout_inject_active    <= s_data_readout_inject_status.active;
+    s_mb_interface_gbt_tx.adc_readout.data_readout_inject_ram_rdata <= s_data_readout_inject_status.ram_rdata;
+end process;
 
 -- vio_clknet_status moved here from inside db6_clock_interface (probe_in/out widths are
 -- fixed by the IP -- all 64 original probe_in bits are already spoken for, so mb jtag
@@ -1820,6 +1881,8 @@ i_vio_db_debug : vio_db_debug
     probe_in86 => s_mb_interface.adc_config_driver_debug.mb_config_done,
     probe_in87(0) => s_gbt_encoder_interface.dual_link_sync_mismatch_sticky,
     probe_in88 => s_gbt_encoder_interface.dual_link_sync_mismatch_count,
+    probe_in89(14)          => s_data_readout_inject_status.active,
+    probe_in89(13 downto 0) => s_data_readout_inject_status.ram_rdata,
 
     probe_out0 => s_vio_dbg_adc_high_thresh,
     probe_out1 => s_vio_dbg_adc_low_thresh,
@@ -1859,7 +1922,12 @@ i_vio_db_debug : vio_db_debug
     probe_out17(0)           => s_clknet_debug_control.data_readout.trigger,
     probe_out17(4 downto 1)  => s_clknet_debug_control.data_readout.sample_index,
     probe_out17(7 downto 5)  => s_clknet_debug_control.data_readout.channel_select,
-    probe_out18              => s_clknet_debug_control.data_readout.bcr_number
+    probe_out18              => s_clknet_debug_control.data_readout.bcr_number,
+    probe_out19(40)           => s_clknet_debug_control.data_readout_inject.enable,
+    probe_out19(39)           => s_clknet_debug_control.data_readout_inject.ram_we,
+    probe_out19(38 downto 26) => s_clknet_debug_control.data_readout_inject.pedestal,
+    probe_out19(25 downto 14) => s_clknet_debug_control.data_readout_inject.ram_addr,
+    probe_out19(13 downto 0)  => s_clknet_debug_control.data_readout_inject.ram_wdata
   );
 
 -- mb boundary-scan/gbtx reg readback vio address overrides retired (see the
