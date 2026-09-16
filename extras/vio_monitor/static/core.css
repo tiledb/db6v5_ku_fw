@@ -98,7 +98,8 @@ button.danger { border-color: #7f1d1d; color: #fca5a5; }
 .tree-node.target { padding-left: 1.4rem; }
 .tree-node.device { padding-left: 2rem; }
 .tree-node.vio, .tree-node.sysmon, .tree-node.tilecal_xadc, .tree-node.vio_match,
-.tree-node.sfp_ddm, .tree-node.tilecal_sfp_i2c, .tree-node.tilecal_flash_driver {
+.tree-node.sfp_ddm, .tree-node.tilecal_sfp_i2c, .tree-node.tilecal_flash_driver,
+.tree-node.tilecal_data_readout {
   padding-left: 2.6rem; font-size: .74rem;
 }
 
@@ -211,6 +212,20 @@ tr.val-changed td, td.val-changed { animation: flash .5s ease; }
   font-size: .72rem; color: var(--muted); margin-top: .35rem;
 }
 .plugin-auto-read input { margin: 0; }
+.plugin-setting {
+  display: flex; align-items: center; gap: .35rem;
+  font-size: .72rem; color: var(--muted); margin-top: .35rem;
+}
+.plugin-setting input[type=number] {
+  width: 5.5rem;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: .2rem .35rem;
+  font-family: var(--mono);
+  font-size: .74rem;
+}
 .btn-remove-row {
   font-size: .72rem; padding: .22rem .45rem; background: transparent;
   border: 1px solid var(--border); border-radius: 4px; color: var(--muted); cursor: pointer;

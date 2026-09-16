@@ -328,6 +328,64 @@ def xadc_live_names(key: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# ADC data readout debug (t_debug_control.data_readout / t_data_readout_debug_status)
+# probe_out17: trigger(0) | sample_index(4:1) | channel_select(7:5)
+# probe_out18: bcr_number
+# probe_in74: captured ; probe_in75/76/77: hg/lg/fc muxed 14-bit sample
+# ---------------------------------------------------------------------------
+
+DATA_READOUT_SAMPLE_COUNT = 16
+DATA_READOUT_CHANNEL_COUNT = 6
+DATA_READOUT_ADC_BITS = 14
+DATA_READOUT_SAMPLE_BITS = 12
+
+DATA_READOUT_PROBES: dict[str, dict[str, Any]] = {
+    "trigger_probe": {
+        "ltx": "s_clknet_debug_control[data_readout][trigger]",
+        "legacy": ["probe_out17[0]"],
+    },
+    "sample_index_probe": {
+        "ltx": "s_clknet_debug_control[data_readout][sample_index]",
+        "legacy": ["probe_out17[4:1]", "probe_out17[1:4]"],
+    },
+    "channel_select_probe": {
+        "ltx": "s_clknet_debug_control[data_readout][channel_select]",
+        "legacy": ["probe_out17[7:5]", "probe_out17[5:7]"],
+    },
+    "bcr_number_probe": {
+        "ltx": "s_clknet_debug_control[data_readout][bcr_number]",
+        "legacy": ["probe_out18"],
+    },
+    "captured_probe": {
+        "ltx": "s_data_readout_debug_status[captured]",
+        "legacy": ["probe_in74[0]", "probe_in74"],
+    },
+    "hg_data_probe": {
+        "ltx": "s_data_readout_debug_status[hg_data]",
+        "legacy": ["probe_in75"],
+    },
+    "lg_data_probe": {
+        "ltx": "s_data_readout_debug_status[lg_data]",
+        "legacy": ["probe_in76"],
+    },
+    "fc_data_probe": {
+        "ltx": "s_data_readout_debug_status[fc_data]",
+        "legacy": ["probe_in77"],
+    },
+    "packed_control_probe": {
+        "ltx": "probe_out17",
+        "legacy": [],
+        "optional": True,
+    },
+}
+
+
+def data_readout_probe_names(key: str) -> list[str]:
+    spec = DATA_READOUT_PROBES[key]
+    return [spec["ltx"], *spec.get("legacy", [])]
+
+
+# ---------------------------------------------------------------------------
 # Alias expansion
 # ---------------------------------------------------------------------------
 
@@ -350,6 +408,10 @@ def _alias_table() -> dict[str, list[str]]:
         _add(sfp_i2c_data_names(side))
     for key in FLASH_PROBES:
         _add(flash_probe_names(key))
+    for key in DATA_READOUT_PROBES:
+        if key == "packed_control_probe":
+            continue
+        _add(data_readout_probe_names(key))
     for key in XADC_LIVE_PROBES:
         _add(xadc_live_names(key))
     return table

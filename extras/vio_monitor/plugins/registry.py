@@ -81,6 +81,8 @@ def ensure_plugins_config(cfg: dict[str, Any]) -> dict[str, Any]:
             entry["order"] = manifest.get("order", 100)
         if "auto_read_on_ready" not in entry:
             entry["auto_read_on_ready"] = bool(manifest.get("default_auto_read_on_ready", False))
+        if pid == "tilecal_data_readout" and "bcr_offset" not in entry:
+            entry["bcr_offset"] = int(manifest.get("bcr_offset_default", -16))
     return cfg
 
 
@@ -156,7 +158,24 @@ def public_manifest(manifest: dict[str, Any], cfg: dict[str, Any]) -> dict[str, 
     }
     if probe_fields:
         pub["probe_config"] = probe_fields
+    if manifest["id"] == "tilecal_data_readout":
+        pub["bcr_offset"] = plugin_bcr_offset(cfg, manifest)
     return pub
+
+
+def plugin_bcr_offset(cfg: dict[str, Any] | None, manifest: dict[str, Any] | None = None) -> int:
+    """Signed BCR offset added to the requested trigger value (default -16)."""
+    default = -16
+    if manifest is not None:
+        try:
+            default = int(manifest.get("bcr_offset_default", -16))
+        except (TypeError, ValueError):
+            default = -16
+    entry = ((cfg or {}).get("plugins") or {}).get("tilecal_data_readout") or {}
+    try:
+        return int(entry.get("bcr_offset", default))
+    except (TypeError, ValueError):
+        return default
 
 
 def load_plugin_backend(manifest: dict[str, Any]):

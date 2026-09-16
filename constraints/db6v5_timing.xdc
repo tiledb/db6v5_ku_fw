@@ -109,32 +109,18 @@ set_false_path -to [get_pins -hier -filter {NAME =~ *s_cdc_counter_reg*/CE}]
 # db6_adc_interface_io_hss.vhd (g_adc_clocking_scheme=hss_wizard, 2026-09-11 fix): the
 # hss_wizard decoder's own internal FSM output now genuinely updates in each channel's own
 # s_adc_rx_clk domain (~140MHz, hss_adc's own pll0_clkout0, buffered -- previously this was
-# all tied to cfgbus_clk40, which is why this crossing never showed up before). Two
-# consequences, both false-path-safe for the same underlying reason (see the next group for
-# the second one):
-#
-# ila_adc_readout (db6_mainboard_interface.vhd) samples s_adc_readout's fc/hg/lg
-# data and channel_locked/frame_missalignemt fields on its own separate refclk40 (40MHz), a
-# manually-instantiated debug-only ILA with no auto-inserted timing exception (unlike
-# Vivado's "Mark Debug" flow). Not a real CDC: it's a passive monitoring tap with no
-# feedback into functional logic, so an asynchronous, occasionally-metastable sample is
-# entirely acceptable, same reasoning as the three CDC groups above. Missing this exception
-# is why the router got stuck fighting an unmeetable ~140MHz-to-40MHz same-cycle
-# relationship on ila_adc_readout's own capture register (shifted_data_in_reg*_srl8) after
-# the s_adc_rx_clk fix -- 30+ minutes with no forward progress in rip-up/reroute.
-set_false_path -to [get_pins -hier -filter {NAME =~ *i_ila_adc_readout*/D}]
-
-# same reasoning, two more debug-only consumers newly exposed to this same s_adc_rx_clk
-# crossing: ila_adc_nibble (this session's own new debug ILA, db6_mainboard_interface.vhd)
-# is clocked by channel 0's own s_adc_rx_clk but some of its probes (channel_locked,
-# channel_frame_missalignemt, fc_data) now come from the cfgbus_clk40-domain CDC-lock
-# output in db6_adc_interface_decoder_iserdese.vhd -- the mirror-image crossing direction
-# of the ila_adc_readout case above, same debug-only/no-feedback justification. And
+# all tied to cfgbus_clk40, which is why this crossing never showed up before).
 # vio_clknet_status (db6v5_top.vhd) monitors s_adc_fifo_data_valid/s_adc_rst_seq_done,
 # hss_adc status signals that now genuinely live in the s_adc_rx_clk domain too (same root
 # cause as db6_adc_interface_io_hss.vhd's fix above -- previously accidentally
-# same-domain via the old fifo_rd_clk=cfgbus_clk40 wiring).
-set_false_path -to [get_pins -hier -filter {NAME =~ *i_ila_adc_nibble*/D}]
+# same-domain via the old fifo_rd_clk=cfgbus_clk40 wiring). Not a real CDC: it's a passive
+# monitoring tap with no feedback into functional logic, so an asynchronous,
+# occasionally-metastable sample is entirely acceptable, same reasoning as the three CDC
+# groups above.
+# 2026-09-16: the two matching exceptions for i_ila_adc_readout/i_ila_adc_nibble (this
+# session's own bring-up-debug ILAs, db6_mainboard_interface.vhd) were removed along with
+# those ILA instantiations -- no longer needed now that the bug they were added to debug
+# is understood and fixed (see db6_adc_idelay_calibration.vhd).
 set_false_path -to [get_pins -hier -filter {NAME =~ *i_vio_clknet_status*/D}]
 
 # db6_adc_interface_decoder_iserdese.vhd (2026-09-11): async reset-recovery/removal timing

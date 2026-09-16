@@ -10,8 +10,10 @@ from plugins.common.ltx_probes import activate_ltx, aliases_for_name
 from plugins.common.db6_hw_map import (
     DDM_CLASSIFY_PATTERNS,
     DDM_FIELDS,
+    DATA_READOUT_PROBES,
     FLASH_PROBES,
     XADC_LIVE_PROBES,
+    data_readout_probe_names,
     ddm_all_names,
     ddm_ltx_name,
     flash_probe_names,
@@ -361,6 +363,8 @@ def plugin_probe_match_names(key: str, configured: str) -> list[str]:
     extra: list[str] = []
     if key in FLASH_PROBES:
         extra = flash_probe_names(key)
+    elif key in DATA_READOUT_PROBES:
+        extra = data_readout_probe_names(key)
     elif key.startswith("addr_probe_"):
         extra = sfp_i2c_addr_names(int(key[-1]))
     elif key.startswith("data_probe_"):

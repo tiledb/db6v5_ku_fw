@@ -1,0 +1,36 @@
+<div class="adcrd-toolbar">
+  <label>BCR number
+    <input id="adcrdBcr" type="text" value="0" spellcheck="false" title="p_clknet_in.bcr.count value to capture on (decimal or 0x hex)" />
+  </label>
+  <label>BCR offset
+    <input id="adcrdBcrOffset" type="number" step="1" value="-16" spellcheck="false"
+      title="Added to the BCR number written on trigger (pipeline compensation). Default -16." />
+  </label>
+  <label>Data mode
+    <select id="adcrdBitMode" title="12-bit uses the 12 MSBs of the 14-bit VIO word">
+      <option value="12" selected>12-bit (MSBs)</option>
+      <option value="14">14-bit</option>
+    </select>
+  </label>
+  <label>Timeout
+    <select id="adcrdTimeout">
+      <option value="2000">2 s</option>
+      <option value="5000">5 s</option>
+      <option value="15000" selected>15 s</option>
+      <option value="30000">30 s</option>
+      <option value="60000">60 s</option>
+    </select>
+  </label>
+</div>
+<div class="adcrd-actions">
+  <button type="button" data-adcrd-op="trigger" class="primary">Trigger</button>
+  <button type="button" data-adcrd-op="readout">Readout</button>
+  <button type="button" data-adcrd-op="trigger_readout">Trigger &amp; readout</button>
+  <button type="button" data-adcrd-op="status">Refresh captured</button>
+  <button type="button" id="adcrdCopyCsv" hidden>Copy CSV</button>
+</div>
+<div class="adcrd-meta">
+  <span id="time-tilecal_data_readout"></span>
+  <span id="status-tilecal_data_readout" class="adcrd-status-hint"></span>
+</div>
+<div id="wrap-tilecal_data_readout" class="panel-scroll"></div>

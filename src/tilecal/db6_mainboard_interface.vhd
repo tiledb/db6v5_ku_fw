@@ -37,17 +37,6 @@ use tilecal.db6_design_package.all;
 entity db6_mainboard_interface is
   generic (
             g_vio_adc_readout : natural :=0;
-            g_ila_adc_readout : natural :=1;
-            -- 2026-09-11: hss_wizard bring-up debug only. ila_adc_readout above is clocked
-            -- by p_clknet_in.refclk40 (40MHz) but the frame-alignment FSM in
-            -- db6_adc_interface_decoder_iserdese runs on p_adc_bitclkdiv_in (~140MHz) --
-            -- too slow to see individual nibble transitions or correlate them with the
-            -- FSM's raw per-cycle behavior. This ILA is clocked by channel 0's own
-            -- p_adc_bitclkdiv_in and captures the raw pre-decode nibble stream directly,
-            -- to determine empirically whether/where the true marker phase lands instead
-            -- of guessing comparison constants blindly (see decoder file's revision
-            -- history for the two failed guesses this is meant to replace).
-            g_ila_adc_nibble : natural :=1;
             g_adc_clocking_scheme : t_adc_clocking_scheme := iddr280;
             g_bitclk        : integer := 280;
             -- compile-time kill switch for the whole mb boundary-scan (sample)
@@ -183,6 +172,18 @@ signal s_cis_interface : t_cis_interface;
 -- p_mb_interface_out.adc_readout_control (already exported at the bottom of this
 -- architecture), db7_io_box's IDELAYE3 primitives.
 signal s_adc_idelay_ctrl_from_interface : t_adc_readout_control;
+
+-- 2026-09-16: db6_adc_idelay_calibration's automatic startup test-pattern sequencer
+-- (see db6_adc_interface.vhd's header) now lives entirely inside db6_adc_interface
+-- instead of here, to keep all calibration logic (idelay sweep + pattern sequencing)
+-- together in one place. This is that sequencer's only remaining footprint in this
+-- file: it briefly (during its own one-shot startup window only) overrides the
+-- readout-path ADC SPI config mux below (proc_test_mode / mode / trigger) via these
+-- two signals from i_db6_adc_interface_iddr's new output ports -- everything else
+-- (VIO mode/test_pattern_enable/raw registers, configbus/JTAG) is untouched and
+-- behaves exactly as before once that one-shot sequence finishes.
+signal s_adc_config_override_from_interface : t_adc_register_config;
+signal s_adc_config_override_active_from_interface : std_logic;
 --attribute keep of s_adc_readout_control, s_adc_readout : signal is "TRUE";
 --attribute dont_touch of s_adc_readout_control, s_adc_readout : signal is "TRUE";
 
@@ -292,31 +293,6 @@ signal s_adc_config_reset : std_logic;
 signal s_adc_config_leds, s_db6_adc_interface_leds, a_db6_mainboard_driver_leds : std_logic_vector(3 downto 0);
 signal s_adc_config_driver_debug : t_adc_config_driver_debug_status;
 
--- 2026-09-14: see gen_ila_adc_nibble's header comment below -- scheme-selected
--- clock/data source for ila_adc_nibble, valid across all four g_adc_clocking_scheme
--- variants.
-signal s_ila_adc_nibble_clk : std_logic;
-signal s_ila_adc_nibble_frameclk, s_ila_adc_nibble_hg, s_ila_adc_nibble_lg : std_logic_vector(3 downto 0);
-
--- hss_wizard/iddr280_serdes140 nibble-level debug (see g_ila_adc_nibble above): channel
--- 0 only, raw pre-decode frameclk/hg/lg nibbles plus the decoder's own
--- locked/missalignment/fc_data outputs, all in channel 0's own p_adc_bitclkdiv_in domain.
--- Both schemes share the same t_byteslice_sr-shaped p_adc_*_iserdese_in ports this ILA
--- taps, so the same probe wiring below works unmodified for either.
-COMPONENT ila_adc_nibble
-
-PORT (
-	clk : IN STD_LOGIC;
-
-	probe0 : IN STD_LOGIC_VECTOR(3 DOWNTO 0);
-	probe1 : IN STD_LOGIC_VECTOR(3 DOWNTO 0);
-	probe2 : IN STD_LOGIC_VECTOR(3 DOWNTO 0);
-	probe3 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-	probe4 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-	probe5 : IN STD_LOGIC_VECTOR(13 DOWNTO 0)
-  );
-END COMPONENT;
-
 -- manual ADC SPI-register control, now via p_clknet_in.adc_config (t_debug_control_adc_config
 -- -- see db6_design_package.vhd) instead of a dedicated vio_adc_config IP. Register byte
 -- layout per LTC2264-12 datasheet Table 4:
@@ -326,64 +302,6 @@ END COMPONENT;
 --   adc_registers(3)/(4) = A3/A4 Test Pattern MSB/LSB Registers, computed from
 --     adc_register_3_raw/adc_register_4_raw or test_pattern_value depending on
 --     test_pattern_enable -- see the combinational overrides a few lines above.
-
-COMPONENT ila_adc_readout
-
-PORT (
-	clk : IN STD_LOGIC;
-
-
-
-	probe0 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
-	probe1 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
-	probe2 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
-	probe3 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
-	probe4 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
-	probe5 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
-	probe6 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
-	probe7 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
-	probe8 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
-	probe9 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
-	probe10 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
-	probe11 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
-	probe12 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
-	probe13 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
-	probe14 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
-	probe15 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
-	probe16 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
-	probe17 : IN STD_LOGIC_VECTOR(13 DOWNTO 0); 
-	probe18 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
-	probe19 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
-	probe20 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
-	probe21 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
-	probe22 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
-	probe23 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
-	probe24 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
-	probe25 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
-	probe26 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
-	probe27 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
-	probe28 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
-	probe29 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
-	probe30 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
-	probe31 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
-	probe32 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
-	probe33 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
-	probe34 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
-	probe35 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
-	probe36 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
-	probe37 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
-	probe38 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
-	probe39 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
-	probe40 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
-	probe41 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
-	probe42 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
-	probe43 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
-	probe44 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
-	probe45 : IN STD_LOGIC_VECTOR(0 DOWNTO 0); 
-	probe46 : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
-	probe47 : IN STD_LOGIC_VECTOR(0 DOWNTO 0)
-);
-END COMPONENT  ;
 
 COMPONENT vio_adc_readout
   PORT (
@@ -584,6 +502,14 @@ gen_db6_adc_interface_iddr : if g_adc_clocking_scheme /= hss_wizard generate
             -- (see that entity's header) -- this now carries what
             -- i_db6_adc_idelay_calibration used to drive directly, further below.
             p_adc_idelay_ctrl_out => s_adc_idelay_ctrl_from_interface,
+            -- 2026-09-16: see s_adc_config_override_from_interface's declaration
+            -- above -- db6_adc_idelay_calibration's automatic startup sequencer,
+            -- entirely inside db6_adc_interface now, needs db6_adc_config_driver's
+            -- own reset (so it resets in step with the module it orchestrates) and
+            -- hands back its brief, one-shot readout-path config override this way.
+            p_adc_config_reset_in            => s_adc_config_reset,
+            p_adc_config_override_out        => s_adc_config_override_from_interface,
+            p_adc_config_override_active_out => s_adc_config_override_active_from_interface,
             p_leds_out       => s_db6_adc_interface_leds
       );
 end generate;
@@ -954,39 +880,50 @@ s_adc_register_config_from_configbus.trigger_mb_adc_config <= p_db_reg_rx_in(cfb
 -- (LTC2264-12 datasheet Table 4, Registers A3/A4). Raw manual bytes otherwise.
 
 
-s_adc_register_config_from_readout.mode                  <= p_clknet_in.adc_config.mode;
-s_adc_register_config_from_readout.trigger_mb_adc_config  <= p_clknet_in.adc_config.trigger_mb_adc_config;
+-- 2026-09-16: db6_adc_interface.vhd's automatic startup sequencer (see
+-- s_adc_config_override_from_interface's declaration above) takes exclusive, brief
+-- ownership of this whole readout-path mux during its own one-shot startup window
+-- (s_adc_config_override_active_from_interface='1') -- outside that window (i.e.
+-- always once that sequence finishes) every field here passes through to the
+-- VIO-driven p_clknet_in.adc_config path exactly as before.
+s_adc_register_config_from_readout.mode                  <= s_adc_config_override_from_interface.mode when s_adc_config_override_active_from_interface = '1' else p_clknet_in.adc_config.mode;
+s_adc_register_config_from_readout.trigger_mb_adc_config  <= s_adc_config_override_from_interface.trigger_mb_adc_config when s_adc_config_override_active_from_interface = '1' else p_clknet_in.adc_config.trigger_mb_adc_config;
 s_adc_config_reset <= p_master_reset_in(c_adc_config_reset_bit) or p_db_reg_rx_in(cfb_strobe_reg)(c_adc_config_reset_bit);
 
-proc_test_mode: process(p_clknet_in.adc_config.test_pattern_enable, p_clknet_in.adc_config.mode)
+proc_test_mode: process(p_clknet_in.adc_config.test_pattern_enable, p_clknet_in.adc_config.mode, s_adc_config_override_active_from_interface, s_adc_config_override_from_interface)
 begin
-    if (p_clknet_in.adc_config.test_pattern_enable = '1') then
+    if (s_adc_config_override_active_from_interface = '1') then
+        s_adc_register_config_from_readout.adc_registers  <= s_adc_config_override_from_interface.adc_registers;
+        s_adc_register_config_from_readout.mb_fpga_select <= s_adc_config_override_from_interface.mb_fpga_select;
+        s_adc_register_config_from_readout.mb_pmt_select  <= s_adc_config_override_from_interface.mb_pmt_select;
+
+    elsif (p_clknet_in.adc_config.test_pattern_enable = '1') then
         s_adc_register_config_from_readout.adc_registers(3) <= '1' & '0' & p_clknet_in.adc_config.test_pattern_value(13 downto 8);
         s_adc_register_config_from_readout.adc_registers(4) <= p_clknet_in.adc_config.test_pattern_value(7 downto 0);
-  
+
         s_adc_register_config_from_readout.mb_fpga_select         <= c_adc_register_init_config_14_bit.mb_fpga_select;
-        s_adc_register_config_from_readout.mb_pmt_select          <= c_adc_register_init_config_14_bit.mb_pmt_select;        
+        s_adc_register_config_from_readout.mb_pmt_select          <= c_adc_register_init_config_14_bit.mb_pmt_select;
         s_adc_register_config_from_readout.adc_registers(0) <= c_adc_registers_init_14_bit(0);
         s_adc_register_config_from_readout.adc_registers(1) <= c_adc_registers_init_14_bit(1);
         s_adc_register_config_from_readout.adc_registers(2) <= c_adc_registers_init_14_bit(2);
-    
+
     else
         s_adc_register_config_from_readout.adc_registers(3) <= p_clknet_in.adc_config.adc_register_3_raw;
         s_adc_register_config_from_readout.adc_registers(4) <= p_clknet_in.adc_config.adc_register_4_raw;
-    
+
         s_adc_register_config_from_readout.mb_fpga_select         <= p_clknet_in.adc_config.mb_fpga_select;
         s_adc_register_config_from_readout.mb_pmt_select          <= p_clknet_in.adc_config.mb_pmt_select;
         s_adc_register_config_from_readout.adc_registers(0)       <= p_clknet_in.adc_config.adc_register_0;
         s_adc_register_config_from_readout.adc_registers(1)       <= p_clknet_in.adc_config.adc_register_1;
         s_adc_register_config_from_readout.adc_registers(2)       <= p_clknet_in.adc_config.adc_register_2;
-    
+
     end if;
 end process;
 
 
 
 
-i_db6_adc_config_driver  : entity tilecal.db6_adc_config_driver 
+i_db6_adc_config_driver  : entity tilecal.db6_adc_config_driver
     generic map(
     g_bitclk           => g_bitclk
     )
@@ -1038,125 +975,6 @@ p_mb_interface_out.adc_config_driver_debug <= s_adc_config_driver_debug;
 --  );
 
 
-
-gen_ila_adc_readout : if g_ila_adc_readout = 1 generate
-
-    i_ila_adc_readout : ila_adc_readout
-    PORT MAP (
-        clk => p_clknet_in.refclk40,
-    
-
-
-        probe0 => s_adc_readout.lg_data(5),
-        probe1 => s_adc_readout.hg_data(5),
-        probe2 => s_adc_readout.fc_data(5),
-        probe3 => s_adc_readout.lg_data(4),
-        probe4 => s_adc_readout.hg_data(4),
-        probe5 => s_adc_readout.fc_data(4),
-        probe6 => s_adc_readout.lg_data(3),
-        probe7 => s_adc_readout.hg_data(3),
-        probe8 => s_adc_readout.fc_data(3),
-        probe9 => s_adc_readout.lg_data(2),
-        probe10 => s_adc_readout.hg_data(2),
-        probe11 => s_adc_readout.fc_data(2),
-        probe12 => s_adc_readout.lg_data(1),
-        probe13 => s_adc_readout.hg_data(1),
-        probe14 => s_adc_readout.fc_data(1),
-        probe15 => s_adc_readout.lg_data(0),
-        probe16 => s_adc_readout.hg_data(0),
-        probe17 => s_adc_readout.fc_data(0),
-     
-        probe18(0) => s_adc_readout.channel_locked(5),
-        probe19(0) => s_adc_readout.channel_locked(4),
-        probe20(0) => s_adc_readout.channel_locked(3), 
-        probe21(0) => s_adc_readout.channel_locked(2), 
-        probe22(0) => s_adc_readout.channel_locked(1),
-        probe23(0) => s_adc_readout.channel_locked(0),
-        probe24(0) => s_adc_readout.channel_missed_locked(05),
-        probe25(0) => s_adc_readout.channel_missed_locked(4), 
-        probe26(0) => s_adc_readout.channel_missed_locked(3), 
-        probe27(0) => s_adc_readout.channel_missed_locked(2), 
-        probe28(0) => s_adc_readout.channel_missed_locked(1), 
-        probe29(0) => s_adc_readout.channel_missed_locked(0), 
-        probe30(0) => s_adc_readout.channel_frame_missalignemt(5), 
-        probe31(0) => s_adc_readout.channel_frame_missalignemt(4), 
-        probe32(0) => s_adc_readout.channel_frame_missalignemt(3), 
-        probe33(0) => s_adc_readout.channel_frame_missalignemt(2), 
-        probe34(0) => s_adc_readout.channel_frame_missalignemt(1), 
-        probe35(0) => s_adc_readout.channel_frame_missalignemt(0), 
-        probe36(0) => s_adc_readout.channel_phase_offset(5), 
-        probe37(0) => s_adc_readout.channel_phase_offset(4), 
-        probe38(0) => s_adc_readout.channel_phase_offset(3), 
-        probe39(0) => s_adc_readout.channel_phase_offset(2), 
-        probe40(0) => s_adc_readout.channel_phase_offset(1), 
-        probe41(0) => s_adc_readout.channel_phase_offset(0), 
-        probe42(0) => '0', 
-        probe43(0) => '0', 
-        probe44(0) => '0', 
-        probe45(0) => '0', 
-        probe46(0) => '0',
-        probe47(0) => '0'
-    );
-end generate;
-
--- see g_ila_adc_nibble above -- widened 2026-09-13 to also cover iddr280_serdes140:
--- needed to see this new scheme's raw pre-decode nibbles in hardware after the
--- ISERDESE3 RST fix didn't resolve the all-zero/locked=0/missalignment=1 bring-up
--- symptom, to distinguish "front end genuinely dead" from "front end fine, bug is
--- elsewhere downstream/upstream of it".
---
--- 2026-09-14: extended to ALL FOUR g_adc_clocking_scheme variants, not just
--- hss_wizard/iddr280_serdes140 -- the active scheme reverted to iddr280_clkdiv and
--- the ILA (gated to the other two only) silently vanished from the design, showing
--- as "no clock connected" in Hardware Manager against a stale .ltx from an earlier
--- bitstream. iddr280/iddr280_clkdiv use a different, narrower per-cycle capture
--- (t_bitslice_sr, 2 bits/cycle -- plain IDDRE1 DDR, vs t_byteslice_sr's 4 bits/cycle
--- native ISERDESE3 1:4) and, for plain iddr280 specifically, have no CLKDIV at all
--- (db6_adc_interface_io_iddr_bitclk280.vhd's BUFGCE_DIV is only generated for
--- iddr280_clkdiv -- p_adc_bitclkdiv_in reads constant '0' for plain iddr280, which
--- is exactly what "no clock connected" looks like). These intermediate signals pick
--- the correct clock and (zero-extended to 4 bits where narrower) data source per
--- scheme (declared up in the architecture's declarative part, alongside
--- s_adc_config_driver_debug); the ila_adc_nibble instantiation itself is
--- unconditional (just g_ila_adc_nibble=1) and unchanged otherwise.
-gen_ila_src_byteslice : if g_adc_clocking_scheme = hss_wizard or g_adc_clocking_scheme = iddr280_serdes140 generate
-    s_ila_adc_nibble_clk      <= p_adc_bitclkdiv_in(0);
-    s_ila_adc_nibble_frameclk <= p_adc_frameclk_iserdese_in(0)(3 downto 0);
-    s_ila_adc_nibble_hg       <= p_adc_hg_data_iserdese_in(0)(3 downto 0);
-    s_ila_adc_nibble_lg       <= p_adc_lg_data_iserdese_in(0)(3 downto 0);
-end generate;
-
-gen_ila_src_bitslice_clkdiv : if g_adc_clocking_scheme = iddr280_clkdiv generate
-    s_ila_adc_nibble_clk      <= p_adc_bitclkdiv_in(0);
-    s_ila_adc_nibble_frameclk <= "00" & p_adc_frameclk_in(0);
-    s_ila_adc_nibble_hg       <= "00" & p_adc_hg_data_in(0);
-    s_ila_adc_nibble_lg       <= "00" & p_adc_lg_data_in(0);
-end generate;
-
-gen_ila_src_bitslice_plain : if g_adc_clocking_scheme = iddr280 generate
-    -- no CLKDIV exists for this variant -- the raw per-channel bit clock is the only
-    -- valid clock available pre-decode.
-    s_ila_adc_nibble_clk      <= p_adc_bitclk_in(0);
-    s_ila_adc_nibble_frameclk <= "00" & p_adc_frameclk_in(0);
-    s_ila_adc_nibble_hg       <= "00" & p_adc_hg_data_in(0);
-    s_ila_adc_nibble_lg       <= "00" & p_adc_lg_data_in(0);
-end generate;
-
-gen_ila_adc_nibble : if g_ila_adc_nibble = 1 generate
-
-    i_ila_adc_nibble : ila_adc_nibble
-    PORT MAP (
-        clk => s_ila_adc_nibble_clk,
-
-        probe0 => s_ila_adc_nibble_frameclk,
-        probe1 => s_ila_adc_nibble_hg,
-        probe2 => s_ila_adc_nibble_lg,
-        probe3(0) => s_adc_readout.channel_locked(0),
-        probe4(0) => s_adc_readout.channel_frame_missalignemt(0),
-        probe5 => s_adc_readout.fc_data(0)
-    );
-
-end generate;
 
 gen_vio_adc_readout : if g_vio_adc_readout = 1 generate
 

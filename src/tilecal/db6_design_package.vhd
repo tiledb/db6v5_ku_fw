@@ -1060,7 +1060,7 @@ type t_adc_addsub is array (0 to 5) of t_addsub;
             channel_hg_pedestal_test_higher                : t_adc_data;
 
             adc_config_done     : std_logic;
-        end record;    
+        end record;
         type t_delay_control is record
             casc_out : std_logic; -- 1-bit output: cascade delay output to idelay input cascade
             cntvalueout : std_logic_vector(8 downto 0); -- 9-bit output: counter value output
@@ -1589,6 +1589,17 @@ constant c_db_reg_tx_lut : t_db_reg_tx_lut := (
         
         
         constant c_adc_config_done_bit : integer :=0;
+
+        -- 2026-09-16: fixed calibration-only ADC test-pattern reference, distinct from
+        -- whatever value a user may separately drive on the VIO for manual testing
+        -- (t_debug_control_adc_config.test_pattern_value). See
+        -- db6_mainboard_interface.vhd's proc_idelay_calibration_sequencer and
+        -- db6_adc_idelay_calibration.vhd's independent hg/lg tap search: many bit
+        -- transitions on purpose (not all-0/all-1, not a simple repeating nibble), so a
+        -- lane that's bit-rotated or shifted relative to the true word boundary reads
+        -- back as something other than this same value -- a single repeated bit
+        -- pattern (e.g. all-0) can't distinguish that case.
+        constant c_adc_idelay_calibration_test_pattern : std_logic_vector(13 downto 0) := "10110100110101";
         type t_adc_integer_bit_lut is array (0 to 5) of integer;
         constant c_adc_readout_status_adc_missalignment_bit : t_adc_integer_bit_lut := (1,2,3,4,5,6);
         constant c_adc_readout_status_adc_channel_missed_locked_bit : t_adc_integer_bit_lut := (7,8,9,10,11,12);

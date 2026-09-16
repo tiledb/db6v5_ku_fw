@@ -65,6 +65,22 @@ entity db6_adc_interface is
         -- fc/lg/hg idelay_count/load/en_vtc fields of this record are meaningful; every
         -- other field is left undriven and must be ignored by whatever consumes this.
         p_adc_idelay_ctrl_out    : out t_adc_readout_control;
+        -- 2026-09-16: automatic startup sequencer for the independent hg/lg tap
+        -- search below (see db6_adc_idelay_calibration.vhd's header) -- puts the ADC
+        -- into its known SPI test-pattern mode, runs calibration, then writes back
+        -- the module's normal functional default config, entirely inside this
+        -- entity so all calibration logic (idelay sweep + pattern sequencing) lives
+        -- in one place. p_adc_config_reset_in should be db6_adc_config_driver's own
+        -- reset (db6_mainboard_interface.vhd's s_adc_config_reset), so this
+        -- sequencer resets in step with the module it orchestrates.
+        -- p_adc_config_override_out/_active_out briefly (only while active='1')
+        -- take priority over whatever the caller's own ADC SPI config mux (VIO
+        -- mode/test_pattern_enable/raw registers, configbus/JTAG) would otherwise
+        -- drive -- see db6_mainboard_interface.vhd's proc_test_mode for how it's
+        -- wired in.
+        p_adc_config_reset_in             : in  std_logic := '0';
+        p_adc_config_override_out         : out t_adc_register_config;
+        p_adc_config_override_active_out  : out std_logic;
         p_leds_out      : out std_logic_vector(3 downto 0)
 				);
 end db6_adc_interface;
@@ -92,6 +108,38 @@ architecture behavioral of db6_adc_interface is
     -- from all three onto one signal (same reasoning as the iserdese frame_missalignment
     -- feedback further below in this file).
     signal s_adc_channel_locked_for_calibration : std_logic_vector(5 downto 0);
+
+    -- 2026-09-16: automatic startup sequencer for db6_adc_idelay_calibration's
+    -- independent hg/lg tap search (see that file's header). Runs once, automatically,
+    -- right after p_adc_config_reset_in releases: puts the ADC into its known SPI
+    -- test-pattern mode (c_adc_idelay_calibration_test_pattern) via
+    -- p_adc_config_override_out/_active_out, pulses the calibration engine's p_start_in
+    -- once that's confirmed written (adc_config_done falling then rising again), waits
+    -- for every channel to report done or failed, then writes the module's own existing
+    -- default functional config (c_adc_register_init_config_14_bit) so the ADC is left
+    -- correctly configured for real readout, and finally drops the override so the
+    -- caller's own ADC SPI config mux (VIO/configbus) takes back over exactly as before.
+    -- Declared here (unconditionally) but only ever actually driven away from its
+    -- default/inactive values inside gen_idelay_calibration_bitclk280 below (g_bitclk=280
+    -- -- the only case where a calibration engine exists to orchestrate); for g_bitclk=240
+    -- or hss_wizard, these simply stay at their initial values forever (same "never
+    -- driven" convention already used elsewhere in this file, e.g. s_adc_bitclk_locked),
+    -- so p_adc_config_override_active_out reads a constant '0' there -- the caller's own
+    -- mux behaves exactly as it did before this sequencer existed.
+    type t_cal_seq_state is (st_enable_test_pattern, st_wait_test_pattern_written,
+                              st_run_calibration, st_wait_calibration_done,
+                              st_restore_default, st_wait_restore_written, st_done);
+    signal s_cal_seq_state : t_cal_seq_state := st_enable_test_pattern;
+    signal s_cal_seq_active : std_logic := '0';
+    signal s_cal_seq_override : t_adc_register_config := c_adc_register_init_config_14_bit;
+    signal s_cal_seq_start_calibration : std_logic := '0';
+    signal s_cal_seq_adc_config_done_prev : std_logic := '0';
+    -- generous fixed timeout on each "wait for adc_config_done to pulse" step, same
+    -- large-fallback-counter idiom db6_adc_config_driver.vhd already uses (its own
+    -- v_counter = 20000000 checks) -- purely a safety net against an unexpected stuck
+    -- condition never leaving this sequencer parked mid-boot; not expected to ever fire.
+    constant c_cal_seq_timeout : integer := 20000000;
+    signal s_cal_seq_timeout_counter : integer range 0 to c_cal_seq_timeout := 0;
 
     -- iserdese + tmr only: each tmr copy's own frame_missalignment_out, tmr copy 0 feeds
     -- the shared io feedback (see gen_db6_adc_interface_iserdese below)
@@ -121,6 +169,14 @@ s_idelay_calibration_clk <= p_adc_bitclkdiv_in when g_adc_clocking_scheme = iddr
 
 p_adc_readout_out.channel_clk280_locked<=s_adc_bitclk_locked;
 
+-- 2026-09-16: unconditional, single driver for both new ports (see
+-- proc_idelay_calibration_sequencer's declaration comment above for why this is
+-- outside any generate) -- sourced from s_cal_seq_active/s_cal_seq_override, which
+-- only gen_idelay_calibration_bitclk280 (g_bitclk=280) below ever actually drives
+-- away from their inactive defaults.
+p_adc_config_override_active_out <= s_cal_seq_active;
+p_adc_config_override_out         <= s_cal_seq_override;
+
 -- IO primitives (IBUFDS/IBUFGDS/IDELAYE3/IDDRE1) for both bitclk variants moved to
 -- db6_adc_interface_io_iddr_bitclk280.vhd / _bitclk240.vhd, instantiated from db7_io_box.
 -- This entity now takes their plain-logic outputs directly as its own inputs.
@@ -144,8 +200,19 @@ gen_idelay_calibration_bitclk280 : if g_bitclk = 280 generate
             p_master_reset_in   => p_master_reset_in,
             p_clknet_in         => p_clknet_in,
             p_adc_bitclk_in     => s_idelay_calibration_clk,
-            p_start_in          => p_adc_readout_control_in.adc_config_done,
+            -- 2026-09-16: was p_adc_readout_control_in.adc_config_done directly --
+            -- now gated by proc_idelay_calibration_sequencer below (same entity) so
+            -- the sweep only starts once the ADC is confirmed already in its startup
+            -- test-pattern mode (needed for the independent hg/lg search below).
+            p_start_in          => s_cal_seq_start_calibration,
             p_channel_locked_in => s_adc_channel_locked_for_calibration,
+            -- 2026-09-16: independent hg/lg tap verification against a known ADC test
+            -- pattern (see db6_adc_idelay_calibration.vhd's header) -- s_adc_readout
+            -- is this same entity's decoder output, already in the cfgbus_clk40
+            -- domain via the decoder's own CDC, so no new crossing needed here.
+            p_hg_data_in          => s_adc_readout.hg_data,
+            p_lg_data_in          => s_adc_readout.lg_data,
+            p_expected_pattern_in => c_adc_idelay_calibration_test_pattern,
             p_fc_idelay_count_out  => s_adc_idelay_fc_count,
             p_fc_idelay_load_out   => s_adc_idelay_fc_load,
             p_fc_idelay_en_vtc_out => s_adc_idelay_fc_en_vtc,
@@ -169,6 +236,114 @@ gen_idelay_calibration_bitclk280 : if g_bitclk = 280 generate
     p_adc_idelay_ctrl_out.hg_idelay_count  <= s_adc_idelay_hg_count;
     p_adc_idelay_ctrl_out.hg_idelay_load   <= s_adc_idelay_hg_load;
     p_adc_idelay_ctrl_out.hg_idelay_en_vtc <= s_adc_idelay_hg_en_vtc;
+
+    -- 2026-09-16: see proc_idelay_calibration_sequencer's declaration comment
+    -- (architecture header) for the full description. One-shot, runs automatically
+    -- from reset; s_cal_seq_active drops back to '0' forever once st_done is reached
+    -- and never re-enters except via a fresh p_adc_config_reset_in/force_recalibrate/
+    -- force_adc_readout_reset.
+    proc_idelay_calibration_sequencer : process(p_clknet_in.cfgbus_clk40, p_adc_config_reset_in, p_clknet_in.adc_config.force_recalibrate, p_clknet_in.adc_config.force_adc_readout_reset)
+    begin
+        if p_adc_config_reset_in = '1' or p_clknet_in.adc_config.force_recalibrate = '1' or p_clknet_in.adc_config.force_adc_readout_reset = '1' then
+            s_cal_seq_state <= st_enable_test_pattern;
+            s_cal_seq_active <= '1';
+            s_cal_seq_override <= c_adc_register_init_config_14_bit;
+            s_cal_seq_start_calibration <= '0';
+            s_cal_seq_adc_config_done_prev <= '0';
+            s_cal_seq_timeout_counter <= 0;
+        elsif rising_edge(p_clknet_in.cfgbus_clk40) then
+
+            s_cal_seq_adc_config_done_prev <= p_adc_readout_control_in.adc_config_done;
+
+            case s_cal_seq_state is
+
+                when st_enable_test_pattern =>
+                    -- known calibration pattern into registers 3/4, same non-pattern
+                    -- defaults db6_mainboard_interface.vhd's own proc_test_mode
+                    -- test_pattern_enable branch uses -- see this record's own
+                    -- c_adc_register_init_config_14_bit for mb_fpga/pmt_select.
+                    s_cal_seq_override.mode <= '1';
+                    s_cal_seq_override.trigger_mb_adc_config <= '1';
+                    s_cal_seq_override.mb_fpga_select <= c_adc_register_init_config_14_bit.mb_fpga_select;
+                    s_cal_seq_override.mb_pmt_select  <= c_adc_register_init_config_14_bit.mb_pmt_select;
+                    s_cal_seq_override.adc_registers(0) <= c_adc_registers_init_14_bit(0);
+                    s_cal_seq_override.adc_registers(1) <= c_adc_registers_init_14_bit(1);
+                    s_cal_seq_override.adc_registers(2) <= c_adc_registers_init_14_bit(2);
+                    s_cal_seq_override.adc_registers(3) <= '1' & '0' & c_adc_idelay_calibration_test_pattern(13 downto 8);
+                    s_cal_seq_override.adc_registers(4) <= c_adc_idelay_calibration_test_pattern(7 downto 0);
+                    s_cal_seq_timeout_counter <= 0;
+                    s_cal_seq_state <= st_wait_test_pattern_written;
+
+                when st_wait_test_pattern_written =>
+                    s_cal_seq_override.trigger_mb_adc_config <= '0';
+                    -- adc_config_done drops while db6_adc_config_driver runs the actual
+                    -- SPI write sequence, then rises again once it's back in st_idle --
+                    -- a falling-then-rising edge is the real "write finished" signal,
+                    -- not just "trigger seen".
+                    if s_cal_seq_adc_config_done_prev = '0' and p_adc_readout_control_in.adc_config_done = '1' then
+                        s_cal_seq_start_calibration <= '1';
+                        s_cal_seq_state <= st_run_calibration;
+                    elsif s_cal_seq_timeout_counter = c_cal_seq_timeout then
+                        -- shouldn't happen (db6_adc_config_driver has its own internal
+                        -- timeout well under this one) -- fail safe by moving on rather
+                        -- than parking the ADC in test-pattern mode forever.
+                        s_cal_seq_state <= st_restore_default;
+                    else
+                        s_cal_seq_timeout_counter <= s_cal_seq_timeout_counter + 1;
+                    end if;
+
+                when st_run_calibration =>
+                    s_cal_seq_start_calibration <= '0';
+                    s_cal_seq_timeout_counter <= 0;
+                    s_cal_seq_state <= st_wait_calibration_done;
+
+                when st_wait_calibration_done =>
+                    -- every channel reached a terminal state (locked all 3 lanes, or
+                    -- at least one lane failed) -- proceed regardless of outcome so a
+                    -- calibration failure on one channel never leaves the whole board
+                    -- stuck in test-pattern mode; failures stay visible via
+                    -- s_adc_idelay_calibration_failed for diagnosis.
+                    if (s_adc_idelay_calibration_done or s_adc_idelay_calibration_failed) = "111111" then
+                        s_cal_seq_state <= st_restore_default;
+                    elsif s_cal_seq_timeout_counter = c_cal_seq_timeout then
+                        s_cal_seq_state <= st_restore_default;
+                    else
+                        s_cal_seq_timeout_counter <= s_cal_seq_timeout_counter + 1;
+                    end if;
+
+                when st_restore_default =>
+                    s_cal_seq_override <= c_adc_register_init_config_14_bit;
+                    s_cal_seq_override.mode <= '1';
+                    s_cal_seq_override.trigger_mb_adc_config <= '1';
+                    s_cal_seq_timeout_counter <= 0;
+                    s_cal_seq_state <= st_wait_restore_written;
+
+                when st_wait_restore_written =>
+                    s_cal_seq_override.trigger_mb_adc_config <= '0';
+                    if s_cal_seq_adc_config_done_prev = '0' and p_adc_readout_control_in.adc_config_done = '1' then
+                        s_cal_seq_active <= '0';
+                        s_cal_seq_state <= st_done;
+                    elsif s_cal_seq_timeout_counter = c_cal_seq_timeout then
+                        -- fail safe: still hand the mux back rather than hold mode='1'
+                        -- forever, even though the functional-default write may not
+                        -- have completed -- an operator can always re-trigger manually
+                        -- via the existing VIO mode/trigger controls from here.
+                        s_cal_seq_active <= '0';
+                        s_cal_seq_state <= st_done;
+                    else
+                        s_cal_seq_timeout_counter <= s_cal_seq_timeout_counter + 1;
+                    end if;
+
+                when st_done =>
+                    null; -- terminal until p_adc_config_reset_in/force_recalibrate/force_adc_readout_reset
+
+                when others =>
+                    null;
+
+            end case;
+        end if;
+    end process;
+
 end generate;
 
 gen_tmr_disabled: if g_tmr_enabled = '0' generate

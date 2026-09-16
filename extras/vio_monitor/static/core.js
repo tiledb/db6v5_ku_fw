@@ -190,6 +190,14 @@ async function updateLtxPluginStatus() {
     HWMonitor.ltxPluginStatus[meta.id] = info.state === 'ok' ? 'ok' : 'error';
   }
   updateTabLtxIndicators();
+  for (const [id, plugin] of HWMonitor.plugins) {
+    if (!plugin.onLtxStatus) continue;
+    try {
+      plugin.onLtxStatus(HWMonitor.ltxPluginInfo[id] || null);
+    } catch (err) {
+      console.warn('Plugin LTX status hook failed:', id, err);
+    }
+  }
 }
 HWMonitor.updateLtxPluginStatus = updateLtxPluginStatus;
 
@@ -713,6 +721,11 @@ async function saveAppConfig() {
         order: idx * 10,
         auto_read_on_ready: !!(autoCb && autoCb.checked),
       };
+      const offsetEl = row.querySelector('input[data-bcr-offset]');
+      if (offsetEl) {
+        const n = parseInt(offsetEl.value, 10);
+        plugins[id].bcr_offset = Number.isFinite(n) ? n : -16;
+      }
     });
     const r = await fetch('/api/plugins/config', {
       method: 'POST',
@@ -760,6 +773,12 @@ async function renderPluginConfig() {
     html += '<label class="plugin-auto-read">' +
       '<input type="checkbox" data-auto-read="' + esc(p.id) + '"' +
       (p.auto_read_on_ready ? ' checked' : '') + '> Auto-read when probes ready</label>';
+    if (p.id === 'tilecal_data_readout') {
+      const off = (p.bcr_offset == null || Number.isNaN(Number(p.bcr_offset))) ? -16 : Number(p.bcr_offset);
+      html += '<label class="plugin-setting">BCR offset ' +
+        '<input type="number" data-bcr-offset step="1" value="' + off + '" ' +
+        'title="Added to the BCR number written on trigger (pipeline compensation)"></label>';
+    }
     html += '</div></div>';
   }
   wrap.innerHTML = html || '<p class="empty">No plugins found.</p>';
@@ -1357,6 +1376,7 @@ function renderTree(tree) {
       vivado: '⚙', server: '🖧', target: '🎯', device: '🔲',
       vio: '📊', sysmon: '🌡', tilecal_xadc: '⚡',
       sfp_ddm: '📡', tilecal_sfp_i2c: '🔌', tilecal_flash_driver: '💾',
+      tilecal_data_readout: '📈',
     };
     let label = n.name;
     if (n.type === 'device' && n.part) label += ' (' + n.part + ')';

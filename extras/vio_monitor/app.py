@@ -1188,6 +1188,11 @@ def api_plugins_config():
                     pass
             if "auto_read_on_ready" in entry:
                 plugins_cfg[plugin_id]["auto_read_on_ready"] = bool(entry["auto_read_on_ready"])
+            if "bcr_offset" in entry:
+                try:
+                    plugins_cfg[plugin_id]["bcr_offset"] = int(entry["bcr_offset"])
+                except (TypeError, ValueError):
+                    pass
             if "probes" in entry:
                 probes = sanitize_probe_updates(entry["probes"])
                 if probes:

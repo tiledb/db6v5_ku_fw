@@ -1,0 +1,54 @@
+{
+  "id": "tilecal_data_readout",
+  "name": "TileCal ADC Data Readout",
+  "description": "Arm db6_data_readout_debug on a BCR match, then mux-read 16 samples × 6 channels of HG/LG/FC",
+  "version": "1.0.0",
+  "default_enabled": true,
+  "order": 37,
+  "requires_target": true,
+  "requires_device": true,
+  "tree_node_types": ["tilecal_data_readout"],
+  "bcr_offset_default": -16,
+  "probe_defaults": {
+    "trigger_probe": "s_clknet_debug_control[data_readout][trigger]",
+    "sample_index_probe": "s_clknet_debug_control[data_readout][sample_index]",
+    "channel_select_probe": "s_clknet_debug_control[data_readout][channel_select]",
+    "bcr_number_probe": "s_clknet_debug_control[data_readout][bcr_number]",
+    "captured_probe": "s_data_readout_debug_status[captured]",
+    "hg_data_probe": "s_data_readout_debug_status[hg_data]",
+    "lg_data_probe": "s_data_readout_debug_status[lg_data]",
+    "fc_data_probe": "s_data_readout_debug_status[fc_data]",
+    "packed_control_probe": "probe_out17"
+  },
+  "probe_labels": {
+    "trigger_probe": "data_readout.trigger",
+    "sample_index_probe": "data_readout.sample_index",
+    "channel_select_probe": "data_readout.channel_select",
+    "bcr_number_probe": "data_readout.bcr_number",
+    "captured_probe": "status.captured",
+    "hg_data_probe": "status.hg_data",
+    "lg_data_probe": "status.lg_data",
+    "fc_data_probe": "status.fc_data",
+    "packed_control_probe": "probe_out17 (packed fallback)"
+  },
+  "probe_hints": {
+    "trigger_probe": "VIO output — 0→1 edge arms capture (probe_out17 bit0)",
+    "sample_index_probe": "VIO output — captured pipeline stage 0–15 (probe_out17 bits 4:1); 0 is newest",
+    "channel_select_probe": "VIO output — ADC channel 0–5 (probe_out17 bits 7:5)",
+    "bcr_number_probe": "VIO output — p_clknet_in.bcr.count value to freeze on (probe_out18)",
+    "captured_probe": "VIO input — high after BCR match until trigger returns to 0 (probe_in74)",
+    "hg_data_probe": "VIO input — muxed 14-bit high-gain sample (probe_in75)",
+    "lg_data_probe": "VIO input — muxed 14-bit low-gain sample (probe_in76)",
+    "fc_data_probe": "VIO input — muxed 14-bit frame-clock sample (probe_in77)",
+    "packed_control_probe": "Optional whole probe_out17 if the LTX did not split trigger/sample/channel"
+  },
+  "probe_kinds": {
+    "packed_control_probe": "vio_name_optional"
+  },
+  "assets": {
+    "panel": "panel.html",
+    "script": "plugin.js",
+    "styles": ["styles.css"],
+    "external_scripts": []
+  }
+}
