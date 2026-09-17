@@ -9,6 +9,9 @@
   "requires_device": true,
   "tree_node_types": ["tilecal_data_readout"],
   "bcr_offset_default": -16,
+  "bcr_number_default": 16,
+  "bcr_number_min": 16,
+  "bcr_number_max": 3580,
   "probe_defaults": {
     "trigger_probe": "s_clknet_debug_control[data_readout][trigger]",
     "sample_index_probe": "s_clknet_debug_control[data_readout][sample_index]",

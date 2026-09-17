@@ -4,9 +4,11 @@ from __future__ import annotations
 from flask import Blueprint, jsonify, request
 
 from plugins.common.db6_hw_map import (
+    DATA_READOUT_BCR_DEFAULT,
     DATA_READOUT_CHANNEL_COUNT,
     DATA_READOUT_PROBES,
     DATA_READOUT_SAMPLE_COUNT,
+    clamp_data_readout_bcr,
 )
 from plugins.common.probe_config import plugin_probes, plugin_probe_match_names, tcl_probe_match_any
 from plugins.registry import plugin_bcr_offset, register_tree_hook
@@ -29,6 +31,10 @@ def _tcl_discover(probes: dict) -> str:
         'foreach __vio [get_hw_vios -of_objects $__dev] { '
         'foreach __p [get_hw_probes -of_objects $__vio] { '
         'set __n [get_property NAME $__p] ; '
+        # Never bind inject nets (probe_out19 / probe_in89). data_readout is a
+        # prefix of data_readout_inject; a whole-VIO commit also rewrites enable.
+        'if {[string match {*data_readout_inject*} $__n] || '
+        '[regexp {probe_out19(\[|$)} $__n] || [regexp {probe_in89(\[|$)} $__n]} { continue } ; '
         f'if {{{matches["trigger_probe"]}}} {{ set __trig_p $__p ; set __out_vio $__vio ; puts "ADCRDPROBE|trigger|$__n" }} ; '
         f'if {{{matches["sample_index_probe"]}}} {{ set __samp_p $__p ; set __out_vio $__vio ; puts "ADCRDPROBE|sample_index|$__n" }} ; '
         f'if {{{matches["channel_select_probe"]}}} {{ set __ch_p $__p ; set __out_vio $__vio ; puts "ADCRDPROBE|channel_select|$__n" }} ; '
@@ -52,6 +58,25 @@ def _tcl_discover(probes: dict) -> str:
     )
 
 
+def _tcl_commit_probes(*probe_vars: str) -> str:
+    """Commit only the named hw_probe objects, not the whole vio_db_debug core.
+
+    Re-resolve via get_hw_probes -filter NAME == {…} so HDL names with [] are
+    not passed as hw_vio identifiers (Labtoolstcl 44-186).
+    """
+    name_gets = " ".join(f"[get_property NAME ${name}]" for name in probe_vars)
+    fmt = " || ".join(["NAME == {%s}"] * len(probe_vars))
+    return (
+        f'set __cf [format {{{fmt}}} {name_gets}] ; '
+        'commit_hw_vio [get_hw_probes -of_objects $__out_vio -filter $__cf] ; '
+    )
+
+
+def _tcl_refresh_inputs() -> str:
+    """Refresh the parent VIO core. refresh_hw_vio only accepts hw_vio objects."""
+    return 'refresh_hw_vio $__in_vio ; '
+
+
 def _tcl_apply_control(include_bcr: bool = False) -> str:
     """Write $__t/$__s/$__c (and optionally $__bcr) via split probes or packed probe_out17."""
     bcr = (
@@ -59,18 +84,28 @@ def _tcl_apply_control(include_bcr: bool = False) -> str:
         'set_property OUTPUT_VALUE [format %08x $__bcr] $__bcr_p '
         '} ; '
     ) if include_bcr else ''
+    if include_bcr:
+        commit_split = (
+            'if {$__bcr_p ne ""} { '
+            + _tcl_commit_probes("__trig_p", "__samp_p", "__ch_p", "__bcr_p")
+            + '} else { '
+            + _tcl_commit_probes("__trig_p", "__samp_p", "__ch_p")
+            + '} '
+        )
+    else:
+        commit_split = _tcl_commit_probes("__trig_p", "__samp_p", "__ch_p")
     return (
         bcr
         + 'if {$__trig_p ne "" && $__samp_p ne "" && $__ch_p ne ""} { '
-        'set_property OUTPUT_VALUE $__t $__trig_p ; '
+        'set_property OUTPUT_VALUE [format %x $__t] $__trig_p ; '
         'set_property OUTPUT_VALUE [format %x $__s] $__samp_p ; '
         'set_property OUTPUT_VALUE [format %x $__c] $__ch_p ; '
-        'commit_hw_vio $__out_vio '
-        '} elseif {$__packed_p ne ""} { '
+        + commit_split
+        + '} elseif {$__packed_p ne ""} { '
         'set __pv [expr {(($__c & 7) << 5) | (($__s & 15) << 1) | ($__t & 1)}] ; '
         'set_property OUTPUT_VALUE [format %02x $__pv] $__packed_p ; '
-        'commit_hw_vio $__out_vio '
-        '} else { puts "ADCRDERR|data_readout control probes not found" } ; '
+        + _tcl_commit_probes("__packed_p")
+        + '} else { puts "ADCRDERR|data_readout control probes not found" } ; '
     )
 
 
@@ -80,22 +115,22 @@ def _tcl_apply_mux() -> str:
         'if {$__samp_p ne "" && $__ch_p ne ""} { '
         'set_property OUTPUT_VALUE [format %x $__s] $__samp_p ; '
         'set_property OUTPUT_VALUE [format %x $__c] $__ch_p ; '
-        'commit_hw_vio $__out_vio '
-        '} elseif {$__packed_p ne ""} { '
+        + _tcl_commit_probes("__samp_p", "__ch_p")
+        + '} elseif {$__packed_p ne ""} { '
         'set __cur 0 ; '
         'catch { scan [get_property OUTPUT_VALUE $__packed_p] %x __cur } ; '
         'set __tkeep [expr {$__cur & 1}] ; '
         'set __pv [expr {(($__c & 7) << 5) | (($__s & 15) << 1) | $__tkeep}] ; '
         'set_property OUTPUT_VALUE [format %02x $__pv] $__packed_p ; '
-        'commit_hw_vio $__out_vio '
-        '} else { puts "ADCRDERR|sample/channel probes not found" } ; '
+        + _tcl_commit_probes("__packed_p")
+        + '} else { puts "ADCRDERR|sample/channel probes not found" } ; '
     )
 
 
 def _tcl_read_captured() -> str:
     return (
-        'refresh_hw_vio $__in_vio ; '
-        'set __sr [get_property INPUT_VALUE $__cap_p] ; '
+        _tcl_refresh_inputs()
+        + 'set __sr [get_property INPUT_VALUE $__cap_p] ; '
         'set __sv 0 ; '
         'if {[catch {scan $__sr %x __sv}]} { set __sv 0 } ; '
         'puts "ADCRDCAPTURED|[expr {($__sv & 1) != 0}]|$__sr" ; '
@@ -106,8 +141,8 @@ def _tcl_wait_captured(timeout_ms: int) -> str:
     return (
         f'set __t0 [clock milliseconds] ; set __ok 0 ; set __sr 0 ; '
         f'while {{[expr {{[clock milliseconds] - $__t0 < {timeout_ms}}}]}} {{ '
-        'refresh_hw_vio $__in_vio ; '
-        'set __sr [get_property INPUT_VALUE $__cap_p] ; '
+        + _tcl_refresh_inputs()
+        + 'set __sr [get_property INPUT_VALUE $__cap_p] ; '
         'if {![catch {scan $__sr %x __sv}]} { '
         'if {[expr {$__sv & 1}]} { set __ok 1 ; break } } ; '
         'after 10 '
@@ -124,8 +159,8 @@ def _tcl_sweep_readout() -> str:
         f'for {{set __c 0}} {{$__c < {n_ch}}} {{incr __c}} {{ '
         f'for {{set __s 0}} {{$__s < {n_samp}}} {{incr __s}} {{ '
         + _tcl_apply_mux()
-        + 'refresh_hw_vio $__in_vio ; '
-        'set __hg [get_property INPUT_VALUE $__hg_p] ; '
+        + _tcl_refresh_inputs()
+        + 'set __hg [get_property INPUT_VALUE $__hg_p] ; '
         'set __lg [get_property INPUT_VALUE $__lg_p] ; '
         'set __fc [get_property INPUT_VALUE $__fc_p] ; '
         'puts "ADCRDSAMPLE|$__c|$__s|$__hg|$__lg|$__fc" '
@@ -241,7 +276,9 @@ def register(app, ctx, manifest):
         blocked = require_open_target()
         if blocked:
             return blocked
-        bcr_requested = _parse_int(data.get("bcr_number"), 0) & 0xFFFFFFFF
+        bcr_requested = clamp_data_readout_bcr(
+            _parse_int(data.get("bcr_number"), DATA_READOUT_BCR_DEFAULT)
+        )
         cfg = load_config()
         default_offset = plugin_bcr_offset(cfg, manifest)
         if data.get("bcr_offset") in (None, ""):

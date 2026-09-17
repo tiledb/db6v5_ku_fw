@@ -161,15 +161,19 @@ begin
             p_lg_data_out(ch) <= s_injected_word when s_enable_eff = '1' else p_adc_readout_in.lg_data(ch);
         end generate;
 
-        p_data_readout_inject_status_out.active    <= s_enable_eff;
-        p_data_readout_inject_status_out.ram_rdata <= s_blk_mem.doutb;
+        p_data_readout_inject_status_out.active      <= s_enable_eff;
+        p_data_readout_inject_status_out.ram_rdata   <= s_blk_mem.doutb;
+        -- 2026-09-17: the live word actually going out on hg_data/lg_data this cycle
+        -- (zero when injection isn't enabled, matching every channel's real output
+        -- in that case) -- see t_data_readout_inject_debug_status's header comment.
+        p_data_readout_inject_status_out.word_active <= s_injected_word when s_enable_eff = '1' else (others => '0');
 
     end generate;
 
     gen_data_readout_inject_debug_disabled : if g_data_readout_inject_debug = 0 generate
         p_hg_data_out                    <= p_adc_readout_in.hg_data;
         p_lg_data_out                    <= p_adc_readout_in.lg_data;
-        p_data_readout_inject_status_out <= (active => '0', ram_rdata => (others => '0'));
+        p_data_readout_inject_status_out <= (active => '0', ram_rdata => (others => '0'), word_active => (others => '0'));
     end generate;
 
 end behavioral;

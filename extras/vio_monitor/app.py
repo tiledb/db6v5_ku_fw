@@ -47,6 +47,7 @@ if _APP_DIR not in sys.path:
     sys.path.insert(0, _APP_DIR)
 
 from plugins import registry as plugin_registry  # noqa: E402
+from plugins.common.db6_hw_map import clamp_data_readout_bcr  # noqa: E402
 from plugins.common.probe_config import missing_probe_names, sanitize_probe_updates  # noqa: E402
 from plugins.common.ltx_probes import activate_ltx, parse_ltx_probes  # noqa: E402
 from plugins.common.vio_probes import parse_vio_probe_list, tcl_list_hw_probes  # noqa: E402
@@ -1193,6 +1194,8 @@ def api_plugins_config():
                     plugins_cfg[plugin_id]["bcr_offset"] = int(entry["bcr_offset"])
                 except (TypeError, ValueError):
                     pass
+            if "bcr_number" in entry:
+                plugins_cfg[plugin_id]["bcr_number"] = clamp_data_readout_bcr(entry["bcr_number"])
             if "probes" in entry:
                 probes = sanitize_probe_updates(entry["probes"])
                 if probes:

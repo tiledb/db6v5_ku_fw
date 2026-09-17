@@ -888,7 +888,12 @@ s_adc_register_config_from_configbus.trigger_mb_adc_config <= p_db_reg_rx_in(cfb
 -- VIO-driven p_clknet_in.adc_config path exactly as before.
 s_adc_register_config_from_readout.mode                  <= s_adc_config_override_from_interface.mode when s_adc_config_override_active_from_interface = '1' else p_clknet_in.adc_config.mode;
 s_adc_register_config_from_readout.trigger_mb_adc_config  <= s_adc_config_override_from_interface.trigger_mb_adc_config when s_adc_config_override_active_from_interface = '1' else p_clknet_in.adc_config.trigger_mb_adc_config;
-s_adc_config_reset <= p_master_reset_in(c_adc_config_reset_bit) or p_db_reg_rx_in(cfb_strobe_reg)(c_adc_config_reset_bit);
+-- 2026-09-17: reset_adc_driver added -- manual VIO reset for db6_adc_config_driver
+-- (see t_debug_control_adc_config's header comment). Since
+-- db6_adc_interface.vhd's proc_idelay_calibration_sequencer resets on this same
+-- signal, pulsing this button also re-runs the whole boot sequence, not just the
+-- SPI state machine alone.
+s_adc_config_reset <= p_master_reset_in(c_adc_config_reset_bit) or p_db_reg_rx_in(cfb_strobe_reg)(c_adc_config_reset_bit) or p_clknet_in.adc_config.reset_adc_driver;
 
 proc_test_mode: process(p_clknet_in.adc_config.test_pattern_enable, p_clknet_in.adc_config.mode, s_adc_config_override_active_from_interface, s_adc_config_override_from_interface)
 begin

@@ -6,8 +6,12 @@
   const CHANNEL_COUNT = 6;
   const ADC_BITS = 14;
   const ADC12_BITS = 12;
+  const BCR_MIN = 16;
+  const BCR_MAX = 3564 + 16;
+  const BCR_DEFAULT = BCR_MIN;
 
   let lastCsv = '';
+  let bcrSaveTimer = null;
   let lastTables = null;
   let lastSamples = [];
   let lastView = { captured: null, operation: 'idle' };
@@ -40,6 +44,42 @@
     return Number.isFinite(n) ? n : fallback;
   }
 
+  function bcrLimits() {
+    const meta = (HWMonitor.pluginMeta || []).find(function (p) { return p.id === ID; });
+    const min = meta && meta.bcr_number_min != null ? Number(meta.bcr_number_min) : BCR_MIN;
+    const max = meta && meta.bcr_number_max != null ? Number(meta.bcr_number_max) : BCR_MAX;
+    return {
+      min: Number.isFinite(min) ? min : BCR_MIN,
+      max: Number.isFinite(max) ? max : BCR_MAX,
+    };
+  }
+
+  function clampBcr(n) {
+    const lim = bcrLimits();
+    if (!Number.isFinite(n)) return BCR_DEFAULT;
+    return Math.max(lim.min, Math.min(lim.max, n));
+  }
+
+  function currentBcrNumber() {
+    const el = document.getElementById('adcrdBcr');
+    const parsed = parseIntFlex(el && el.value, NaN);
+    if (Number.isFinite(parsed)) return clampBcr(parsed);
+    const meta = (HWMonitor.pluginMeta || []).find(function (p) { return p.id === ID; });
+    const fallback = meta && meta.bcr_number != null ? Number(meta.bcr_number) : BCR_DEFAULT;
+    return clampBcr(Number.isFinite(fallback) ? fallback : BCR_DEFAULT);
+  }
+
+  function applyBcrToInput(n) {
+    const el = document.getElementById('adcrdBcr');
+    if (!el) return clampBcr(n);
+    const v = clampBcr(n);
+    const lim = bcrLimits();
+    el.min = String(lim.min);
+    el.max = String(lim.max);
+    el.value = String(v);
+    return v;
+  }
+
   function currentBcrOffset() {
     const el = document.getElementById('adcrdBcrOffset');
     if (el && String(el.value).trim() !== '') {
@@ -56,19 +96,44 @@
     return '0x' + v.toString(16).toUpperCase().padStart(8, '0') + ' (' + v + ')';
   }
 
-  async function persistBcrOffset() {
-    const n = currentBcrOffset();
+  async function persistBcrSettings(opts) {
+    opts = opts || {};
+    const offset = currentBcrOffset();
+    let bcr;
+    if (opts.clamp) {
+      bcr = applyBcrToInput(currentBcrNumber());
+    } else {
+      const parsed = parseIntFlex(document.getElementById('adcrdBcr') && document.getElementById('adcrdBcr').value, NaN);
+      if (!Number.isFinite(parsed)) return;
+      const lim = bcrLimits();
+      if (parsed < lim.min || parsed > lim.max) return;
+      bcr = parsed;
+    }
     const meta = (HWMonitor.pluginMeta || []).find(function (p) { return p.id === ID; });
-    if (meta) meta.bcr_offset = n;
+    if (meta) {
+      meta.bcr_offset = offset;
+      meta.bcr_number = bcr;
+    }
     try {
       await fetch('/api/plugins/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plugins: { tilecal_data_readout: { bcr_offset: n } } }),
+        body: JSON.stringify({
+          plugins: { tilecal_data_readout: { bcr_offset: offset, bcr_number: bcr } },
+        }),
       });
     } catch (e) {
-      HWMonitor.setStatus('Failed to save BCR offset: ' + e, true);
+      HWMonitor.setStatus('Failed to save BCR settings: ' + e, true);
     }
+    if (opts.rerender && lastView) renderResult(lastView);
+  }
+
+  function persistBcrNumberSoon() {
+    if (bcrSaveTimer) clearTimeout(bcrSaveTimer);
+    bcrSaveTimer = setTimeout(function () {
+      bcrSaveTimer = null;
+      persistBcrSettings({ rerender: true });
+    }, 300);
   }
 
   function pluginReady() {
@@ -407,7 +472,7 @@
     const offset = data.bcr_offset != null ? data.bcr_offset : currentBcrOffset();
     const requested = (data.operation !== 'status' && data.bcr_requested != null)
       ? data.bcr_requested
-      : parseIntFlex(document.getElementById('adcrdBcr') && document.getElementById('adcrdBcr').value, 0);
+      : currentBcrNumber();
     const programmed = (data.operation !== 'status' && data.bcr_number != null)
       ? (data.bcr_number >>> 0)
       : ((requested + offset) >>> 0);
@@ -474,10 +539,11 @@
     const body = {
       device: HWMonitor.state.device,
       operation: operation,
-      bcr_number: parseIntFlex(document.getElementById('adcrdBcr') && document.getElementById('adcrdBcr').value, 0),
+      bcr_number: applyBcrToInput(currentBcrNumber()),
       bcr_offset: currentBcrOffset(),
       timeout_ms: parseIntFlex(document.getElementById('adcrdTimeout') && document.getElementById('adcrdTimeout').value, 15000),
     };
+    if (operation !== 'status') persistBcrSettings();
 
     const isStatus = operation === 'status';
     const url = isStatus
@@ -537,7 +603,20 @@
       if (offsetEl) {
         const off = meta && meta.bcr_offset != null ? Number(meta.bcr_offset) : -16;
         offsetEl.value = String(Number.isFinite(off) ? off : -16);
-        offsetEl.addEventListener('change', persistBcrOffset);
+        offsetEl.addEventListener('change', function () { persistBcrSettings(); });
+      }
+      const bcrEl = document.getElementById('adcrdBcr');
+      if (bcrEl) {
+        const saved = meta && meta.bcr_number != null ? Number(meta.bcr_number) : BCR_DEFAULT;
+        applyBcrToInput(Number.isFinite(saved) ? saved : BCR_DEFAULT);
+        bcrEl.addEventListener('input', persistBcrNumberSoon);
+        bcrEl.addEventListener('change', function () {
+          if (bcrSaveTimer) {
+            clearTimeout(bcrSaveTimer);
+            bcrSaveTimer = null;
+          }
+          persistBcrSettings({ clamp: true, rerender: true });
+        });
       }
       renderResult({ captured: null, operation: 'idle' });
       document.querySelectorAll('[data-adcrd-op]').forEach(function (btn) {

@@ -6,6 +6,12 @@ import json
 import os
 from typing import Any, Callable
 
+from plugins.common.db6_hw_map import (
+    DATA_READOUT_BCR_DEFAULT,
+    DATA_READOUT_BCR_MAX,
+    DATA_READOUT_BCR_MIN,
+    clamp_data_readout_bcr,
+)
 from plugins.common.probe_config import probe_config_fields, sanitize_probe_updates
 
 PLUGINS_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -83,6 +89,10 @@ def ensure_plugins_config(cfg: dict[str, Any]) -> dict[str, Any]:
             entry["auto_read_on_ready"] = bool(manifest.get("default_auto_read_on_ready", False))
         if pid == "tilecal_data_readout" and "bcr_offset" not in entry:
             entry["bcr_offset"] = int(manifest.get("bcr_offset_default", -16))
+        if pid == "tilecal_data_readout" and "bcr_number" not in entry:
+            entry["bcr_number"] = clamp_data_readout_bcr(
+                manifest.get("bcr_number_default", DATA_READOUT_BCR_DEFAULT)
+            )
     return cfg
 
 
@@ -160,6 +170,9 @@ def public_manifest(manifest: dict[str, Any], cfg: dict[str, Any]) -> dict[str, 
         pub["probe_config"] = probe_fields
     if manifest["id"] == "tilecal_data_readout":
         pub["bcr_offset"] = plugin_bcr_offset(cfg, manifest)
+        pub["bcr_number"] = plugin_bcr_number(cfg, manifest)
+        pub["bcr_number_min"] = DATA_READOUT_BCR_MIN
+        pub["bcr_number_max"] = DATA_READOUT_BCR_MAX
     return pub
 
 
@@ -176,6 +189,15 @@ def plugin_bcr_offset(cfg: dict[str, Any] | None, manifest: dict[str, Any] | Non
         return int(entry.get("bcr_offset", default))
     except (TypeError, ValueError):
         return default
+
+
+def plugin_bcr_number(cfg: dict[str, Any] | None, manifest: dict[str, Any] | None = None) -> int:
+    """Last requested BCR number (clamped to 16 … 3564+16)."""
+    default = DATA_READOUT_BCR_DEFAULT
+    if manifest is not None:
+        default = clamp_data_readout_bcr(manifest.get("bcr_number_default", default))
+    entry = ((cfg or {}).get("plugins") or {}).get("tilecal_data_readout") or {}
+    return clamp_data_readout_bcr(entry.get("bcr_number", default), default)
 
 
 def load_plugin_backend(manifest: dict[str, Any]):

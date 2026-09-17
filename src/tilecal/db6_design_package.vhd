@@ -918,6 +918,15 @@ end record;
         -- through the sfp_interface/gbt_gth_interface/gbt_encoder chain.
         data_readout_inject_active    : std_logic;
         data_readout_inject_ram_rdata : std_logic_vector(13 downto 0);
+        -- 2026-09-17: the live word actually substituted into hg_data/lg_data this
+        -- cycle when injection is enabled (s_injected_word in
+        -- db6_data_readout_inject_debug.vhd) -- NOT the same as
+        -- data_readout_inject_ram_rdata above, which is a manually-addressed RAM
+        -- readback (port b) that can point anywhere in the waveform, not necessarily
+        -- what's live right now. Lets a JTAG/register readback of this field be
+        -- checked directly against the real GBT uplink word for the same channel,
+        -- rather than trusting the injection path is wired correctly on faith.
+        data_readout_inject_word_active : std_logic_vector(13 downto 0);
 
 	    readout_initialized : std_logic;
 	        
@@ -1992,6 +2001,15 @@ type t_mmcm_clk_control_array is array (0 to 1) of t_mmcm_clk_control;
         -- db6_adc_idelay_calibration.vhd's reset alongside force_recalibrate, so this
         -- one button covers the whole front end.
         force_adc_readout_reset : std_logic;
+        -- 2026-09-17: manual reset for db6_adc_config_driver itself (the SPI
+        -- register-write sequencer, db6_mainboard_interface.vhd's s_adc_config_reset
+        -- -- OR'd in there alongside p_master_reset_in(c_adc_config_reset_bit)/the
+        -- cfb_strobe_reg bit). A driver reset also resets
+        -- db6_adc_interface.vhd's proc_idelay_calibration_sequencer, which shares
+        -- that same reset -- so this one button re-runs the whole boot sequence
+        -- (test-pattern calibrate, then restore functional config), not just the
+        -- SPI state machine alone.
+        reset_adc_driver : std_logic;
     end record;
 
     type t_db_clknet is record
@@ -2295,6 +2313,9 @@ type t_mmcm_clk_control_array is array (0 to 1) of t_mmcm_clk_control;
     type t_data_readout_inject_debug_status is record
         active    : std_logic;
         ram_rdata : std_logic_vector(13 downto 0);
+        -- 2026-09-17: see t_adc_readout.data_readout_inject_word_active's comment --
+        -- the live injected word, not the manually-addressed ram_rdata above.
+        word_active : std_logic_vector(13 downto 0);
     end record;
 
     -- 2026-09-12: GTH/QPLL link clock-select + lock-status fields for vio_db_debug's

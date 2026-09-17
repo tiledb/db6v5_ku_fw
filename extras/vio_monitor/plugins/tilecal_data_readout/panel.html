@@ -1,6 +1,7 @@
 <div class="adcrd-toolbar">
   <label>BCR number
-    <input id="adcrdBcr" type="text" value="0" spellcheck="false" title="p_clknet_in.bcr.count value to capture on (decimal or 0x hex)" />
+    <input id="adcrdBcr" type="number" min="16" max="3580" step="1" value="16" spellcheck="false"
+      title="Requested BCR (16 … 3580 = 3564+16). Offset is added on trigger. Saved for the next load." />
   </label>
   <label>BCR offset
     <input id="adcrdBcrOffset" type="number" step="1" value="-16" spellcheck="false"

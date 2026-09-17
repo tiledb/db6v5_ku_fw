@@ -338,6 +338,19 @@ DATA_READOUT_SAMPLE_COUNT = 16
 DATA_READOUT_CHANNEL_COUNT = 6
 DATA_READOUT_ADC_BITS = 14
 DATA_READOUT_SAMPLE_BITS = 12
+# Requested BCR UI range: pipeline depth (16) … orbit (c_lhc_bunches_between_bcr) + 16
+DATA_READOUT_BCR_ORBIT = 3564
+DATA_READOUT_BCR_MIN = 16
+DATA_READOUT_BCR_MAX = DATA_READOUT_BCR_ORBIT + DATA_READOUT_BCR_MIN  # 3580
+DATA_READOUT_BCR_DEFAULT = DATA_READOUT_BCR_MIN
+
+
+def clamp_data_readout_bcr(value, default: int = DATA_READOUT_BCR_DEFAULT) -> int:
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        n = default
+    return max(DATA_READOUT_BCR_MIN, min(DATA_READOUT_BCR_MAX, n))
 
 DATA_READOUT_PROBES: dict[str, dict[str, Any]] = {
     "trigger_probe": {

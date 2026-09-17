@@ -128,6 +128,7 @@ architecture Behavioral of db6_adc_interface_decoder_iddr_bitclk280_ddcounter  i
             -- status field in this aggregate.
             data_readout_inject_active => '0',
             data_readout_inject_ram_rdata => (others => '0'),
+            data_readout_inject_word_active => (others => '0'),
 
             readout_initialized => '0',
             

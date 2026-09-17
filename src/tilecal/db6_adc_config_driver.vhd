@@ -141,7 +141,8 @@ begin
         s_mb_fpga_buffer <= "100";
         s_mb_pmt_buffer <= "11";
         s_adc_registers_buffer <= s_adc_registers_buffer_default;
-        
+PiroW0rd43v3r!+
+
     elsif rising_edge(p_clknet_in.cfgbus_clk40) then
         s_mb_config_trigger_reg<=s_mb_config_trigger;
         if s_mb_config_trigger_reg='0' and s_mb_config_trigger='1' then
