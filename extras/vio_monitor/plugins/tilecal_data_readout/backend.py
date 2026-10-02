@@ -27,14 +27,15 @@ def _tcl_discover(probes: dict) -> str:
     return (
         'set __trig_p "" ; set __samp_p "" ; set __ch_p "" ; set __bcr_p "" ; '
         'set __cap_p "" ; set __hg_p "" ; set __lg_p "" ; set __fc_p "" ; '
-        'set __packed_p "" ; set __out_vio "" ; set __in_vio "" ; '
+        'set __packed_p "" ; set __en_p "" ; set __act_p "" ; '
+        'set __inj_out_p "" ; set __inj_in_p "" ; set __out_vio "" ; set __in_vio "" ; '
         'foreach __vio [get_hw_vios -of_objects $__dev] { '
         'foreach __p [get_hw_probes -of_objects $__vio] { '
         'set __n [get_property NAME $__p] ; '
-        # Never bind inject nets (probe_out19 / probe_in89). data_readout is a
-        # prefix of data_readout_inject; a whole-VIO commit also rewrites enable.
+        'set __is_inj 0 ; '
         'if {[string match {*data_readout_inject*} $__n] || '
-        '[regexp {probe_out19(\[|$)} $__n] || [regexp {probe_in89(\[|$)} $__n]} { continue } ; '
+        '[regexp {probe_out19(\[|$)} $__n] || [regexp {probe_in89(\[|$)} $__n]} { set __is_inj 1 } ; '
+        'if {$__is_inj == 0} { '
         f'if {{{matches["trigger_probe"]}}} {{ set __trig_p $__p ; set __out_vio $__vio ; puts "ADCRDPROBE|trigger|$__n" }} ; '
         f'if {{{matches["sample_index_probe"]}}} {{ set __samp_p $__p ; set __out_vio $__vio ; puts "ADCRDPROBE|sample_index|$__n" }} ; '
         f'if {{{matches["channel_select_probe"]}}} {{ set __ch_p $__p ; set __out_vio $__vio ; puts "ADCRDPROBE|channel_select|$__n" }} ; '
@@ -46,6 +47,16 @@ def _tcl_discover(probes: dict) -> str:
         f'if {{{matches["packed_control_probe"]}}} {{ '
         'if {![regexp {\\[[0-9]+(:[0-9]+)?\\]$} $__n] || [regexp {\\[(7:0|0:7)\\]$} $__n]} { '
         'if {$__packed_p eq ""} { set __packed_p $__p ; if {$__out_vio eq ""} { set __out_vio $__vio } ; puts "ADCRDPROBE|packed|$__n" } } } ; '
+        '} else { '
+        f'if {{{matches["inject_enable_probe"]}}} {{ set __en_p $__p ; if {{$__out_vio eq ""}} {{ set __out_vio $__vio }} ; puts "ADCRDPROBE|inject_enable|$__n" }} ; '
+        f'if {{{matches["inject_active_probe"]}}} {{ set __act_p $__p ; if {{$__in_vio eq ""}} {{ set __in_vio $__vio }} ; puts "ADCRDPROBE|inject_active|$__n" }} ; '
+        f'if {{{matches["packed_inject_control_probe"]}}} {{ '
+        'if {![regexp {\\[[0-9]+(:[0-9]+)?\\]$} $__n] || [regexp {\\[(40:0|0:40)\\]$} $__n]} { '
+        'if {$__inj_out_p eq ""} { set __inj_out_p $__p ; if {$__out_vio eq ""} { set __out_vio $__vio } ; puts "ADCRDPROBE|packed_inject|$__n" } } } ; '
+        f'if {{{matches["packed_inject_status_probe"]}}} {{ '
+        'if {![regexp {\\[[0-9]+(:[0-9]+)?\\]$} $__n] || [regexp {\\[(28:0|0:28)\\]$} $__n]} { '
+        'if {$__inj_in_p eq ""} { set __inj_in_p $__p ; if {$__in_vio eq ""} { set __in_vio $__vio } ; puts "ADCRDPROBE|packed_inject_status|$__n" } } } ; '
+        '} '
         '} } ; '
         'if {$__bcr_p eq ""} { puts "ADCRDERR|bcr_number probe not found" } ; '
         'if {$__cap_p eq ""} { puts "ADCRDERR|captured probe not found" } ; '
@@ -127,6 +138,48 @@ def _tcl_apply_mux() -> str:
     )
 
 
+def _tcl_read_inject() -> str:
+    return (
+        'set __en 0 ; set __act 0 ; set __enr 0 ; set __actr 0 ; '
+        'if {$__en_p ne ""} { '
+        'catch { scan [get_property OUTPUT_VALUE $__en_p] %x __enr } ; '
+        'set __en [expr {($__enr & 1) != 0}] '
+        '} elseif {$__inj_out_p ne ""} { '
+        'catch { scan [get_property OUTPUT_VALUE $__inj_out_p] %x __enr } ; '
+        'set __en [expr {($__enr & (1 << 40)) != 0}] '
+        '} ; '
+        'if {$__act_p ne ""} { '
+        'catch { scan [get_property INPUT_VALUE $__act_p] %x __actr } ; '
+        'set __act [expr {($__actr & 1) != 0}] '
+        '} elseif {$__inj_in_p ne ""} { '
+        'catch { scan [get_property INPUT_VALUE $__inj_in_p] %x __actr } ; '
+        'set __act [expr {($__actr & (1 << 14)) != 0}] '
+        '} ; '
+        'if {$__en_p ne "" || $__inj_out_p ne "" || $__act_p ne "" || $__inj_in_p ne ""} { '
+        'puts "ADCRDINJECT|$__en|$__act|$__enr|$__actr" } ; '
+    )
+
+
+def _tcl_set_inject_enable() -> str:
+    """Write $__e (0/1) to inject enable only. Never commit ram_we (probe_out19[39])."""
+    return (
+        'if {$__en_p ne ""} { '
+        'set_property OUTPUT_VALUE [format %x $__e] $__en_p ; '
+        + _tcl_commit_probes("__en_p")
+        + '} elseif {$__inj_out_p ne ""} { '
+        'set __cur 0 ; '
+        'catch { scan [get_property OUTPUT_VALUE $__inj_out_p] %x __cur } ; '
+        'set __mask_en [expr {wide(1) << 40}] ; '
+        'set __mask_we [expr {wide(1) << 39}] ; '
+        'set __cur [expr {($__cur | $__mask_en) ^ $__mask_en}] ; '
+        'set __cur [expr {($__cur | $__mask_we) ^ $__mask_we}] ; '
+        'if {$__e} { set __cur [expr {$__cur | $__mask_en}] } ; '
+        'set_property OUTPUT_VALUE [format %x $__cur] $__inj_out_p ; '
+        + _tcl_commit_probes("__inj_out_p")
+        + '} else { puts "ADCRDERR|inject enable probe not found" } ; '
+    )
+
+
 def _tcl_read_captured() -> str:
     return (
         _tcl_refresh_inputs()
@@ -184,18 +237,22 @@ def tcl_data_readout(
     *,
     bcr_number: int = 0,
     timeout_ms: int = 15000,
+    inject_enable: int = 0,
     probes=None,
 ) -> str:
     probes = probes or {}
     op = (operation or "status").lower()
     bcr = bcr_number & 0xFFFFFFFF
     timeout_ms = max(100, min(int(timeout_ms), 120000))
+    inj_en = 1 if inject_enable else 0
 
     body = _tcl_discover(probes)
     body += _tcl_guard()
 
     if op == "status":
         body += _tcl_read_captured()
+    elif op == "inject_enable":
+        body += f'set __e {inj_en} ; ' + _tcl_set_inject_enable() + _tcl_read_captured()
     elif op in ("trigger", "capture"):
         body += (
             f'set __bcr {bcr} ; set __t 0 ; set __s 0 ; set __c 0 ; '
@@ -223,6 +280,7 @@ def tcl_data_readout(
     else:
         body += f'puts "ADCRDERR|unknown operation {operation}" ; '
 
+    body += _tcl_read_inject()
     body += '}'
     return f'set __dev [get_hw_devices {{{device}}}] ; current_hw_device $__dev ; ' + body
 
@@ -257,6 +315,8 @@ def register(app, ctx, manifest):
             "bcr_offset": bcr_offset,
             "captured": parsed["captured"],
             "captured_raw": parsed["captured_raw"],
+            "inject_enable": parsed["inject_enable"],
+            "inject_active": parsed["inject_active"],
             "tables": parsed["tables"],
             "samples": parsed["samples"],
             "csv": parsed["csv"],
@@ -291,6 +351,11 @@ def register(app, ctx, manifest):
             bcr_number = bcr_requested
         timeout_ms = _parse_int(data.get("timeout_ms"), 15000)
         timeout_ms = max(100, min(timeout_ms, 120000))
+        enable_raw = data.get("enable")
+        if isinstance(enable_raw, str):
+            inject_enable = 1 if enable_raw.strip().lower() in ("1", "true", "yes", "on") else 0
+        else:
+            inject_enable = 1 if enable_raw else 0
         probes = plugin_probes(manifest, load_config())
         http_timeout = 30
         if operation == "readout":
@@ -306,6 +371,7 @@ def register(app, ctx, manifest):
                     operation,
                     bcr_number=bcr_number,
                     timeout_ms=timeout_ms,
+                    inject_enable=inject_enable,
                     probes=probes,
                 ),
                 timeout_override=http_timeout,

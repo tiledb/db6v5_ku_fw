@@ -1,0 +1,15 @@
+{
+  "id": "registers",
+  "name": "Registers",
+  "description": "Configbus and status-bus browser for side A and side B",
+  "version": "1.0.0",
+  "default_enabled": true,
+  "order": 20,
+  "tree_node_types": ["registers"],
+  "assets": {
+    "panel": "panel.html",
+    "script": "plugin.js",
+    "styles": [],
+    "external_scripts": []
+  }
+}

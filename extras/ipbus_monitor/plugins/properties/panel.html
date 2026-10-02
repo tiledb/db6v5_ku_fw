@@ -1,0 +1,22 @@
+<div class="monitor-bar">
+  <label>Sample
+    <select id="pollRate-properties" data-poll-rate="properties">
+      <option value="off" selected>Off</option>
+      <option value="2">2s</option>
+      <option value="5">5s</option>
+      <option value="10">10s</option>
+    </select>
+  </label>
+  <button type="button" data-refresh="properties">Refresh</button>
+  <label>Reset side
+    <select id="propResetSide">
+      <option value="both" selected>Both</option>
+      <option value="A">A</option>
+      <option value="B">B</option>
+    </select>
+  </label>
+  <span id="time-properties"></span>
+</div>
+<div id="wrap-properties" class="panel-scroll">
+  <p class="empty">Connect to a PPr to read side A and side B.</p>
+</div>

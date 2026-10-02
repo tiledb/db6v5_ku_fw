@@ -1,0 +1,15 @@
+{
+  "id": "tilecal_flash_driver",
+  "name": "TileCal DB FLASH Driver",
+  "description": "IS25LP256 via cfb_flash_* on side A and side B",
+  "version": "1.0.0",
+  "default_enabled": true,
+  "order": 35,
+  "tree_node_types": ["tilecal_flash_driver"],
+  "assets": {
+    "panel": "panel.html",
+    "script": "plugin.js",
+    "styles": [],
+    "external_scripts": []
+  }
+}

@@ -390,6 +390,24 @@ DATA_READOUT_PROBES: dict[str, dict[str, Any]] = {
         "legacy": [],
         "optional": True,
     },
+    "inject_enable_probe": {
+        "ltx": "s_clknet_debug_control[data_readout_inject][enable]",
+        "legacy": ["probe_out19[40]"],
+    },
+    "inject_active_probe": {
+        "ltx": "s_data_readout_inject_debug_status[active]",
+        "legacy": ["probe_in89[14]"],
+    },
+    "packed_inject_control_probe": {
+        "ltx": "probe_out19",
+        "legacy": [],
+        "optional": True,
+    },
+    "packed_inject_status_probe": {
+        "ltx": "probe_in89",
+        "legacy": [],
+        "optional": True,
+    },
 }
 
 
@@ -422,7 +440,11 @@ def _alias_table() -> dict[str, list[str]]:
     for key in FLASH_PROBES:
         _add(flash_probe_names(key))
     for key in DATA_READOUT_PROBES:
-        if key == "packed_control_probe":
+        if key in (
+            "packed_control_probe",
+            "packed_inject_control_probe",
+            "packed_inject_status_probe",
+        ):
             continue
         _add(data_readout_probe_names(key))
     for key in XADC_LIVE_PROBES:

@@ -57,11 +57,6 @@ body.hw-busy .app-shell { cursor: progress; }
 .toolbar-connect { align-items: flex-end; gap: .5rem .65rem; }
 .toolbar-actions { display: flex; gap: .35rem; margin-left: auto; flex-shrink: 0; align-self: flex-end; }
 .field-server { min-width: 14rem; flex: 1 1 16rem; max-width: 28rem; }
-.field-xvc { min-width: 16rem; flex: 1 1 20rem; max-width: 36rem; }
-.field-xvc .field-inline { flex-wrap: wrap; }
-.field-xvc .field-inline input { min-width: 7rem; max-width: none; }
-.field-xvc .field-inline select { max-width: none; }
-.field-xvc .field-inline button { flex-shrink: 0; }
 .field-inline { display: flex; gap: .35rem; align-items: center; }
 .field-inline select { flex: 0 1 9rem; min-width: 6rem; }
 .field-inline input { flex: 1 1 8rem; min-width: 6rem; }

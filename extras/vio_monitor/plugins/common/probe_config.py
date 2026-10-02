@@ -297,6 +297,11 @@ def probe_config_fields(manifest: dict[str, Any], cfg: dict[str, Any]) -> list[d
         for key in ddm_defaults:
             kinds.setdefault(key, "glob_pattern" if key == "ddm_classify_pattern" else "vio_name")
 
+    if manifest.get("id") == "tilecal_data_readout":
+        for key, spec in DATA_READOUT_PROBES.items():
+            if spec.get("optional"):
+                kinds.setdefault(key, "vio_name_optional")
+
     saved = (cfg.get("plugins") or {}).get(manifest["id"], {}).get("probes") or {}
     fields: list[dict[str, Any]] = []
     group_rank = {

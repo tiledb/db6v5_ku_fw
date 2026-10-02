@@ -281,13 +281,17 @@ _config_lock = threading.Lock()
 
 def _load_config():
     if not os.path.exists(CONFIG_PATH):
-        cfg = {"hw_servers": []}
+        cfg = {"hw_servers": [], "xvc_cables": []}
     else:
         try:
             with open(CONFIG_PATH) as f:
                 cfg = json.load(f)
         except (json.JSONDecodeError, OSError):
-            cfg = {"hw_servers": []}
+            cfg = {"hw_servers": [], "xvc_cables": []}
+    if not isinstance(cfg.get("hw_servers"), list):
+        cfg["hw_servers"] = []
+    if not isinstance(cfg.get("xvc_cables"), list):
+        cfg["xvc_cables"] = []
     cfg = plugin_registry.ensure_plugins_config(cfg)
     _ensure_vivado_installs(cfg)
     return cfg
@@ -389,6 +393,90 @@ def _remove_hw_server(url):
     with _config_lock:
         cfg = _load_config()
         cfg["hw_servers"] = [s for s in cfg.get("hw_servers", []) if s["url"] != url]
+        _save_config(cfg)
+        return cfg
+
+
+def _normalize_xvc_url(raw: str) -> str:
+    """Accept host:port, xilinx-xvc:host:port, xvc://host:port → host:port."""
+    text = (raw or "").strip()
+    if not text:
+        return ""
+    low = text.lower()
+    for prefix in ("xilinx-xvc:", "xvc://", "xvc:", "tcp://", "tcp:"):
+        if low.startswith(prefix):
+            text = text[len(prefix):].strip()
+            low = text.lower()
+            break
+    if "://" in text:
+        text = text.split("://", 1)[1].strip()
+    text = text.strip().strip("/")
+    if ":" not in text:
+        return ""
+    host, port = text.rsplit(":", 1)
+    host = host.strip().strip("[]")
+    port = port.strip()
+    if not host or not port.isdigit():
+        return ""
+    number = int(port)
+    if number < 1 or number > 65535:
+        return ""
+    return f"{host}:{number}"
+
+
+def _sanitize_xvc_list(raw) -> list[dict[str, str]]:
+    cables: list[dict[str, str]] = []
+    seen: set[str] = set()
+    if not isinstance(raw, list):
+        return cables
+    for entry in raw:
+        if isinstance(entry, str):
+            url, name, added = entry, "", ""
+        elif isinstance(entry, dict):
+            url = entry.get("url") or ""
+            name = (entry.get("name") or "").strip()
+            added = entry.get("added") or ""
+        else:
+            continue
+        url = _normalize_xvc_url(url)
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        cables.append({
+            "url": url,
+            "name": name,
+            "added": added or datetime.now().isoformat(timespec="seconds"),
+        })
+    return cables
+
+
+def _add_xvc_cable(url, name=""):
+    url = _normalize_xvc_url(url)
+    if not url:
+        raise ValueError("XVC URL must be host:port")
+    with _config_lock:
+        cfg = _load_config()
+        cables = cfg.setdefault("xvc_cables", [])
+        for s in cables:
+            if s.get("url") == url:
+                if name:
+                    s["name"] = name
+                _save_config(cfg)
+                return cfg
+        cables.append({
+            "url": url,
+            "name": name,
+            "added": datetime.now().isoformat(timespec="seconds"),
+        })
+        _save_config(cfg)
+        return cfg
+
+
+def _remove_xvc_cable(url):
+    url = _normalize_xvc_url(url) or (url or "").strip()
+    with _config_lock:
+        cfg = _load_config()
+        cfg["xvc_cables"] = [s for s in cfg.get("xvc_cables", []) if s.get("url") != url]
         _save_config(cfg)
         return cfg
 
@@ -667,7 +755,12 @@ def _looks_like_hw_target(name):
     if "/" not in name:
         return False
     low = name.lower()
-    return "xilinx_tcf" in low or ":312" in name or name.count("/") >= 2
+    return (
+        "xilinx_tcf" in low
+        or "xvc" in low
+        or ":312" in name
+        or name.count("/") >= 2
+    )
 
 
 def _parse_hw_servers(output):
@@ -689,7 +782,8 @@ def _tcl_list_targets():
     # Keep this on one line: multiline Tcl sent through vivado_session loses
     # puts output on Vivado 2022.2. The hw_target object name IS the display
     # name (e.g. host:3121/xilinx_tcf/Digilent/210249B07199).
-    return 'foreach __t [get_hw_targets] { puts "TARGETROW|$__t" }'
+    # -quiet: an empty server (no JTAG cables) is valid; 44-133 is not a failure.
+    return 'foreach __t [get_hw_targets -quiet] { puts "TARGETROW|$__t" }'
 
 
 def _parse_targets(output):
@@ -714,6 +808,90 @@ def _tcl_open_target(target):
         f"current_hw_target [get_hw_targets {{{target}}}] ; "
         "open_hw_target"
     )
+
+
+def _tcl_open_xvc(url: str) -> str:
+    """Discover and open an XVC as a hw_target on the current hw_server."""
+    return (
+        "catch { close_hw_target } ; "
+        f"open_hw_target -xvc_url {{{url}}} ; "
+        'puts "XVCROW|[current_hw_target]"'
+    )
+
+
+def _match_xvc_target(targets: list[str], url: str) -> str:
+    needle = (url or "").lower()
+    if needle:
+        for target in targets:
+            if needle in target.lower():
+                return target
+    for target in targets:
+        if "xvc" in target.lower():
+            return target
+    return ""
+
+
+def _hw_server_is_connected() -> bool:
+    result = _run("get_hw_servers -quiet")
+    return bool(_parse_hw_servers(result.output))
+
+
+def _current_hw_server_url() -> str:
+    result = _run("get_hw_servers -quiet")
+    servers = _parse_hw_servers(result.output)
+    return servers[0] if servers else ""
+
+
+def _normalize_hw_server_url(raw: str) -> str:
+    text = (raw or "").strip()
+    if not text:
+        return ""
+    low = text.lower()
+    for prefix in ("tcp://", "tcp:"):
+        if low.startswith(prefix):
+            text = text[len(prefix):].strip()
+            break
+    return text
+
+
+def _hw_server_urls_equal(a: str, b: str) -> bool:
+    return _normalize_hw_server_url(a).lower() == _normalize_hw_server_url(b).lower()
+
+
+def _connect_to_hw_server(url: str) -> tuple[bool, str, str]:
+    """Connect to an explicit hw_server. Never falls back to localhost.
+
+    Returns (ok, connected_url, output).
+    """
+    url = _normalize_hw_server_url(url)
+    if not url:
+        return False, "", "hw_server url required"
+    _run("open_hw_manager")
+    current = _current_hw_server_url()
+    if current and _hw_server_urls_equal(current, url):
+        return True, current, ""
+    if current:
+        _run("catch { close_hw_target } ; disconnect_hw_server")
+    result = _run(f"connect_hw_server -url {{{url}}}")
+    now = _current_hw_server_url()
+    if result.success and now:
+        return True, now, result.output
+    return False, "", result.output
+
+
+def _register_xvc_cables(urls: list[str], *, leave_open: str | None = None) -> list[dict]:
+    """Attach each XVC to the current hw_server. Optionally leave one target open."""
+    steps = []
+    for url in urls:
+        url = _normalize_xvc_url(url)
+        if not url:
+            continue
+        result = _run(_tcl_open_xvc(url), timeout_override=45)
+        steps.append({"url": url, "success": result.success, "output": result.output})
+        if leave_open == url and result.success:
+            continue
+        _run("catch { close_hw_target }")
+    return steps
 
 
 _LIST_DEVICES_TCL = (
@@ -1044,21 +1222,38 @@ def api_hw_server_connect():
 
     with _lock:
         steps = {}
-        steps["open_hw_manager"] = vars(_run("open_hw_manager"))
-        steps["connect_hw_server"] = vars(_run(f"connect_hw_server -url {{{url}}}"))
+        ok, connected_url, connect_output = _connect_to_hw_server(url)
+        steps["connect_hw_server"] = {
+            "success": ok,
+            "output": connect_output,
+            "command": f"connect_hw_server -url {{{url}}}",
+        }
+        xvc_steps = []
+        if ok:
+            saved_xvcs = [
+                c.get("url", "")
+                for c in _load_config().get("xvc_cables", [])
+                if c.get("url")
+            ]
+            if saved_xvcs:
+                xvc_steps = _register_xvc_cables(saved_xvcs)
         list_result = _run(_tcl_list_targets())
         steps["list_targets"] = vars(list_result)
 
-    connect_success = steps["connect_hw_server"]["success"]
-    # Require both steps to succeed so a broken target listing shows up as
-    # an error instead of silently looking like "connected, zero targets".
-    success = connect_success and steps["list_targets"]["success"]
-    targets = _parse_targets(list_result.output)
-
-    if connect_success:
+    if ok:
         _add_hw_server(url, name)
 
-    return jsonify({"success": success, "url": url, "steps": steps, "targets": targets})
+    return jsonify({
+        "success": ok,
+        "url": connected_url or url,
+        "error": None if ok else (
+            (connect_output or "").strip() or f"could not connect to {url}"
+        ),
+        "steps": steps,
+        "targets": _parse_targets(list_result.output),
+        "xvc_cables": _load_config().get("xvc_cables", []),
+        "xvc_attach": xvc_steps,
+    })
 
 
 # =============================================================================
@@ -1085,6 +1280,7 @@ def api_session_hw_state():
             "targets": [],
             "devices": [],
             "saved_hw_servers": cfg.get("hw_servers", []),
+            "xvc_cables": cfg.get("xvc_cables", []),
         })
 
     with _lock:
@@ -1105,6 +1301,7 @@ def api_session_hw_state():
         "devices": devices,
         "target_open": bool(cfg.get("last_target") and cfg.get("last_target") in targets),
         "saved_hw_servers": cfg.get("hw_servers", []),
+        "xvc_cables": cfg.get("xvc_cables", []),
         "last_target": cfg.get("last_target"),
         "last_device": cfg.get("last_device"),
         "last_ltx": cfg.get("last_ltx"),
@@ -1127,7 +1324,104 @@ def api_target_open():
         "success": open_result.success,
         "target": target,
         "devices": devices,
-        "output": open_result.output + "\n" + list_result.output,
+        "output": open_result.output,
+    })
+
+
+# =============================================================================
+# Xilinx Virtual Cable (XVC)
+# =============================================================================
+
+@app.route("/api/xvc", methods=["GET"])
+def api_xvc_list():
+    cfg = _load_config()
+    return jsonify({"success": True, "xvc_cables": cfg.get("xvc_cables", [])})
+
+
+@app.route("/api/xvc/replace", methods=["POST"])
+def api_xvc_replace():
+    data = request.get_json(silent=True) or {}
+    cables = _sanitize_xvc_list(data.get("xvc_cables"))
+    with _config_lock:
+        cfg = _load_config()
+        cfg["xvc_cables"] = cables
+        _save_config(cfg)
+    return jsonify({"success": True, "xvc_cables": cables})
+
+
+@app.route("/api/xvc", methods=["DELETE"])
+def api_xvc_remove():
+    data = request.get_json(silent=True) or {}
+    url = _normalize_xvc_url(data.get("url") or "")
+    if not url:
+        return jsonify({"success": False, "error": "url required (host:port)"}), 400
+    cfg = _remove_xvc_cable(url)
+    return jsonify({"success": True, "xvc_cables": cfg.get("xvc_cables", [])})
+
+
+@app.route("/api/xvc/attach", methods=["POST"])
+def api_xvc_attach():
+    """Add an XVC to the hw_server selected in the UI (open_hw_target -xvc_url)."""
+    data = request.get_json(silent=True) or {}
+    url = _normalize_xvc_url(data.get("url") or "")
+    name = (data.get("name") or "").strip()
+    preferred = _normalize_hw_server_url(data.get("server_url") or "")
+    if not url:
+        return jsonify({"success": False, "error": "XVC URL required (host:port)"}), 400
+
+    with _lock:
+        if not preferred:
+            preferred = _current_hw_server_url()
+        if not preferred:
+            return jsonify({
+                "success": False,
+                "error": "select the remote hw_server in the Server field first",
+                "connected": False,
+            }), 400
+        ok, server_url, connect_output = _connect_to_hw_server(preferred)
+        if not ok:
+            return jsonify({
+                "success": False,
+                "error": (
+                    f"could not connect to hw_server {preferred}. "
+                    "XVC is opened by that server, so it must be reachable."
+                ),
+                "connected": False,
+                "server_url": preferred,
+                "output": connect_output,
+            }), 400
+        attach_result = _run(_tcl_open_xvc(url), timeout_override=45)
+        list_result = _run(_tcl_list_targets())
+        targets = _parse_targets(list_result.output)
+        opened = ""
+        devices = []
+        if attach_result.success:
+            xvc_row = _parse_rows(attach_result.output, "XVCROW", 2)
+            opened = (xvc_row[0][0] if xvc_row else _match_xvc_target(targets, url))
+            opened = opened.strip().strip("{}")
+            devices, _ = _list_devices()
+
+    if attach_result.success:
+        _add_xvc_cable(url, name)
+        if opened:
+            _set_last_target(opened)
+            if devices:
+                _set_last_device(devices[0]["name"])
+
+    return jsonify({
+        "success": attach_result.success,
+        "url": url,
+        "target": opened,
+        "targets": targets,
+        "devices": devices,
+        "target_open": bool(attach_result.success and opened),
+        "connected": True,
+        "server_url": server_url,
+        "xvc_cables": _load_config().get("xvc_cables", []),
+        "output": attach_result.output,
+        "error": None if attach_result.success else (
+            attach_result.output.strip() or "open_hw_target -xvc_url failed"
+        ),
     })
 
 

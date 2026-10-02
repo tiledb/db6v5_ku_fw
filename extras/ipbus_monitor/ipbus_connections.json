@@ -1,0 +1,44 @@
+{
+  "controlhub": "piro-atlas-lab.fysik.su.se:10203",
+  "ppr": "192.168.0.3",
+  "md": 1,
+  "plugins": {
+    "properties": {
+      "enabled": true,
+      "order": 10
+    },
+    "registers": {
+      "enabled": true,
+      "order": 20
+    },
+    "sfp_ddm": {
+      "enabled": true,
+      "order": 30
+    },
+    "tilecal_data_readout": {
+      "enabled": true,
+      "order": 37,
+      "bcr_number": 2244
+    },
+    "tilecal_flash_driver": {
+      "enabled": true,
+      "order": 35
+    },
+    "tilecal_sfp_i2c": {
+      "enabled": true,
+      "order": 33
+    },
+    "tilecal_xadc": {
+      "enabled": true,
+      "order": 25
+    }
+  },
+  "controlhubs": [
+    "piro-atlas-lab.fysik.su.se:10203",
+    "localhost"
+  ],
+  "pprs": [
+    "192.168.0.3",
+    "192.168.0.1"
+  ]
+}

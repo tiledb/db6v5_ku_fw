@@ -32,6 +32,14 @@
       <input type="text" id="serverUrl" placeholder="host:port">
     </div>
   </div>
+  <div class="field field-xvc">
+    <label>XVC</label>
+    <div class="field-inline">
+      <select id="selXvc" onchange="onXvcChange()"></select>
+      <input type="text" id="xvcUrl" placeholder="host:port">
+      <button type="button" onclick="addXvcCable()">Add XVC</button>
+    </div>
+  </div>
   <div class="field">
     <label>Target</label>
     <select id="selTarget" onchange="onTargetChange()"><option value="">—</option></select>
@@ -152,6 +160,17 @@
       <p class="modal-hint">Saved hw_server URLs for quick connect. Edit the list below.</p>
       <div id="serverConfigList" class="server-config-list"></div>
       <button type="button" class="btn-add-row" onclick="addServerConfigRow()">+ Add server</button>
+
+      <h3 class="modal-section">Xilinx Virtual Cables</h3>
+      <p class="modal-hint">
+        XVC endpoints (<code>host:port</code>) are opened on the
+        <em>Server</em> selected in the toolbar via
+        <code>open_hw_target -xvc_url</code>. Lab-network XVCs must use the
+        lab <code>hw_server</code> (that host has to reach the XVC).
+        No JTAG cable is required. Saved cables are re-added on Connect.
+      </p>
+      <div id="xvcConfigList" class="server-config-list"></div>
+      <button type="button" class="btn-add-row" onclick="addXvcConfigRow()">+ Add XVC</button>
 
       <h3 class="modal-section modal-section-last">Plugins</h3>
       <p class="modal-hint">Enable or disable tabs and use ▲/▼ to set tab order. Use <em>Probe mapping…</em> for VIO names. Uncheck <em>Auto-read when ready</em> to avoid slow first readouts on connect.</p>

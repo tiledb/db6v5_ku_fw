@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IPBus Monitor</title>
+<link rel="stylesheet" href="/static/core.css">
+<link rel="stylesheet" href="/static/ipbus.css">
+</head>
+<body>
+<div class="app-shell">
+<header>
+  <h1>IPBus Monitor</h1>
+  <div style="display:flex;align-items:center;gap:.5rem">
+    <button type="button" class="btn-icon" title="Plugin configuration" onclick="openConfigModal()">⚙</button>
+    <div id="statusBar" class="status-bar">
+      <span id="statusSpinner" class="status-spinner hidden" aria-hidden="true"></span>
+      <span id="statusText">Ready</span>
+    </div>
+  </div>
+</header>
+
+<div class="toolbar toolbar-connect">
+  <div class="field combo-field">
+    <label>ControlHub</label>
+    <div class="combo" data-history="controlhubs">
+      <input type="text" id="controlhub" spellcheck="false" placeholder="localhost" autocomplete="off">
+      <button type="button" class="combo-toggle" aria-label="Saved ControlHub hosts">▾</button>
+      <div class="combo-menu hidden"></div>
+    </div>
+  </div>
+  <div class="field combo-field">
+    <label>PPr</label>
+    <div class="combo" data-history="pprs">
+      <input type="text" id="pprIp" spellcheck="false" placeholder="192.168.0.1" autocomplete="off">
+      <button type="button" class="combo-toggle" aria-label="Saved PPr addresses">▾</button>
+      <div class="combo-menu hidden"></div>
+    </div>
+  </div>
+  <div class="field">
+    <label>Mini-drawer</label>
+    <select id="selMd">
+      <option value="0">MD 1</option>
+      <option value="1">MD 2</option>
+      <option value="2">MD 3</option>
+      <option value="3">MD 4</option>
+    </select>
+  </div>
+  <div class="toolbar-actions">
+    <button class="primary" onclick="connectFlow()">Connect</button>
+    <button onclick="refreshActive()">Refresh</button>
+    <button class="danger" onclick="disconnect()">Disconnect</button>
+  </div>
+</div>
+
+<div class="main">
+  <aside class="sidebar">
+    <h2>Hardware</h2>
+    <div id="hwTree"><p class="empty">Not connected</p></div>
+  </aside>
+  <section class="content">
+    <div id="pluginTabs" class="tabs"></div>
+    <div id="pluginPanels"></div>
+  </section>
+</div>
+
+<div id="busyOverlay" class="busy-overlay hidden" aria-live="polite" aria-busy="false">
+  <div class="busy-card">
+    <div class="busy-spinner" aria-hidden="true"></div>
+    <div id="busyLabel" class="busy-label">Working…</div>
+  </div>
+</div>
+</div>
+
+<div class="terminal-wrap">
+  <div class="terminal-head" id="termHead" onclick="toggleTerminal()">
+    <span id="termArrow">▾</span> IPBus console
+    <span id="termHint">read ADDR · dbread REG · dbwrite A|B REG VALUE</span>
+  </div>
+  <div class="terminal-body open" id="termBody">
+    <div id="terminal"></div>
+    <div id="termInputRow"><span>ipbus%</span><input type="text" id="termInput" placeholder="dbread 0xF0F"></div>
+  </div>
+</div>
+
+<div id="configModal" class="modal">
+  <div class="modal-backdrop" onclick="closeConfigModal()"></div>
+  <div class="modal-panel">
+    <div class="modal-head">
+      <h2>Plugins</h2>
+      <button type="button" class="btn-icon" onclick="closeConfigModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="modal-hint">Same TileCal panels as the VIO monitor. Each read covers side A and side B. Disable takes effect after reload.</p>
+      <div id="pluginConfigList"></div>
+    </div>
+    <div class="modal-foot">
+      <button type="button" onclick="closeConfigModal()">Cancel</button>
+      <button type="button" class="primary" onclick="savePluginConfig()">Save and reload</button>
+    </div>
+  </div>
+</div>
+
+<script>window.INITIAL_CONFIG = {{ initial_config | safe }};</script>
+<script src="/static/core.js"></script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+<div class="monitor-bar">
+  <label>Last address
+    <select id="sfpI2cMax">
+      <option value="15">0x0F</option>
+      <option value="31" selected>0x1F</option>
+      <option value="63">0x3F</option>
+      <option value="127">0x7F</option>
+    </select>
+  </label>
+  <label><input id="sfpI2cHideZero" type="checkbox" checked /> Hide zeros</label>
+  <button type="button" data-refresh="tilecal_sfp_i2c">Scan</button>
+  <span id="time-tilecal_sfp_i2c"></span>
+</div>
+<div id="wrap-tilecal_sfp_i2c" class="panel-scroll">
+  <p class="empty">Connect, then scan. Each address is written to both FPGAs and read back.</p>
+</div>

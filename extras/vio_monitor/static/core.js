@@ -4,6 +4,7 @@ window.HWMonitor = {
   pluginMeta: [],
   state: {
     servers: [],
+    xvcCables: [],
     targets: [],
     devices: [],
     serverUrl: '',
@@ -448,6 +449,7 @@ async function openConfigModal() {
   await loadVivadoVersions();
   renderVivadoInstalls();
   renderServerConfig();
+  renderXvcConfig();
   renderPluginConfig();
 }
 
@@ -669,6 +671,61 @@ function collectServerConfig() {
   return servers;
 }
 
+function xvcConfigRowHtml(s, idx) {
+  return '<div class="server-config-row xvc-config-row" data-idx="' + idx + '">' +
+    '<input type="text" class="server-name xvc-name" placeholder="label" value="' + esc(s.name || '') + '">' +
+    '<input type="text" class="server-url xvc-url" placeholder="host:port" value="' + esc(s.url || '') + '">' +
+    '<button type="button" class="btn-remove-row" onclick="removeXvcConfigRow(this)">✕</button>' +
+    '</div>';
+}
+
+function renderXvcConfig() {
+  const wrap = document.getElementById('xvcConfigList');
+  if (!wrap) return;
+  const cables = HWMonitor.state.xvcCables.length
+    ? HWMonitor.state.xvcCables
+    : [{ url: '', name: '' }];
+  wrap.innerHTML = cables.map(xvcConfigRowHtml).join('');
+}
+
+function addXvcConfigRow() {
+  const wrap = document.getElementById('xvcConfigList');
+  if (!wrap) return;
+  const row = document.createElement('div');
+  row.className = 'server-config-row xvc-config-row';
+  row.innerHTML =
+    '<input type="text" class="server-name xvc-name" placeholder="label">' +
+    '<input type="text" class="server-url xvc-url" placeholder="host:port">' +
+    '<button type="button" class="btn-remove-row" onclick="removeXvcConfigRow(this)">✕</button>';
+  wrap.appendChild(row);
+}
+
+function removeXvcConfigRow(btn) {
+  const row = btn.closest('.xvc-config-row');
+  const wrap = document.getElementById('xvcConfigList');
+  if (!row || !wrap) return;
+  if (wrap.querySelectorAll('.xvc-config-row').length <= 1) {
+    row.querySelector('.xvc-name').value = '';
+    row.querySelector('.xvc-url').value = '';
+    return;
+  }
+  row.remove();
+}
+
+function collectXvcConfig() {
+  const rows = document.querySelectorAll('#xvcConfigList .xvc-config-row');
+  const cables = [];
+  rows.forEach(function (row) {
+    const url = (row.querySelector('.xvc-url')?.value || '').trim();
+    if (!url) return;
+    cables.push({
+      url: url,
+      name: (row.querySelector('.xvc-name')?.value || '').trim(),
+    });
+  });
+  return cables;
+}
+
 async function saveAppConfig() {
   await withBusy('Saving configuration…', async function () {
     const installs = collectVivadoInstalls();
@@ -708,6 +765,18 @@ async function saveAppConfig() {
       setStatus('Failed to save servers: ' + (sj.error || ''), true);
       return;
     }
+
+    const xr = await fetch('/api/xvc/replace', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ xvc_cables: collectXvcConfig() }),
+    });
+    const xj = await xr.json();
+    if (!xj.success) {
+      setStatus('Failed to save XVC cables: ' + (xj.error || ''), true);
+      return;
+    }
+    HWMonitor.state.xvcCables = xj.xvc_cables || [];
 
     const rows = document.querySelectorAll('#pluginConfigList .plugin-config-row');
     const plugins = {};
@@ -826,6 +895,88 @@ function fillServerSelect() {
     sel.appendChild(opt);
   }
   document.getElementById('serverUrl').value = cur || '';
+}
+
+function fillXvcSelect() {
+  const sel = document.getElementById('selXvc');
+  const input = document.getElementById('xvcUrl');
+  if (!sel) return;
+  const cables = HWMonitor.state.xvcCables || [];
+  const cur = (input && input.value.trim()) || (cables[0] && cables[0].url) || '';
+  sel.innerHTML = '<option value="">— custom —</option>';
+  for (const s of cables) {
+    const opt = document.createElement('option');
+    opt.value = s.url;
+    opt.textContent = (s.name ? s.name + ' · ' : '') + s.url;
+    if (s.url === cur) opt.selected = true;
+    sel.appendChild(opt);
+  }
+  if (cur && !cables.some(s => s.url === cur)) {
+    const opt = document.createElement('option');
+    opt.value = cur; opt.textContent = cur; opt.selected = true;
+    sel.appendChild(opt);
+  }
+  if (input && !input.value.trim() && cur) input.value = cur;
+}
+
+function onXvcChange() {
+  const sel = document.getElementById('selXvc');
+  const input = document.getElementById('xvcUrl');
+  if (sel && input && sel.value) input.value = sel.value;
+}
+
+async function addXvcCable() {
+  const url = (document.getElementById('xvcUrl')?.value || '').trim() ||
+              (document.getElementById('selXvc')?.value || '').trim();
+  if (!url) { setStatus('Enter an XVC host:port', true); return; }
+  const serverUrl = (document.getElementById('serverUrl')?.value || '').trim() ||
+                    (document.getElementById('selServer')?.value || '').trim();
+  if (!serverUrl) {
+    setStatus('Select the hw_server that should own this XVC', true);
+    return;
+  }
+  const known = (HWMonitor.state.xvcCables || []).find(c => c.url === url);
+  await withBusy('Adding XVC ' + url + ' on ' + serverUrl + '…', async function () {
+    const r = await fetch('/api/xvc/attach', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url: url,
+        name: (known && known.name) || '',
+        server_url: serverUrl,
+      }),
+    });
+    const j = await r.json();
+    if (j.xvc_cables) {
+      HWMonitor.state.xvcCables = j.xvc_cables;
+      fillXvcSelect();
+    }
+    if (j.connected) HWMonitor.state.connected = true;
+    if (j.server_url) {
+      HWMonitor.state.serverUrl = j.server_url;
+      fillServerSelect();
+    }
+    if (!j.success) {
+      setStatus('Add XVC failed: ' + (j.error || 'see Tcl console'), true);
+      await refreshTree();
+      return;
+    }
+    HWMonitor.state.targets = j.targets || [];
+    HWMonitor.state.target = j.target || '';
+    HWMonitor.state.targetOpen = !!j.target_open;
+    HWMonitor.state.devices = j.devices || [];
+    HWMonitor.state.device = (j.devices && j.devices[0] && j.devices[0].name) || '';
+    fillTargetSelect();
+    updateTargetGatedControls();
+    if (HWMonitor.state.target) document.getElementById('selTarget').value = HWMonitor.state.target;
+    setStatus('XVC added on ' + (j.server_url || serverUrl) + ' — ' + (j.target || url));
+    await refreshTree();
+    await updateLtxPluginStatus();
+    if (HWMonitor.state.device && HWMonitor.state.targetOpen) {
+      document.getElementById('selDevice').value = HWMonitor.state.device;
+      await onDeviceChangeInner();
+    }
+  });
 }
 
 function fillTargetSelect() {
@@ -1229,7 +1380,7 @@ async function connectFlow() {
       HWMonitor.state.devices = [];
       updateTargetGatedControls();
       renderTree(buildMinimalTree('(not connected)'));
-      setStatus('Connect failed — see Tcl console', true);
+      setStatus('Connect failed: ' + (j.error || 'see Tcl console'), true);
       await updateLtxPluginStatus();
       return;
     }
@@ -1240,10 +1391,19 @@ async function connectFlow() {
     HWMonitor.state.device = '';
     HWMonitor.state.devices = [];
     HWMonitor.state.targetOpen = false;
+    if (j.xvc_cables) HWMonitor.state.xvcCables = j.xvc_cables;
     fillServerSelect();
+    fillXvcSelect();
     fillTargetSelect();
     updateTargetGatedControls();
-    setStatus('Connected — select a target');
+    const failedXvc = (j.xvc_attach || []).filter(s => !s.success);
+    if (failedXvc.length) {
+      setStatus('Connected, but ' + failedXvc.length + ' XVC attach failed — see Tcl console', true);
+    } else if (!(j.targets || []).length) {
+      setStatus('Connected — no JTAG targets; add an XVC');
+    } else {
+      setStatus('Connected — select a target');
+    }
     await refreshTree();
     await updateLtxPluginStatus();
     if (HWMonitor.state.targets.length === 1) {
@@ -1558,7 +1718,9 @@ async function restoreSession() {
   const j = await r.json();
   const st = HWMonitor.state;
   if (j.saved_hw_servers) st.servers = j.saved_hw_servers;
+  if (j.xvc_cables) st.xvcCables = j.xvc_cables;
   fillServerSelect();
+  fillXvcSelect();
   if (j.server_url) {
     st.serverUrl = j.server_url;
     document.getElementById('selServer').value = j.server_url;
@@ -1586,6 +1748,7 @@ async function restoreSession() {
 
 async function initApp(initialConfig) {
   HWMonitor.state.servers = initialConfig.hw_servers || [];
+  HWMonitor.state.xvcCables = initialConfig.xvc_cables || [];
   HWMonitor.state.serverUrl = initialConfig.last_connected || '';
 
   const pluginsResp = await fetch('/api/plugins');
@@ -1595,6 +1758,7 @@ async function initApp(initialConfig) {
 
   loadVivadoVersions();
   fillServerSelect();
+  fillXvcSelect();
   updateTargetGatedControls();
   loadAllFileLists();
   loadTclHistory();
@@ -1646,6 +1810,10 @@ document.getElementById('termInput').addEventListener('keydown', async (ev) => {
 window.switchTab = switchTab;
 window.connectFlow = connectFlow;
 window.onServerChange = onServerChange;
+window.onXvcChange = onXvcChange;
+window.addXvcCable = addXvcCable;
+window.addXvcConfigRow = addXvcConfigRow;
+window.removeXvcConfigRow = removeXvcConfigRow;
 window.onTargetChange = onTargetChange;
 window.onDeviceChange = onDeviceChange;
 window.refreshAll = refreshAll;

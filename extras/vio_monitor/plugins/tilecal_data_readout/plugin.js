@@ -465,7 +465,8 @@
       'Capture arms on a 0→1 <code>data_readout.trigger</code> edge and freezes the 16-deep pipeline ' +
       'equals the requested BCR plus the configured offset (default −16, pipeline compensation). Readout muxes ' +
       '<code>sample_index</code> (0 newest … 15 oldest) and <code>channel_select</code> (0–5) onto ' +
-      'the 14-bit HG/LG/FC probes. Data mode ' + bitMode() + '-bit ' +
+      'the 14-bit HG/LG/FC probes. <code>inject.enable</code> overrides HG/LG with the orbit RAM ' +
+      '(ORed with the config-bus enable); <code>inject.active</code> is the live OR of both. Data mode ' + bitMode() + '-bit ' +
       (bitMode() === 12 ? 'takes the 12 MSBs (bits 13:2).' : 'uses the full 14-bit word.') +
       ' Y range is 0–' + adcMax() + '.</p>';
 
@@ -479,13 +480,15 @@
 
     html += '<div class="adcrd-flags">' +
       flag('captured', data.captured) +
+      flag('inject enable', data.inject_enable) +
+      flag('inject active', data.inject_active, !!(data.inject_active && !data.inject_enable)) +
       '<span>BCR requested: ' + fmtBcr(requested) + '</span>' +
       '<span>offset: ' + offset + '</span>' +
       '<span>programmed: ' + fmtBcr(programmed) + '</span>' +
       '<span>op: ' + esc(data.operation || '—') + '</span>' +
       '</div>';
 
-    html += analogGrid('lg', tables);
+      html += analogGrid('lg', tables);
     html += analogGrid('hg', tables);
     html += fcStack(tables);
     html += GAINS.map(function (g) { return renderTable(g, tables); }).join('');
@@ -503,6 +506,8 @@
     const csvBtn = document.getElementById('adcrdCopyCsv');
     if (csvBtn) csvBtn.hidden = !tablesHaveSamples(tables);
 
+    syncInjectUi(data);
+
     const hint = document.getElementById('status-tilecal_data_readout');
     if (hint) {
       const n = lastSamples.length;
@@ -513,6 +518,26 @@
         ((data.operation === 'trigger' || data.operation === 'trigger_readout') && data.captured === false));
       hint.classList.toggle('ok', !!data.captured && !(data.errors && data.errors.length));
     }
+  }
+
+  function syncInjectUi(data) {
+    data = data || {};
+    const cb = document.getElementById('adcrdInjectEnable');
+    if (cb && data.inject_enable != null) cb.checked = !!data.inject_enable;
+    const el = document.getElementById('adcrdInjectActive');
+    if (!el) return;
+    if (data.inject_active == null && data.inject_enable == null) {
+      el.textContent = 'inject active: —';
+      el.classList.remove('on', 'warn');
+      return;
+    }
+    const active = !!data.inject_active;
+    const enabled = !!data.inject_enable;
+    el.textContent = active
+      ? (enabled ? 'inject active: yes' : 'inject active: yes (config-bus)')
+      : 'inject active: no';
+    el.classList.toggle('on', active);
+    el.classList.toggle('warn', active && !enabled);
   }
 
   function showIdleMessage(message) {
@@ -542,8 +567,10 @@
       bcr_number: applyBcrToInput(currentBcrNumber()),
       bcr_offset: currentBcrOffset(),
       timeout_ms: parseIntFlex(document.getElementById('adcrdTimeout') && document.getElementById('adcrdTimeout').value, 15000),
+      enable: !!(document.getElementById('adcrdInjectEnable') &&
+        document.getElementById('adcrdInjectEnable').checked),
     };
-    if (operation !== 'status') persistBcrSettings();
+    if (operation !== 'status' && operation !== 'inject_enable') persistBcrSettings();
 
     const isStatus = operation === 'status';
     const url = isStatus
@@ -553,7 +580,8 @@
     const busyLabel = operation === 'trigger' ? 'Arming ADC capture…'
       : (operation === 'readout' ? 'Reading 16×6 ADC samples…'
         : (operation === 'trigger_readout' ? 'Capturing and reading ADC samples…'
-          : 'Reading captured flag…'));
+          : (operation === 'inject_enable' ? 'Setting inject enable…'
+            : 'Reading captured flag…')));
 
     const alreadyBusy = !!(document.body && document.body.classList.contains('hw-busy'));
     const exec = async function () {
@@ -624,6 +652,12 @@
           runOp(btn.getAttribute('data-adcrd-op'));
         });
       });
+      const injEl = document.getElementById('adcrdInjectEnable');
+      if (injEl) {
+        injEl.addEventListener('change', function () {
+          runOp('inject_enable');
+        });
+      }
       const modeEl = document.getElementById('adcrdBitMode');
       if (modeEl) {
         modeEl.addEventListener('change', function () {

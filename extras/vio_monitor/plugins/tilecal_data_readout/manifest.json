@@ -21,7 +21,11 @@
     "hg_data_probe": "s_data_readout_debug_status[hg_data]",
     "lg_data_probe": "s_data_readout_debug_status[lg_data]",
     "fc_data_probe": "s_data_readout_debug_status[fc_data]",
-    "packed_control_probe": "probe_out17"
+    "packed_control_probe": "probe_out17",
+    "inject_enable_probe": "s_clknet_debug_control[data_readout_inject][enable]",
+    "inject_active_probe": "s_data_readout_inject_debug_status[active]",
+    "packed_inject_control_probe": "probe_out19",
+    "packed_inject_status_probe": "probe_in89"
   },
   "probe_labels": {
     "trigger_probe": "data_readout.trigger",
@@ -32,7 +36,11 @@
     "hg_data_probe": "status.hg_data",
     "lg_data_probe": "status.lg_data",
     "fc_data_probe": "status.fc_data",
-    "packed_control_probe": "probe_out17 (packed fallback)"
+    "packed_control_probe": "probe_out17 (packed fallback)",
+    "inject_enable_probe": "data_readout_inject.enable",
+    "inject_active_probe": "inject status.active",
+    "packed_inject_control_probe": "probe_out19 (packed fallback)",
+    "packed_inject_status_probe": "probe_in89 (packed fallback)"
   },
   "probe_hints": {
     "trigger_probe": "VIO output — 0→1 edge arms capture (probe_out17 bit0)",
@@ -43,10 +51,16 @@
     "hg_data_probe": "VIO input — muxed 14-bit high-gain sample (probe_in75)",
     "lg_data_probe": "VIO input — muxed 14-bit low-gain sample (probe_in76)",
     "fc_data_probe": "VIO input — muxed 14-bit frame-clock sample (probe_in77)",
-    "packed_control_probe": "Optional whole probe_out17 if the LTX did not split trigger/sample/channel"
+    "packed_control_probe": "Optional whole probe_out17 if the LTX did not split trigger/sample/channel",
+    "inject_enable_probe": "VIO output — injection enable, ORed with cfb_db_inject_pulse.enable (probe_out19 bit40)",
+    "inject_active_probe": "VIO input — injection currently overriding HG/LG (probe_in89 bit14)",
+    "packed_inject_control_probe": "Optional whole probe_out19 if the LTX did not split inject enable",
+    "packed_inject_status_probe": "Optional whole probe_in89 if the LTX did not split inject active"
   },
   "probe_kinds": {
-    "packed_control_probe": "vio_name_optional"
+    "packed_control_probe": "vio_name_optional",
+    "packed_inject_control_probe": "vio_name_optional",
+    "packed_inject_status_probe": "vio_name_optional"
   },
   "assets": {
     "panel": "panel.html",

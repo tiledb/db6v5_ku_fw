@@ -40,6 +40,21 @@
   font-size: .74rem;
 }
 
+.adcrd-toolbar label.adcrd-inject {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.adcrd-inject-flag {
+  font-family: var(--mono);
+  font-size: .74rem;
+  color: var(--muted);
+  align-self: center;
+}
+
+.adcrd-inject-flag.on { color: var(--accent2); }
+.adcrd-inject-flag.warn { color: var(--warn); }
+
 .adcrd-actions {
   display: flex;
   flex-wrap: wrap;

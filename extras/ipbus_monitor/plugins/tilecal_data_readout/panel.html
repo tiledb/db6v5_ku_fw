@@ -1,0 +1,85 @@
+<div class="adcrd-toolbar">
+  <label>BCR
+    <input id="adcrdBcr" type="number" min="16" max="3564" step="1" value="16" spellcheck="false"
+      title="L1A BCID. Must be ≥ sample count. A read of N samples at BCR fills window slots (BCR−N) … (BCR−1)." />
+  </label>
+  <label>Samples
+    <select id="adcrdSamples" title="Pipeline depth. BCR must be at least this value; those samples map onto BCR−N … BCR−1.">
+      <option value="8">8</option>
+      <option value="16" selected>16</option>
+      <option value="32">32</option>
+    </select>
+  </label>
+  <label>Data mode
+    <select id="adcrdBitMode" title="Pipeline words are 12 bits. 14-bit mode places them in bits 13:2.">
+      <option value="12" selected>12-bit</option>
+      <option value="14">14-bit (MSBs)</option>
+    </select>
+  </label>
+  <label class="adcrd-inject" title="cfb_db_inject_pulse.enable, ORed in firmware with the VIO inject enable">
+    <input id="adcrdInjectEnable" type="checkbox" />
+    Inject enable
+  </label>
+  <label>Inject side
+    <select id="adcrdInjectSide">
+      <option value="both" selected>Both</option>
+      <option value="A">A</option>
+      <option value="B">B</option>
+    </select>
+  </label>
+  <span id="adcrdInjectActive" class="adcrd-inject-flag">inject active: —</span>
+  <button type="button" data-refresh="tilecal_data_readout" class="primary">Read pipeline</button>
+  <button type="button" id="adcrdCopyCsv">Copy CSV</button>
+</div>
+<div class="adcrd-toolbar adcrd-sweep-bar">
+  <label>Sweep from
+    <input id="adcrdSweepFrom" type="number" min="16" max="3564" step="1" value="16" spellcheck="false"
+      title="First L1A BCID (inclusive). Must be ≥ sample count." />
+  </label>
+  <label>to
+    <input id="adcrdSweepTo" type="number" min="16" max="3564" step="1" value="256" spellcheck="false"
+      title="Last L1A BCID (inclusive)." />
+  </label>
+  <label>step
+    <input id="adcrdSweepStep" type="number" min="1" max="3564" step="1" value="16" spellcheck="false"
+      title="BCID increment between L1A triggers. Default 16 matches a 16-sample fill block." />
+  </label>
+  <label>Window gain
+    <select id="adcrdSweepGain" title="Gain shown in the BCR window traces.">
+      <option value="hg" selected>HG</option>
+      <option value="lg">LG</option>
+    </select>
+  </label>
+  <button type="button" id="adcrdSweepStart" class="primary">Sweep BCR</button>
+  <button type="button" id="adcrdSweepStop" disabled>Stop</button>
+  <button type="button" id="adcrdShowFull">Show full window</button>
+  <button type="button" id="adcrdClearWindow" title="Clear filled BCR samples from the 0–3564 window">Clear window</button>
+  <span id="adcrdSweepProgress" class="adcrd-sweep-progress"></span>
+</div>
+<div class="adcrd-meta">
+  <span id="time-tilecal_data_readout"></span>
+  <span id="status-tilecal_data_readout" class="adcrd-status-hint"></span>
+</div>
+<div id="adcrdSweepPreview" class="adcrd-sweep-preview"></div>
+<div id="wrap-tilecal_data_readout" class="panel-scroll"></div>
+<div id="adcrdFullOverlay" class="adcrd-full-overlay hidden" aria-hidden="true">
+  <div class="adcrd-full-panel">
+    <div class="adcrd-full-head">
+      <h2>BCR window · 0–3564</h2>
+      <span id="adcrdFullMeta" class="adcrd-full-meta"></span>
+      <div class="adcrd-full-tools">
+        <label class="adcrd-full-all" title="Overlay every ADC on one Plotly chart">
+          <input id="adcrdAllTraces" type="checkbox" checked />
+          All traces
+        </label>
+        <button type="button" id="adcrdRestoreView" title="Reset zoom to BCR 0–3564, Y 0–4095">Restore</button>
+        <button type="button" id="adcrdFullClose">Close</button>
+      </div>
+    </div>
+    <div id="adcrdFullPlot" class="adcrd-full-plot"></div>
+    <p class="adcrd-full-hint">
+      Plotly: scroll zoom, drag pan/box, double-click restore, legend below toggles traces.
+      Click a point to highlight that ADC. Drag the preview bracket to choose which N samples appear in the channel plots.
+    </p>
+  </div>
+</div>

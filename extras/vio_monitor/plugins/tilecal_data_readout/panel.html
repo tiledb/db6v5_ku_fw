@@ -22,6 +22,11 @@
       <option value="60000">60 s</option>
     </select>
   </label>
+  <label class="adcrd-inject" title="VIO data_readout_inject.enable (ORed in FW with cfb_db_inject_pulse.enable)">
+    <input id="adcrdInjectEnable" type="checkbox" />
+    Inject enable
+  </label>
+  <span id="adcrdInjectActive" class="adcrd-inject-flag">inject active: —</span>
 </div>
 <div class="adcrd-actions">
   <button type="button" data-adcrd-op="trigger" class="primary">Trigger</button>

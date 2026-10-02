@@ -163,15 +163,28 @@ def build_csv(tables: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def parse_inject(output: str, parse_rows) -> dict[str, Any]:
+    enable = None
+    active = None
+    for row in parse_rows(output, "ADCRDINJECT", 5):
+        en_text, act_text, _en_raw, _act_raw = row
+        enable = str(en_text).strip() in ("1", "true", "True")
+        active = str(act_text).strip() in ("1", "true", "True")
+    return {"inject_enable": enable, "inject_active": active}
+
+
 def parse_output(output: str, parse_rows) -> dict[str, Any]:
     samples = parse_samples(output, parse_rows)
     tables = build_tables(samples)
     cap = parse_captured(output, parse_rows)
+    inj = parse_inject(output, parse_rows)
     return {
         "probes": parse_probe_map(output, parse_rows),
         "errors": parse_errors(output),
         "captured": cap["captured"],
         "captured_raw": cap["captured_raw"],
+        "inject_enable": inj["inject_enable"],
+        "inject_active": inj["inject_active"],
         "samples": samples,
         "tables": tables,
         "csv": build_csv(tables),

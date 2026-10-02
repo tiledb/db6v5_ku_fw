@@ -1,0 +1,15 @@
+{
+  "id": "tilecal_sfp_i2c",
+  "name": "TileCal DB SFP+ I2C",
+  "description": "SFP+ register scan on side A and side B",
+  "version": "1.0.0",
+  "default_enabled": true,
+  "order": 33,
+  "tree_node_types": ["tilecal_sfp_i2c"],
+  "assets": {
+    "panel": "panel.html",
+    "script": "plugin.js",
+    "styles": [],
+    "external_scripts": []
+  }
+}
