@@ -1,0 +1,15 @@
+{
+  "id": "tilecal_gbtx_regs",
+  "name": "TileCal DB GBTx Registers",
+  "description": "GBTx register dump via cfb_gbtx_reg_readback_address / stb_gbtx_*_readback",
+  "version": "1.0.0",
+  "default_enabled": true,
+  "order": 34,
+  "tree_node_types": ["tilecal_gbtx_regs"],
+  "assets": {
+    "panel": "panel.html",
+    "script": "plugin.js",
+    "styles": [],
+    "external_scripts": []
+  }
+}

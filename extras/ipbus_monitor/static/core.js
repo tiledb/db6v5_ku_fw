@@ -224,7 +224,7 @@ function renderTree(tree) {
   const icons = {
     ppr: '🖧', md: '▣', side: '◆', properties: 'ℹ', registers: '☰',
     tilecal_xadc: '⚡', sfp_ddm: '📡', tilecal_sfp_i2c: '🔌',
-    tilecal_flash_driver: '💾', tilecal_data_readout: '📈',
+    tilecal_gbtx_regs: '🧬', tilecal_flash_driver: '💾', tilecal_data_readout: '📈',
   };
   function walk(node) {
     const div = document.createElement('div');

@@ -51,7 +51,8 @@
 .tree-node.md { padding-left: .85rem; color: var(--accent2); font-weight: 600; }
 .tree-node.side { padding-left: 1.6rem; }
 .tree-node.properties, .tree-node.registers, .tree-node.tilecal_xadc,
-.tree-node.sfp_ddm, .tree-node.tilecal_sfp_i2c, .tree-node.tilecal_flash_driver,
+.tree-node.sfp_ddm, .tree-node.tilecal_sfp_i2c, .tree-node.tilecal_gbtx_regs,
+.tree-node.tilecal_flash_driver,
 .tree-node.tilecal_data_readout { padding-left: 2.4rem; font-size: .74rem; }
 
 .side-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }

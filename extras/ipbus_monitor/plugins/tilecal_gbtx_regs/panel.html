@@ -1,0 +1,18 @@
+<div class="monitor-bar">
+  <label>Range
+    <select id="gbtxRegsRange">
+      <option value="0-435:i2c" selected>Full map 0–435 (trigger I2C read)</option>
+      <option value="366-435:i2c">Status RO 366–435 (trigger I2C read)</option>
+      <option value="0-365">Config 0–365 (BRAM only, no I2C)</option>
+      <option value="0-127">First 128 (BRAM only, no I2C)</option>
+      <option value="0-511">Full BRAM 0–511 (no I2C)</option>
+    </select>
+  </label>
+  <label><input id="gbtxRegsHideZero" type="checkbox" /> Hide zeros</label>
+  <label><input id="gbtxRegsHideMatch" type="checkbox" /> Hide matches</label>
+  <button type="button" data-refresh="tilecal_gbtx_regs">Scan</button>
+  <span id="time-tilecal_gbtx_regs"></span>
+</div>
+<div id="wrap-tilecal_gbtx_regs" class="panel-scroll">
+  <p class="empty">Connect, then Scan. BRAM walks alone do not refresh GBTx over I2C — pick a range marked “trigger I2C read” for a fresh snapshot (status regs 366–435 need that).</p>
+</div>

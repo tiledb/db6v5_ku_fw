@@ -1,7 +1,9 @@
-"""Scan the SFP+ A2h block RAM on both FPGAs.
+"""Scan the full SFP+ A2h block RAM (0-127) on both FPGAs.
 
 ``cfb_sfp_reg_address`` carries SFP+0 in bits 6:0 and SFP+1 in bits 14:8.
 ``stb_sfp_reg_readback`` returns the bytes in bits 23:16 and 31:24.
+
+Decoded values follow SFF-8472 Rev 12.4 internal calibration.
 """
 
 import time
@@ -10,6 +12,9 @@ from flask import Blueprint, jsonify, request
 
 from plugins.common.regs import reg
 from plugins.registry import register_tree_hook
+from plugins.tilecal_sfp_i2c.conversion import annotate_rows
+
+A2H_LAST = 127
 
 
 def _byte(word: int, shift: int) -> dict:
@@ -27,10 +32,10 @@ def register(app, ctx, manifest):
         if blocked:
             return blocked
         try:
-            max_addr = int(request.args.get("max_addr", "31"))
+            max_addr = int(request.args.get("max_addr", str(A2H_LAST)))
         except ValueError:
             return jsonify({"success": False, "error": "max_addr must be an integer"}), 400
-        max_addr = max(0, min(max_addr, 127))
+        max_addr = max(0, min(max_addr, A2H_LAST))
         try:
             addr_reg = reg("rx", "cfb_sfp_reg_address")["hw_addr"]
             data_reg = reg("tx", "stb_sfp_reg_readback")["hw_addr"]
@@ -49,9 +54,16 @@ def register(app, ctx, manifest):
                             "sfp0": _byte(word, 16),
                             "sfp1": _byte(word, 24),
                         })
+            for side_id in entries:
+                entries[side_id] = annotate_rows(entries[side_id])
         except Exception as exc:
             return jsonify({"success": False, "error": str(exc)}), 500
-        return jsonify({"success": True, "max_addr": max_addr, "sides": entries})
+        return jsonify({
+            "success": True,
+            "max_addr": max_addr,
+            "spec": "SFF-8472 Rev 12.4 A2h (internal calibration)",
+            "sides": entries,
+        })
 
     app.register_blueprint(bp)
 

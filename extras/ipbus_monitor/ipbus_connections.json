@@ -1,7 +1,7 @@
 {
   "controlhub": "piro-atlas-lab.fysik.su.se:10203",
   "ppr": "192.168.0.3",
-  "md": 1,
+  "md": 0,
   "plugins": {
     "properties": {
       "enabled": true,
@@ -27,6 +27,10 @@
     "tilecal_sfp_i2c": {
       "enabled": true,
       "order": 33
+    },
+    "tilecal_gbtx_regs": {
+      "enabled": true,
+      "order": 34
     },
     "tilecal_xadc": {
       "enabled": true,

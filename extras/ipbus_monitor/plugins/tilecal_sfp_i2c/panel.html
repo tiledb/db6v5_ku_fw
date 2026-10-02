@@ -1,16 +1,18 @@
 <div class="monitor-bar">
-  <label>Last address
+  <label>Range
     <select id="sfpI2cMax">
-      <option value="15">0x0F</option>
-      <option value="31" selected>0x1F</option>
-      <option value="63">0x3F</option>
-      <option value="127">0x7F</option>
+      <option value="127" selected>All registers (bytes 0–127) — complete A2h</option>
+      <option value="111">Realtime DDM + status (0–111)</option>
+      <option value="95">Thresholds + cal + CC_DMI (0–95)</option>
+      <option value="55">Alarm/warning thresholds (0–55)</option>
+      <option value="39">Standard A/W thresholds (0–39)</option>
+      <option value="15">Temp/Vcc thresholds only (0–15)</option>
     </select>
   </label>
-  <label><input id="sfpI2cHideZero" type="checkbox" checked /> Hide zeros</label>
-  <button type="button" data-refresh="tilecal_sfp_i2c">Scan</button>
+  <label><input id="sfpI2cHideZero" type="checkbox" /> Hide zeros</label>
+  <button type="button" data-refresh="tilecal_sfp_i2c">Scan all</button>
   <span id="time-tilecal_sfp_i2c"></span>
 </div>
 <div id="wrap-tilecal_sfp_i2c" class="panel-scroll">
-  <p class="empty">Connect, then scan. Each address is written to both FPGAs and read back.</p>
+  <p class="empty">Connect, then Scan all. Firmware BRAM holds the complete A2h diagnostic map (bytes 0–127) with SFF-8472 conversions. A0h serial-ID EEPROM is not captured by the FPGA.</p>
 </div>
