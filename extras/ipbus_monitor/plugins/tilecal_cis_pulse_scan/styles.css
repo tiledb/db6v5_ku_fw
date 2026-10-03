@@ -1,0 +1,234 @@
+/* Reuse TileCal CIS / ADC-readout visual language for phase-scan plots. */
+.adcrd-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem 1rem;
+  align-items: center;
+  padding: .35rem 0;
+  flex-shrink: 0;
+}
+
+.adcrd-toolbar label {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  font-size: .74rem;
+  color: var(--muted);
+}
+
+.adcrd-toolbar input[type=number] {
+  width: 5.5rem;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: .25rem .4rem;
+  font-family: var(--mono);
+  font-size: .74rem;
+}
+
+.adcrd-toolbar select {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: .25rem .4rem;
+  font-size: .74rem;
+}
+
+.adcrd-meta {
+  display: flex;
+  gap: .75rem;
+  padding: .15rem 0 .35rem;
+  font-size: .72rem;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.adcrd-status-hint.ok { color: var(--accent2); }
+.adcrd-status-hint.warn { color: var(--warn); }
+
+.adcrd-legend {
+  font-size: .72rem;
+  color: var(--muted);
+  margin-bottom: .75rem;
+  line-height: 1.45;
+}
+
+.adcrd-plot-section { margin: .15rem 0 .85rem; }
+
+.adcrd-plot-section h2 {
+  font-size: .72rem;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--muted);
+  margin: .15rem 0 .4rem;
+}
+
+.adcrd-analog-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .45rem;
+}
+
+.cis-adc-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+@media (max-width: 1200px) {
+  .cis-adc-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 980px) {
+  .adcrd-analog-grid { grid-template-columns: 1fr 1fr; }
+  .cis-adc-grid { grid-template-columns: 1fr 1fr; }
+}
+
+.adcrd-plot {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: .35rem .45rem .2rem;
+}
+
+.adcrd-plot h3 {
+  font-size: .68rem;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--muted);
+  margin-bottom: .15rem;
+}
+
+.adcrd-plot svg { width: 100%; display: block; }
+.adcrd-plot-analog svg { height: 148px; }
+
+.adcrd-gain-swatch {
+  display: inline-block;
+  width: .55rem;
+  height: .55rem;
+  border-radius: 2px;
+  margin-right: .2rem;
+  vertical-align: middle;
+}
+
+.adcrd-gain-swatch.hg { background: #4f8cff; }
+.adcrd-gain-swatch.lg { background: #3ecf8e; }
+
+.adcrd-table-wrap { margin-bottom: .85rem; }
+
+.adcrd-table-wrap h3 {
+  font-size: .72rem;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--muted);
+  margin: .35rem 0 .25rem;
+}
+
+table.adcrd-samples {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: .72rem;
+}
+
+table.adcrd-samples th,
+table.adcrd-samples td {
+  padding: .18rem .3rem;
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+  white-space: nowrap;
+}
+
+table.adcrd-samples th {
+  color: var(--muted);
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+}
+
+table.adcrd-samples td.samp {
+  color: var(--accent2);
+  text-align: left;
+}
+
+.adcrd-full-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(6, 10, 18, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+}
+
+.adcrd-full-overlay.hidden { display: none; }
+
+.adcrd-full-panel {
+  width: min(1200px, 96vw);
+  max-height: 92vh;
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: .75rem 1rem 1rem;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+
+.adcrd-full-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem 1rem;
+  align-items: center;
+  margin-bottom: .55rem;
+}
+
+.adcrd-full-head h2 {
+  font-size: .95rem;
+  margin: 0;
+}
+
+.adcrd-full-meta {
+  font-family: var(--mono);
+  font-size: .72rem;
+  color: var(--muted);
+  flex: 1;
+}
+
+.adcrd-full-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem;
+  align-items: center;
+}
+
+.adcrd-full-all {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  font-size: .74rem;
+  color: var(--muted);
+  margin-right: .25rem;
+}
+
+.adcrd-full-plot {
+  position: relative;
+  width: 100%;
+  min-height: min(560px, 66vh);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.adcrd-full-plot .js-plotly-plot,
+.adcrd-full-plot .plot-container {
+  width: 100% !important;
+}
+
+.adcrd-full-hint {
+  margin: .55rem 0 0;
+  font-size: .72rem;
+  color: var(--muted);
+}

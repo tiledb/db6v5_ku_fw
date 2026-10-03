@@ -1,0 +1,57 @@
+<div class="adcrd-toolbar">
+  <label>BCR (L1A)
+    <input id="cisBcr" type="number" min="16" max="4095" step="1" value="2256" spellcheck="false"
+      title="L1A BCID for pipeline latch. Must be ≥ sample count." />
+  </label>
+  <label>Samples
+    <select id="cisSamples">
+      <option value="8">8</option>
+      <option value="16" selected>16</option>
+      <option value="32">32</option>
+    </select>
+  </label>
+  <label>Pulse height (DAC)
+    <input id="cisDac" type="number" min="0" max="4095" step="1" value="2000" spellcheck="false"
+      title="CIS DAC charge 0–4095" />
+  </label>
+  <label>Capacitor
+    <select id="cisCap" title="Firmware cis_gain: 0=LG (TPL), 1=HG (TPH)">
+      <option value="hg" selected>HG (high)</option>
+      <option value="lg">LG (low)</option>
+    </select>
+  </label>
+  <label>ADC pedestal
+    <input id="cisPed" type="number" min="0" max="4095" step="1" value="100" spellcheck="false"
+      title="Target ADC pedestal converted to bias DACs" />
+  </label>
+  <label>BCID charge
+    <input id="cisBcidCharge" type="number" min="0" max="4095" step="1" value="500" spellcheck="false" />
+  </label>
+  <label>BCID discharge
+    <input id="cisBcidDischarge" type="number" min="0" max="4095" step="1" value="2200" spellcheck="false" />
+  </label>
+  <label>DB side
+    <select id="cisDbSide" title="FEB/CIS async target (0=both)">
+      <option value="both" selected>Both</option>
+      <option value="A">A</option>
+      <option value="B">B</option>
+    </select>
+  </label>
+  <label title="cfb_mb_phase_config Q0[11:7]/Q1[27:23]; 0–31 steps over 25 ns. Written before each L1A.">
+    Phase
+    <input id="cisPhase" type="number" min="0" max="31" step="1" value="0" spellcheck="false" />
+  </label>
+  <label title="Skip pedestal/switches/CIS setup; only phase + L1A + readout">
+    <input id="cisSkipConfig" type="checkbox" />
+    Readout only
+  </label>
+  <button type="button" data-refresh="tilecal_cis" class="primary">Configure &amp; fire</button>
+  <button type="button" id="cisCopyCsv">Copy CSV</button>
+</div>
+<div class="adcrd-meta">
+  <span id="time-tilecal_cis"></span>
+  <span id="status-tilecal_cis" class="adcrd-status-hint"></span>
+</div>
+<div id="wrap-tilecal_cis" class="panel-scroll">
+  <p class="empty">Connect, set CIS parameters, then Configure &amp; fire.</p>
+</div>

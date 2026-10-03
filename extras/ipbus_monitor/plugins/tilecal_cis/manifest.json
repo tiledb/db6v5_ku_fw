@@ -1,0 +1,15 @@
+{
+  "id": "tilecal_cis",
+  "name": "TileCal CIS",
+  "description": "CIS pulse configure / trigger / HG+LG pipeline readout",
+  "version": "1.0.0",
+  "default_enabled": true,
+  "order": 38,
+  "tree_node_types": ["tilecal_cis"],
+  "assets": {
+    "panel": "panel.html",
+    "script": "plugin.js",
+    "styles": ["styles.css"],
+    "external_scripts": []
+  }
+}

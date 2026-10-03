@@ -20,6 +20,14 @@
       "order": 37,
       "bcr_number": 2244
     },
+    "tilecal_cis": {
+      "enabled": true,
+      "order": 38
+    },
+    "tilecal_cis_pulse_scan": {
+      "enabled": true,
+      "order": 39
+    },
     "tilecal_flash_driver": {
       "enabled": true,
       "order": 35

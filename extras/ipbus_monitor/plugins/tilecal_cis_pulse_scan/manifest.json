@@ -1,0 +1,17 @@
+{
+  "id": "tilecal_cis_pulse_scan",
+  "name": "TileCal CIS Phase Scan",
+  "description": "CIS pulse phase scan via cfb_mb_phase_config (32 steps / 25 ns, phase reversed)",
+  "version": "1.1.0",
+  "default_enabled": true,
+  "order": 39,
+  "tree_node_types": ["tilecal_cis_pulse_scan"],
+  "assets": {
+    "panel": "panel.html",
+    "script": "plugin.js",
+    "styles": ["styles.css"],
+    "external_scripts": [
+      "https://cdn.jsdelivr.net/npm/plotly.js@2.35.2/dist/plotly.min.js"
+    ]
+  }
+}

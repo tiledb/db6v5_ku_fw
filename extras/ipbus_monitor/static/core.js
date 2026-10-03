@@ -224,7 +224,8 @@ function renderTree(tree) {
   const icons = {
     ppr: '🖧', md: '▣', side: '◆', properties: 'ℹ', registers: '☰',
     tilecal_xadc: '⚡', sfp_ddm: '📡', tilecal_sfp_i2c: '🔌',
-    tilecal_gbtx_regs: '🧬', tilecal_flash_driver: '💾', tilecal_data_readout: '📈',
+    tilecal_gbtx_regs: '🧬', tilecal_flash_driver: '💾',
+    tilecal_data_readout: '📈', tilecal_cis: '✦', tilecal_cis_pulse_scan: '↯',
   };
   function walk(node) {
     const div = document.createElement('div');
@@ -314,7 +315,10 @@ async function connectFlow() {
     }
   });
   const active = HW.plugins.get(HW.state.activeTab);
-  if (active && active.refresh && active.id !== 'tilecal_data_readout') active.refresh(true);
+  if (active && active.refresh && active.id !== 'tilecal_data_readout' &&
+      active.id !== 'tilecal_cis' && active.id !== 'tilecal_cis_pulse_scan') {
+    active.refresh(true);
+  }
 }
 
 async function disconnect() {
@@ -424,7 +428,10 @@ document.getElementById('selMd').addEventListener('change', async function () {
     const active = HW.plugins.get(HW.state.activeTab);
     if (active && active.refresh && HW.state.connected) {
       // Soft refresh for live tabs; readout restores its own per-MD cache instead.
-      if (active.id !== 'tilecal_data_readout') active.refresh(false);
+      if (active.id !== 'tilecal_data_readout' && active.id !== 'tilecal_cis' &&
+          active.id !== 'tilecal_cis_pulse_scan') {
+        active.refresh(false);
+      }
     }
   } catch (err) {
     setStatus(String(err.message || err), true);

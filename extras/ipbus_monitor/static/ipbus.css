@@ -53,7 +53,8 @@
 .tree-node.properties, .tree-node.registers, .tree-node.tilecal_xadc,
 .tree-node.sfp_ddm, .tree-node.tilecal_sfp_i2c, .tree-node.tilecal_gbtx_regs,
 .tree-node.tilecal_flash_driver,
-.tree-node.tilecal_data_readout { padding-left: 2.4rem; font-size: .74rem; }
+.tree-node.tilecal_data_readout, .tree-node.tilecal_cis,
+.tree-node.tilecal_cis_pulse_scan { padding-left: 2.4rem; font-size: .74rem; }
 
 .side-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
 .side-card { border: 1px solid var(--border); border-radius: 6px; padding: .45rem .5rem; background: var(--panel); min-width: 0; overflow: auto; }

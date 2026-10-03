@@ -1,0 +1,90 @@
+<div class="adcrd-toolbar">
+  <label>BCR (L1A)
+    <input id="cispsBcr" type="number" min="16" max="4095" step="1" value="2256" spellcheck="false"
+      title="L1A BCID for pipeline latch. Must be ≥ sample count." />
+  </label>
+  <label>Samples
+    <select id="cispsSamples">
+      <option value="8">8</option>
+      <option value="16" selected>16</option>
+      <option value="32">32</option>
+    </select>
+  </label>
+  <label>Pulse height (DAC)
+    <input id="cispsDac" type="number" min="0" max="4095" step="1" value="2000" spellcheck="false"
+      title="CIS DAC charge 0–4095" />
+  </label>
+  <label>Capacitor
+    <select id="cispsCap" title="Firmware cis_gain: 0=LG (TPL), 1=HG (TPH)">
+      <option value="hg" selected>HG (high)</option>
+      <option value="lg">LG (low)</option>
+    </select>
+  </label>
+  <label>ADC pedestal
+    <input id="cispsPed" type="number" min="0" max="4095" step="1" value="100" spellcheck="false"
+      title="Target ADC pedestal converted to bias DACs" />
+  </label>
+  <label>BCID charge
+    <input id="cispsBcidCharge" type="number" min="0" max="4095" step="1" value="500" spellcheck="false" />
+  </label>
+  <label>BCID discharge
+    <input id="cispsBcidDischarge" type="number" min="0" max="4095" step="1" value="2200" spellcheck="false" />
+  </label>
+  <label>DB side
+    <select id="cispsDbSide" title="FEB/CIS async target (0=both)">
+      <option value="both" selected>Both</option>
+      <option value="A">A</option>
+      <option value="B">B</option>
+    </select>
+  </label>
+  <label title="cfb_mb_phase_config bits [11:7]/[27:23]; 32 steps cover 25 ns. Time uses reversed phase (register pushes clock forward).">
+    Phase start
+    <input id="cispsPhaseStart" type="number" min="0" max="31" step="1" value="0" spellcheck="false" />
+  </label>
+  <label title="Inclusive end of phase scan (0–31)">
+    Phase stop
+    <input id="cispsPhaseStop" type="number" min="0" max="31" step="1" value="31" spellcheck="false" />
+  </label>
+  <label>
+    Phase step
+    <input id="cispsPhaseStep" type="number" min="1" max="31" step="1" value="1" spellcheck="false" />
+  </label>
+  <label title="Skip pedestal/switches/CIS setup; only phase + L1A + readout">
+    <input id="cispsSkipConfig" type="checkbox" />
+    Readout only
+  </label>
+  <button type="button" data-refresh="tilecal_cis_pulse_scan" class="primary">Scan phases</button>
+  <button type="button" id="cispsShowFull" title="Plotly overlay of all ADC traces">Show full window</button>
+  <button type="button" id="cispsCopyCsv">Copy CSV</button>
+</div>
+<div class="adcrd-meta">
+  <span id="time-tilecal_cis_pulse_scan"></span>
+  <span id="status-tilecal_cis_pulse_scan" class="adcrd-status-hint"></span>
+</div>
+<div id="wrap-tilecal_cis_pulse_scan" class="panel-scroll">
+  <p class="empty">Connect, set CIS parameters, then Scan phases (32 steps × 25&nbsp;ns).</p>
+</div>
+<div id="cispsFullOverlay" class="adcrd-full-overlay hidden" aria-hidden="true">
+  <div class="adcrd-full-panel">
+    <div class="adcrd-full-head">
+      <h2>TileCal CIS Phase Scan · all traces</h2>
+      <span id="cispsFullMeta" class="adcrd-full-meta"></span>
+      <div class="adcrd-full-tools">
+        <label class="adcrd-full-all" title="Show HG traces">
+          <input id="cispsFullHg" type="checkbox" checked />
+          HG
+        </label>
+        <label class="adcrd-full-all" title="Show LG traces">
+          <input id="cispsFullLg" type="checkbox" checked />
+          LG
+        </label>
+        <button type="button" id="cispsFullClose">Close</button>
+      </div>
+    </div>
+    <div id="cispsFullPlot" class="adcrd-full-plot"></div>
+    <p class="adcrd-full-hint">
+      Plotly: scroll zoom, drag pan/box, double-click restore, legend below toggles traces.
+      Markers are one sample per phase step · t = sample×25 + (31−phase)×(25/32) ns.
+    </p>
+  </div>
+</div>
